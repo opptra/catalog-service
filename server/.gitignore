@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
-.env
 .mypy_cache/
 .ruff_cache/
+
+# Env (keep *.example files tracked)
+.env
+.env.local
+.env.production
+.env.staging
+.env.*.local
