@@ -80,7 +80,7 @@ steps:
     waitFor: [build-server]
 
   # 4) Deploy images + server env file to the GCE VM
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: deploy
     entrypoint: bash
     args:
@@ -88,6 +88,7 @@ steps:
       - |
         set -euo pipefail
         chmod +x scripts/deploy-gce.sh
+        export PROJECT_ID="${PROJECT_ID}"
         export REGION="${_REGION}"
         export VM_NAME="${_VM_NAME}"
         export VM_ZONE="${_VM_ZONE}"

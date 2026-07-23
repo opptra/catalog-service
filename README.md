@@ -79,7 +79,9 @@ export VM_NAME=catalog-service-1
 export VM_ZONE=asia-south1-c
 ```
 
-Install Docker + Compose on the VM (the deploy script will auto-install Docker via get.docker.com if `docker` is missing). It creates `/opt/catalog-service` with `sudo` and copies `server/.env` from Secret Manager.
+Install Docker + Compose on the VM (auto-installs if missing). Deploy uses
+SSH via IAP, a short-lived Cloud Build access token for `docker login` on the VM,
+then pull/run — so the VM SA does not need Artifact Registry Reader for image pulls.
 
 Firewall: allow TCP `80`. Open `8000` only if you need direct API access.
 
