@@ -75,7 +75,17 @@ if ! docker compose version >/dev/null 2>&1; then
   apt-get install -y -qq docker-compose-plugin || apt-get install -y -qq docker-compose-v2 || true
 fi
 
-echo __QTOKEN__ | docker login -u oauth2accesstoken --password-stdin https://__QREGISTRY__ 2>/dev/null
+# Use an isolated docker config for this deploy. Any credHelpers left in the
+# default ~/.docker/config.json (e.g. from a past `gcloud auth configure-docker`)
+# would silently override `docker login` and pull as the VM's service account,
+# which has no Artifact Registry access.
+export DOCKER_CONFIG=__QREMOTE_DIR__/.docker-deploy
+rm -rf "${DOCKER_CONFIG}"
+mkdir -p "${DOCKER_CONFIG}"
+
+echo "[deploy] logging in to __QREGISTRY__ ..."
+echo __QTOKEN__ | docker login -u oauth2accesstoken --password-stdin https://__QREGISTRY__
+
 echo "[deploy] pulling images..."
 export CLIENT_IMAGE=__QCLIENT_IMAGE__
 export SERVER_IMAGE=__QSERVER_IMAGE__
@@ -84,6 +94,10 @@ echo "[deploy] starting stack..."
 docker compose up -d --no-build --remove-orphans
 docker image prune -f
 docker compose ps
+
+# Don't leave the (short-lived) token on disk
+docker logout https://__QREGISTRY__ >/dev/null 2>&1 || true
+rm -rf "${DOCKER_CONFIG}"
 EOS
 )
 
