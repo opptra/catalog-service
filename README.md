@@ -25,7 +25,7 @@ docker compose up --build
    - `catalog-service-server` — e.g. `{"DATABASE_URL":"...","API_KEY":"..."}`
 4. **Artifact Registry** repo `catalog-service` in `asia-south1`
 5. **GCE VM** in `asia-south1-c` with Docker Compose + firewall TCP `80`
-6. **IAM** for Cloud Build SA (push images, read secrets, SSH to VM) and VM SA (pull images)
+6. **IAM** for Cloud Build SA (push images, read secrets, SSH to VM) and VM SA (pull images).
 7. Trigger on `main`, or run `gcloud builds submit --config=cloudbuild.yaml`
 
 Pipeline flow:
