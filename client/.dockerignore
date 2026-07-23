@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-ssr
+.git
+.gitignore
+*.md
+.env
+.env.local
+.env.staging
+.env.*.local
+.env.*.example
+Dockerfile
+.dockerignore

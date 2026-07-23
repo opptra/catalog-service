@@ -1,0 +1,98 @@
+# Cloud Build: fetch Secret Manager env JSON → build/push images → deploy to GCE.
+#
+# Secrets (JSON object of env keys), latest version:
+#   catalog-service-client  → baked into client image via client/.env.production
+#   catalog-service-server  → copied to VM as server/.env.production
+#
+# Substitutions:
+#   _REGION, _AR_REPO, _VM_NAME, _VM_ZONE
+#   _CLIENT_SECRET, _SERVER_SECRET  (optional overrides)
+
+substitutions:
+  _REGION: asia-south1
+  _AR_REPO: catalog-service
+  _VM_NAME: catalog-service-1
+  _VM_ZONE: asia-south1-c
+  _CLIENT_SECRET: catalog-service-client
+  _SERVER_SECRET: catalog-service-server
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:latest
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:latest
+
+steps:
+  # 1) Pull env JSON from Secret Manager and write dotenv files
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: fetch-secrets
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        chmod +x scripts/fetch-secrets.sh
+        export CLIENT_SECRET_NAME="${_CLIENT_SECRET}"
+        export SERVER_SECRET_NAME="${_SERVER_SECRET}"
+        ./scripts/fetch-secrets.sh
+
+  # 2) Build client (Vite reads client/.env.production from secrets)
+  - name: gcr.io/cloud-builders/docker
+    id: build-client
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:$SHORT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:latest
+      - ./client
+    waitFor: [fetch-secrets]
+
+  # 3) Build server (runtime secrets are NOT baked into the image)
+  - name: gcr.io/cloud-builders/docker
+    id: build-server
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:$SHORT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:latest
+      - ./server
+    waitFor: [fetch-secrets]
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-client
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client
+    waitFor: [build-client]
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-server
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server
+    waitFor: [build-server]
+
+  # 4) Deploy images + server env file to the GCE VM
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        chmod +x scripts/deploy-gce.sh
+        export REGION="${_REGION}"
+        export VM_NAME="${_VM_NAME}"
+        export VM_ZONE="${_VM_ZONE}"
+        export CLIENT_IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:$SHORT_SHA"
+        export SERVER_IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:$SHORT_SHA"
+        export SERVER_ENV_FILE="server/.env.production"
+        ./scripts/deploy-gce.sh
+    waitFor: [push-client, push-server, fetch-secrets]

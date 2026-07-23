@@ -1,0 +1,27 @@
+services:
+  client:
+    image: ${CLIENT_IMAGE:-catalog-client:local}
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  server:
+    image: ${SERVER_IMAGE:-catalog-server:local}
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./server/.env.production
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-}
+      API_KEY: ${API_KEY:-}
+    restart: unless-stopped
