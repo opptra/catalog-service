@@ -6,7 +6,7 @@ React client + FastAPI server, deployed as two Docker images on one GCE VM (Mumb
 
 ```bash
 # Create server env (required by compose)
-cp server/.env.production.example server/.env.production
+cp server/.env.example server/.env
 # fill DATABASE_URL and API_KEY
 
 docker compose up --build
@@ -30,9 +30,9 @@ docker compose up --build
 
 Pipeline flow:
 
-1. Fetch both secrets → write `client/.env.production` + `server/.env.production`
+1. Fetch both secrets → write `client/.env` + `server/.env` (not committed)
 2. Build/push client + server images (client bakes Vite env; server stays secret-free)
-3. SCP compose + server env to the VM and `docker compose up`
+3. SCP compose + `server/.env` to the VM and `docker compose up`
 
 ## GCP setup (one-time)
 
@@ -79,7 +79,7 @@ export VM_NAME=catalog-service-1
 export VM_ZONE=asia-south1-c
 ```
 
-Install Docker + Compose on the VM. Server env is deployed automatically from Secret Manager (no need to hand-place `.env` on the VM for CI deploys).
+Install Docker + Compose on the VM. The deploy script creates `/opt/catalog-service` with `sudo` and copies `server/.env` from Secret Manager.
 
 Firewall: allow TCP `80`. Open `8000` only if you need direct API access.
 
@@ -94,6 +94,8 @@ Grant `PROJECT_NUMBER@cloudbuild.gserviceaccount.com`:
 - `roles/compute.instanceAdmin.v1`
 - `roles/iam.serviceAccountUser`
 - SSH / OS Login access for `gcloud compute ssh` / `scp`
+
+The SSH user on the VM also needs passwordless `sudo` for `mkdir`/`chown` under `/opt` (common on GCE images).
 
 ### 6. Trigger on `main`
 

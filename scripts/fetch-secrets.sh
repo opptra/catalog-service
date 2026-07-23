@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Fetch JSON secrets from Secret Manager and write dotenv files.
 # Secrets:
-#   catalog-service-client → client/.env.production  (Vite build-time)
-#   catalog-service-server → server/.env.production  (runtime on VM)
+#   catalog-service-client → client/.env  (Vite build-time)
+#   catalog-service-server → server/.env  (runtime on VM)
 #
 # Expected secret payload shape:
 #   {"DATABASE_URL":"...","API_KEY":"...","VITE_API_BASE_URL":"/api"}
@@ -43,8 +43,8 @@ def json_to_dotenv(src: Path, dest: Path) -> None:
     print(f"Wrote {dest} ({len(lines)} keys)")
 
 root = Path(".")
-json_to_dotenv(root / ".secrets/client.json", root / "client/.env.production")
-json_to_dotenv(root / ".secrets/server.json", root / "server/.env.production")
+json_to_dotenv(root / ".secrets/client.json", root / "client/.env")
+json_to_dotenv(root / ".secrets/server.json", root / "server/.env")
 PY
 
 # Keep JSON out of docker build contexts

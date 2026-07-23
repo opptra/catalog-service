@@ -10,6 +10,5 @@ __pycache__
 *.md
 .env
 .env.*
-!.env.*.example
 Dockerfile
 .dockerignore

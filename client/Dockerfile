@@ -11,7 +11,7 @@ COPY . .
 ARG VITE_API_BASE_URL=/api
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
-# Prefer env file from Secret Manager (written by Cloud Build as .env.production)
+# Prefer env file from Secret Manager (written by Cloud Build as .env)
 RUN npm run build
 
 # Serve stage

@@ -5,7 +5,7 @@ set -euo pipefail
 # Required env:
 #   CLIENT_IMAGE, SERVER_IMAGE, VM_NAME, VM_ZONE, REGION
 # Optional:
-#   SERVER_ENV_FILE (default: server/.env.production)
+#   SERVER_ENV_FILE (default: server/.env)
 
 : "${CLIENT_IMAGE:?CLIENT_IMAGE is required}"
 : "${SERVER_IMAGE:?SERVER_IMAGE is required}"
@@ -13,7 +13,7 @@ set -euo pipefail
 : "${VM_ZONE:?VM_ZONE is required}"
 : "${REGION:?REGION is required}"
 
-SERVER_ENV_FILE="${SERVER_ENV_FILE:-server/.env.production}"
+SERVER_ENV_FILE="${SERVER_ENV_FILE:-server/.env}"
 REMOTE_DIR=/opt/catalog-service
 
 if [[ ! -f "${SERVER_ENV_FILE}" ]]; then
@@ -21,12 +21,17 @@ if [[ ! -f "${SERVER_ENV_FILE}" ]]; then
   exit 1
 fi
 
-gcloud compute ssh "${VM_NAME}" --zone="${VM_ZONE}" --command="mkdir -p ${REMOTE_DIR}/server"
+# /opt is root-owned; create and hand ownership to the SSH user
+gcloud compute ssh "${VM_NAME}" --zone="${VM_ZONE}" --command="
+  set -euo pipefail
+  sudo mkdir -p ${REMOTE_DIR}/server
+  sudo chown -R \$(whoami):\$(whoami) ${REMOTE_DIR}
+"
 
 gcloud compute scp docker-compose.yml "${VM_NAME}:${REMOTE_DIR}/docker-compose.yml" \
   --zone="${VM_ZONE}"
 
-gcloud compute scp "${SERVER_ENV_FILE}" "${VM_NAME}:${REMOTE_DIR}/server/.env.production" \
+gcloud compute scp "${SERVER_ENV_FILE}" "${VM_NAME}:${REMOTE_DIR}/server/.env" \
   --zone="${VM_ZONE}"
 
 gcloud compute ssh "${VM_NAME}" --zone="${VM_ZONE}" --command="

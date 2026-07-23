@@ -12,11 +12,9 @@ dist
 dist-ssr
 *.local
 
-# Env (keep *.example files tracked)
+# Env (keep .env.example tracked)
 .env
 .env.local
-.env.production
-.env.staging
 .env.*.local
 
 # Editor directories and files

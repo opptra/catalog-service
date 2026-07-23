@@ -20,7 +20,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ./server/.env.production
+      - ./server/.env
     environment:
       DATABASE_URL: ${DATABASE_URL:-}
       API_KEY: ${API_KEY:-}

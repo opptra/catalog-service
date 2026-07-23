@@ -1,8 +1,8 @@
 # Cloud Build: fetch Secret Manager env JSON → build/push images → deploy to GCE.
 #
 # Secrets (JSON object of env keys), latest version:
-#   catalog-service-client  → baked into client image via client/.env.production
-#   catalog-service-server  → copied to VM as server/.env.production
+#   catalog-service-client  → baked into client image via client/.env
+#   catalog-service-server  → copied to VM as server/.env
 #
 # Substitutions:
 #   _REGION, _AR_REPO, _VM_NAME, _VM_ZONE
@@ -39,7 +39,7 @@ steps:
         export SERVER_SECRET_NAME="${_SERVER_SECRET}"
         ./scripts/fetch-secrets.sh
 
-  # 2) Build client (Vite reads client/.env.production from secrets)
+  # 2) Build client (Vite reads client/.env from secrets)
   - name: gcr.io/cloud-builders/docker
     id: build-client
     args:
@@ -93,6 +93,6 @@ steps:
         export VM_ZONE="${_VM_ZONE}"
         export CLIENT_IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:$SHORT_SHA"
         export SERVER_IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:$SHORT_SHA"
-        export SERVER_ENV_FILE="server/.env.production"
+        export SERVER_ENV_FILE="server/.env"
         ./scripts/deploy-gce.sh
     waitFor: [push-client, push-server, fetch-secrets]
