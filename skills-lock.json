@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "skills": {
+    "fastapi": {
+      "source": "fastapi/fastapi",
+      "ref": "master",
+      "sourceType": "github",
+      "skillPath": "fastapi/.agents/skills/fastapi/SKILL.md",
+      "computedHash": "e85d9e223fbc3183b1a599bbe8b02d2edf275d046ff5bcfd14352c92cdff52b3"
+    },
+    "openrouter-models": {
+      "source": "OpenRouterTeam/skills",
+      "sourceType": "github",
+      "skillPath": "skills/openrouter-models/SKILL.md",
+      "computedHash": "d1ef33877a30b9b22c0f1a2cedd54f795c9459ae70d8bb66978feba526549fc4"
+    },
+    "pydantic": {
+      "source": "pydantic/pydantic",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/pydantic/SKILL.md",
+      "computedHash": "2f523749fc2edc5cb3b73435a282373cd69209682be7992b6cde333f30d59254"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
+      "computedHash": "ec56a54fba0e97bee52c7f244ba603bb284bf8d1b739c66a5cc84ec3df709d9d"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/react-best-practices/SKILL.md",
+      "computedHash": "ca7b0c0c6e5f2750043f7f0cd72d16ac4e2abc48f9b5500d047a4b77a2506212"
+    }
+  }
+}
