@@ -1,18 +1,19 @@
-# Cloud Build: fetch Secret Manager env JSON → build/push images → deploy to GCE.
+# Cloud Build: fetch client secret → build/push images → replace MIG VMs.
 #
 # Secrets (JSON object of env keys), latest version:
-#   catalog-service-client  → baked into client image via client/.env
-#   catalog-service-server  → copied to VM as server/.env
+#   catalog-service-client  → baked into client image via client/.env (build-time)
+#   catalog-service-server  → read on VM by instance startup (not SCP'd by deploy)
 #
 # Substitutions:
-#   _REGION, _AR_REPO, _VM_NAME, _VM_ZONE
+#   _REGION, _AR_REPO, _MIG_NAME, _MIG_REGION (regional MIG)
 #   _CLIENT_SECRET, _SERVER_SECRET  (optional overrides)
+#   For a zonal MIG, set _MIG_REGION empty and pass MIG_ZONE via script env instead.
 
 substitutions:
   _REGION: asia-south1
   _AR_REPO: catalog-service
-  _VM_NAME: catalog-service-1
-  _VM_ZONE: asia-south1-c
+  _MIG_NAME: catalog-service
+  _MIG_REGION: asia-south1
   _CLIENT_SECRET: catalog-service-client
   _SERVER_SECRET: catalog-service-server
 
@@ -79,7 +80,7 @@ steps:
       - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server
     waitFor: [build-server]
 
-  # 4) Deploy images + server env file to the GCE VM
+  # 4) Replace MIG VMs; startup pulls :latest and loads server secret
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: deploy
     entrypoint: bash
@@ -89,11 +90,7 @@ steps:
         set -euo pipefail
         chmod +x scripts/deploy-gce.sh
         export PROJECT_ID="${PROJECT_ID}"
-        export REGION="${_REGION}"
-        export VM_NAME="${_VM_NAME}"
-        export VM_ZONE="${_VM_ZONE}"
-        export CLIENT_IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:$SHORT_SHA"
-        export SERVER_IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:$SHORT_SHA"
-        export SERVER_ENV_FILE="server/.env"
+        export MIG_NAME="${_MIG_NAME}"
+        export MIG_REGION="${_MIG_REGION}"
         ./scripts/deploy-gce.sh
-    waitFor: [push-client, push-server, fetch-secrets]
+    waitFor: [push-client, push-server]

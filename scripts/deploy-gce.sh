@@ -1,120 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deploy docker-compose stack to a GCE VM.
-# Flow: IAP SSH → Cloud Build access token → docker login on VM → compose pull/up.
-# (Registry auth uses the Cloud Build SA token, not the VM service account.)
+# Deploy by replacing MIG VMs. New instances run the instance-template startup
+# script (scripts/instance-startup.sh), which pulls :latest images from Artifact
+# Registry and loads server env from Secret Manager.
 #
 # Required env:
-#   CLIENT_IMAGE, SERVER_IMAGE, VM_NAME, VM_ZONE, REGION
+#   MIG_NAME
+#   MIG_REGION  (regional MIG)  OR  MIG_ZONE (zonal MIG)
 # Optional:
-#   SERVER_ENV_FILE (default: server/.env)
-#   PROJECT_ID (defaults to gcloud config)
+#   PROJECT_ID          (defaults to gcloud config)
+#   MAX_SURGE           (default: 0)
+#   MAX_UNAVAILABLE     (default: 3 — required for many regional MIGs)
+#   WAIT_FOR_STABLE     (default: true) — wait until MIG is stable after replace
 
-: "${CLIENT_IMAGE:?CLIENT_IMAGE is required}"
-: "${SERVER_IMAGE:?SERVER_IMAGE is required}"
-: "${VM_NAME:?VM_NAME is required}"
-: "${VM_ZONE:?VM_ZONE is required}"
-: "${REGION:?REGION is required}"
+: "${MIG_NAME:?MIG_NAME is required}"
 
-SERVER_ENV_FILE="${SERVER_ENV_FILE:-server/.env}"
-REMOTE_DIR=/opt/catalog-service
-REGISTRY="${REGION}-docker.pkg.dev"
-PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project)}"
+PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}"
+: "${PROJECT_ID:?PROJECT_ID is required}"
 
-if [[ ! -f "${SERVER_ENV_FILE}" ]]; then
-  echo "Missing ${SERVER_ENV_FILE}. Run scripts/fetch-secrets.sh first." >&2
+MAX_SURGE="${MAX_SURGE:-0}"
+MAX_UNAVAILABLE="${MAX_UNAVAILABLE:-3}"
+WAIT_FOR_STABLE="${WAIT_FOR_STABLE:-true}"
+
+MIG_REGION="${MIG_REGION:-}"
+MIG_ZONE="${MIG_ZONE:-}"
+
+if [[ -n "${MIG_REGION}" && -n "${MIG_ZONE}" ]]; then
+  echo "Set only one of MIG_REGION or MIG_ZONE, not both." >&2
   exit 1
 fi
 
-echo "Deploying to ${VM_NAME} (${VM_ZONE})"
-
-# Ensure remote dir exists and is writable by the SSH user
-gcloud compute ssh "${VM_NAME}" \
-  --project="${PROJECT_ID}" \
-  --zone="${VM_ZONE}" \
-  --tunnel-through-iap \
-  --quiet \
-  --ssh-flag=-oServerAliveInterval=30 \
-  --ssh-flag=-oServerAliveCountMax=10 \
-  --ssh-flag=-oLogLevel=ERROR \
-  --command="sudo mkdir -p ${REMOTE_DIR}/server && sudo chown -R \$(whoami):\$(whoami) ${REMOTE_DIR}"
-
-gcloud compute scp docker-compose.yml "${VM_NAME}:${REMOTE_DIR}/docker-compose.yml" \
-  --project="${PROJECT_ID}" \
-  --zone="${VM_ZONE}" \
-  --tunnel-through-iap \
-  --quiet
-
-gcloud compute scp "${SERVER_ENV_FILE}" "${VM_NAME}:${REMOTE_DIR}/server/.env" \
-  --project="${PROJECT_ID}" \
-  --zone="${VM_ZONE}" \
-  --tunnel-through-iap \
-  --quiet
-
-# Short-lived Cloud Build token for docker login on the VM
-TOKEN="$(gcloud auth print-access-token)"
-QTOKEN="$(printf '%q' "${TOKEN}")"
-QREGISTRY="$(printf '%q' "${REGISTRY}")"
-QCLIENT_IMAGE="$(printf '%q' "${CLIENT_IMAGE}")"
-QSERVER_IMAGE="$(printf '%q' "${SERVER_IMAGE}")"
-QREMOTE_DIR="$(printf '%q' "${REMOTE_DIR}")"
-
-REMOTE=$(cat <<'EOS'
-set -euo pipefail
-cd __QREMOTE_DIR__
-
-if ! command -v docker >/dev/null 2>&1; then
-  echo "[deploy] Docker not found; installing..."
-  curl -fsSL https://get.docker.com | sh
+if [[ -z "${MIG_REGION}" && -z "${MIG_ZONE}" ]]; then
+  echo "MIG_REGION (regional) or MIG_ZONE (zonal) is required." >&2
+  exit 1
 fi
 
-if ! docker compose version >/dev/null 2>&1; then
-  echo "[deploy] Docker Compose plugin missing; installing..."
-  apt-get update -qq
-  apt-get install -y -qq docker-compose-plugin || apt-get install -y -qq docker-compose-v2 || true
+location_args=()
+location_label=""
+if [[ -n "${MIG_REGION}" ]]; then
+  location_args=(--region="${MIG_REGION}")
+  location_label="region ${MIG_REGION}"
+else
+  location_args=(--zone="${MIG_ZONE}")
+  location_label="zone ${MIG_ZONE}"
 fi
 
-# Use an isolated docker config for this deploy. Any credHelpers left in the
-# default ~/.docker/config.json (e.g. from a past `gcloud auth configure-docker`)
-# would silently override `docker login` and pull as the VM's service account,
-# which has no Artifact Registry access.
-export DOCKER_CONFIG=__QREMOTE_DIR__/.docker-deploy
-rm -rf "${DOCKER_CONFIG}"
-mkdir -p "${DOCKER_CONFIG}"
+echo "Replacing MIG ${MIG_NAME} (${location_label})"
+echo "  max-surge=${MAX_SURGE} max-unavailable=${MAX_UNAVAILABLE}"
+echo "  New VMs will pull catalog-client:latest + catalog-server:latest via startup script."
 
-echo "[deploy] logging in to __QREGISTRY__ ..."
-echo __QTOKEN__ | docker login -u oauth2accesstoken --password-stdin https://__QREGISTRY__
-
-echo "[deploy] pulling images..."
-export CLIENT_IMAGE=__QCLIENT_IMAGE__
-export SERVER_IMAGE=__QSERVER_IMAGE__
-docker compose pull
-echo "[deploy] starting stack..."
-docker compose up -d --no-build --remove-orphans
-docker image prune -f
-docker compose ps
-
-# Don't leave the (short-lived) token on disk
-docker logout https://__QREGISTRY__ >/dev/null 2>&1 || true
-rm -rf "${DOCKER_CONFIG}"
-EOS
-)
-
-REMOTE="${REMOTE//__QTOKEN__/${QTOKEN}}"
-REMOTE="${REMOTE//__QREGISTRY__/${QREGISTRY}}"
-REMOTE="${REMOTE//__QCLIENT_IMAGE__/${QCLIENT_IMAGE}}"
-REMOTE="${REMOTE//__QSERVER_IMAGE__/${QSERVER_IMAGE}}"
-REMOTE="${REMOTE//__QREMOTE_DIR__/${QREMOTE_DIR}}"
-
-gcloud compute ssh "${VM_NAME}" \
+gcloud compute instance-groups managed rolling-action replace "${MIG_NAME}" \
   --project="${PROJECT_ID}" \
-  --zone="${VM_ZONE}" \
-  --tunnel-through-iap \
-  --quiet \
-  --ssh-flag=-oServerAliveInterval=30 \
-  --ssh-flag=-oServerAliveCountMax=10 \
-  --ssh-flag=-oLogLevel=ERROR \
-  --command="sudo bash -c $(printf '%q' "${REMOTE}")"
+  "${location_args[@]}" \
+  --max-surge="${MAX_SURGE}" \
+  --max-unavailable="${MAX_UNAVAILABLE}"
 
-echo "VM deploy finished"
+if [[ "${WAIT_FOR_STABLE}" == "true" ]]; then
+  echo "Waiting for MIG to become stable..."
+  gcloud compute instance-groups managed wait-until "${MIG_NAME}" \
+    --project="${PROJECT_ID}" \
+    "${location_args[@]}" \
+    --stable
+  echo "MIG is stable."
+fi
+
+echo "MIG replace finished. Check startup logs on new VMs and LB backend health."
