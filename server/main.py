@@ -1,16 +1,26 @@
+from contextlib import asynccontextmanager
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
+from core.clients.db import DatabaseClient
+from core.config import settings
+from routers import health, users
+
 load_dotenv()
 
-app = FastAPI(title="Catalog Service")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db = DatabaseClient(settings.database_url)
+    app.state.db = db
+    try:
+        yield
+    finally:
+        db.close()
 
 
-@app.get("/")
-def root():
-    return {"message": "Catalog Service API is ready."}
+app = FastAPI(title="Catalog Service", lifespan=lifespan)
 
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+app.include_router(health.router)
+app.include_router(users.router)
