@@ -7,7 +7,7 @@ set -euo pipefail
 #   catalog-service-server → server/.env  (runtime on VM)
 #
 # Expected secret payload shape:
-#   {"DATABASE_URL":"...","API_KEY":"...","VITE_API_BASE_URL":"/api"}
+#   {"DB_HOST":"...","DB_PORT":"5432","DB_NAME":"...","DB_USER":"...","DB_PASSWORD":"...","API_KEY":"...","VITE_API_BASE_URL":"/api"}
 
 CLIENT_SECRET_NAME="${CLIENT_SECRET_NAME:-catalog-service-client}"
 SERVER_SECRET_NAME="${SERVER_SECRET_NAME:-catalog-service-server}"

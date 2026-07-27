@@ -1,18 +1,15 @@
 from contextlib import asynccontextmanager
 
-from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from core.clients.db import DatabaseClient
 from core.config import settings
 from routers import health, users
 
-load_dotenv()
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db = DatabaseClient(settings.database_url)
+    db = DatabaseClient(settings)
     app.state.db = db
     try:
         yield

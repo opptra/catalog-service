@@ -1,7 +1,7 @@
 import api from './axios'
 
 export interface User {
-  id: string
+  id: number
   external_id: string
   email: string | null
   name: string | null

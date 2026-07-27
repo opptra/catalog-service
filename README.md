@@ -2,12 +2,49 @@
 
 React client + FastAPI server, deployed as two Docker images on one GCE VM (Mumbai / `asia-south1`).
 
-## Local Docker
+## Local development
+
+### Server (FastAPI)
+
+Production uses the same entrypoint as `server/Dockerfile`:
+
+```dockerfile
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+Locally (from `server/`):
 
 ```bash
-# Create server env (required by compose)
+cd server
+cp .env.example .env
+# fill DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, API_KEY
+
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+- API: http://localhost:8000  
+- Health: http://localhost:8000/health  
+- OpenAPI docs: http://localhost:8000/docs  
+
+`--reload` is for local only; do not use it in the Docker image.
+
+### Client (React / Vite)
+
+```bash
+cd client
+cp .env.example .env               # if present; set VITE_API_BASE_URL=http://localhost:8000
+npm install
+npm run dev
+```
+
+### Local Docker (both services)
+
+```bash
 cp server/.env.example server/.env
-# fill DATABASE_URL and API_KEY
+# fill DB_* and API_KEY
 
 docker compose up --build
 ```
@@ -22,7 +59,7 @@ docker compose up --build
 2. **APIs** — Cloud Build, Artifact Registry, Compute, Secret Manager
 3. **Secret Manager secrets** (JSON objects), already in your project:
    - `catalog-service-client` — e.g. `{"VITE_API_BASE_URL":"/api"}`
-   - `catalog-service-server` — e.g. `{"DATABASE_URL":"...","API_KEY":"..."}`
+   - `catalog-service-server` — e.g. `{"DB_HOST":"...","DB_PORT":"5432","DB_NAME":"...","DB_USER":"...","DB_PASSWORD":"...","API_KEY":"..."}`
 4. **Artifact Registry** repo `catalog-service` in `asia-south1`
 5. **GCE VM** in `asia-south1-c` with Docker Compose + firewall TCP `80`
 6. **IAM** for Cloud Build SA (push images, read secrets, SSH to VM) and VM SA (pull images)
@@ -52,7 +89,11 @@ Secrets should look like:
 
 ```json
 {
-  "DATABASE_URL": "postgresql://...",
+  "DB_HOST": "x.x.x.x",
+  "DB_PORT": "5432",
+  "DB_NAME": "catalog_service",
+  "DB_USER": "postgres",
+  "DB_PASSWORD": "...",
   "API_KEY": "..."
 }
 ```

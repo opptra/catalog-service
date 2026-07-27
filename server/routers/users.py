@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, HTTPException
 
 from core.deps import SessionDep
@@ -9,7 +11,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("/by-external-id/{external_id}", response_model=UserResponse)
-def get_user_by_external_id(external_id: str, session: SessionDep) -> UserResponse:
+def get_user_by_external_id(external_id: UUID, session: SessionDep) -> UserResponse:
     try:
         user = user_service.get_user_by_external_id(session, external_id)
     except UserNotFoundError as exc:
