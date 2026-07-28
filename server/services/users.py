@@ -1,12 +1,14 @@
-from sqlalchemy import select
+from uuid import UUID
+
 from sqlalchemy.orm import Session
 
 from core.exceptions import UserNotFoundError
-from core.models.user import User
+from entities.user import User
+from repositories import user as user_repository
 
 
-def get_user_by_external_id(session: Session, external_id: str) -> User:
-    user = session.scalar(select(User).where(User.external_id == external_id))
+def get_user_by_external_id(session: Session, external_id: UUID) -> User:
+    user = user_repository.get_by_external_id(session, external_id)
     if user is None:
-        raise UserNotFoundError(external_id)
+        raise UserNotFoundError(str(external_id))
     return user
