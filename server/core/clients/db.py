@@ -5,7 +5,7 @@ from core.config import Settings
 
 
 class DatabaseClient:
-    """Engine + session factory. Queries belong in services via the ORM."""
+    """Engine + session factory. Queries belong in repositories via the ORM."""
 
     def __init__(self, settings: Settings) -> None:
         self.engine = create_engine(settings.database_url, pool_pre_ping=True)

@@ -1,16 +1,19 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Identity, Text, func
+from sqlalchemy import ForeignKey, Identity, Integer, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import DateTime
 
-from core.models.base import Base
+from entities.base import Base
 
 
-class User(Base):
-    __tablename__ = "users"
+class JobAttribute(Base):
+    __tablename__ = "job_attribute"
+    __table_args__ = (
+        UniqueConstraint("job_id", "attribute_id", name="job_attribute_job_id_attribute_id_key"),
+    )
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     external_id: Mapped[UUID] = mapped_column(
@@ -19,8 +22,9 @@ class User(Base):
         nullable=False,
         default=uuid4,
     )
-    email: Mapped[str | None] = mapped_column(Text, nullable=True)
-    name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), nullable=False)
+    attribute_id: Mapped[int] = mapped_column(ForeignKey("attribute_master.id"), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

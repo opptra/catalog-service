@@ -90,33 +90,51 @@ folder exists, all new code must follow it:
 ```
 server/
 ├── main.py              # app creation, middleware, router registration ONLY
-├── routers/             # APIRouter modules per resource (e.g. products.py)
+├── routers/             # APIRouter modules per UI resource (e.g. users.py, jobs.py)
 ├── services/            # business logic — plain functions/classes, no FastAPI imports
-├── schemas/             # Pydantic models for every request/response body
-├── core/                # settings, shared dependencies, reusable service clients (config.py, clients/)
+├── repositories/        # DB access only — one module per entity; no business rules
+├── entities/            # SQLAlchemy entity models (table mappings) — one per table
+├── dto/                 # API request/response shapes (Pydantic) — not DB schema
+├── core/                # shared infra only (always folders, not loose files):
+│   ├── config/          # settings from env
+│   ├── deps/            # FastAPI dependencies (e.g. SessionDep)
+│   ├── exceptions/      # domain exceptions (one module per area as needed)
+│   └── clients/         # reusable external clients (db, gcs, …)
 ├── pyproject.toml       # Ruff configuration
 ├── requirements.txt     # runtime dependencies
 └── requirements-dev.txt # dev tooling
 ```
 
+Layer flow (intern cheat sheet):
+
+```
+router → service → repository → entity → Postgres
+         ↑            ↑
+        dto         (SQLAlchemy)
+```
+
 - **Thin route handlers.** Routers parse/validate input and call a service function. Business logic
   never lives inside a route handler.
-- **Pydantic schema for every request and response body.** Never accept or return raw `dict`s on
+- **Services never query the DB directly.** All reads/writes go through `repositories/`.
+- **Repositories never contain business rules.** They only load/save entities.
+- **Pydantic DTO for every request and response body.** Never accept or return raw `dict`s on
   endpoint signatures; set `response_model` on routes.
 - **Type hints on every function** — parameters and return types.
-- **Config via one settings module** (`core/config.py` once it exists), not scattered `os.getenv` calls.
-- **Errors:** routers raise `HTTPException` with a proper status code; services raise domain exceptions,
-  not HTTP ones.
-- **Naming:** modules and functions `snake_case`; Pydantic models `PascalCase`.
+- **Config via `core/config/`**, not scattered `os.getenv` calls. Keep `core/` as packages
+  (folders), not growing loose `.py` files at the `core/` root.
+- **Errors:** routers raise `HTTPException` with a proper status code; services raise domain
+  exceptions from `core/exceptions/`, not HTTP ones.
+- **Naming:** modules and functions `snake_case`; entity/DTO classes `PascalCase`.
 
 ### External-service clients (object storage, LLMs, HTTP APIs, the database)
 
 The server-side equivalent of the frontend's single axios instance: reach every external service through
 one reusable, centrally-configured client — never an SDK or connection created ad-hoc inside a router or service.
 
-- **One client per service, built once.** Configure it from settings (`core/config.py`, env vars) and keep
+- **One client per service, built once.** Configure it from settings (`core/config/`, env vars) and keep
   the instances together under `core/clients/` (e.g. `gcs.py`, `openrouter.py`, `db.py`). Reuse a single
   instance for the app's lifetime and reuse its connections/sessions/pool — never create one per request.
+  ORM queries themselves live in `repositories/`, not in the DB client.
 - **Inject, don't instantiate.** Hand clients to routers and services via FastAPI dependencies
   (`Annotated[Client, Depends(get_client)]`) so code stays reusable and testable. Services receive the
   client; they never import the vendor SDK or wire up credentials themselves.
@@ -131,7 +149,7 @@ usage (FastAPI, Pydantic, Postgres), defer to that framework skill, but keep the
 - Server routes are versionless and prefixed by nginx as `/api/` in production. The client must only
   use relative paths through the shared axios instance (its base URL comes from `VITE_API_BASE_URL`).
 - When you add or change a server endpoint, update the corresponding typed client function in
-  `client/src/api/` in the **same** change. The Pydantic schema and the TypeScript type must stay in sync.
+  `client/src/api/` in the **same** change. The Pydantic DTO and the TypeScript type must stay in sync.
 
 ## Git conventions
 

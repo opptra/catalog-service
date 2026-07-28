@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from core.deps import SessionDep
 from core.exceptions import UserNotFoundError
-from schemas.users import UserResponse
+from dto.users import UserResponse
 from services import users as user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
