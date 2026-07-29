@@ -19,5 +19,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Catalog Service", lifespan=lifespan)
 
-app.include_router(health.router)
-app.include_router(users.router)
+# Same /api prefix locally and behind nginx — client always calls /api/...
+API_PREFIX = "/api"
+app.include_router(health.router, prefix=API_PREFIX)
+app.include_router(users.router, prefix=API_PREFIX)

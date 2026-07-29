@@ -18,7 +18,7 @@ code the first time.
 
 - **Plain SPA — no Next.js, no SSR, no React Server Components.** Ignore any Next.js/RSC/server-action
   guidance from framework skills; it does not apply here.
-- Deploy: Google Cloud Build (`cloudbuild.yaml`) → GCE VM. In production nginx prefixes server routes as `/api/`.
+- Deploy: Google Cloud Build (`cloudbuild.yaml`) → GCE VM. API routes are mounted under `/api` in FastAPI (local and prod); nginx proxies `/api/` to the server without stripping the prefix.
 
 ## Golden rule
 
@@ -146,8 +146,9 @@ usage (FastAPI, Pydantic, Postgres), defer to that framework skill, but keep the
 
 ## Client/server API contract
 
-- Server routes are versionless and prefixed by nginx as `/api/` in production. The client must only
-  use relative paths through the shared axios instance (its base URL comes from `VITE_API_BASE_URL`).
+- Server routes are versionless and live under `/api` in the FastAPI app (e.g. `/api/health`,
+  `/api/users/...`). The client must only use relative paths through the shared axios instance
+  (its base URL comes from `VITE_API_BASE_URL`, typically `/api`).
 - When you add or change a server endpoint, update the corresponding typed client function in
   `client/src/api/` in the **same** change. The Pydantic DTO and the TypeScript type must stay in sync.
 
