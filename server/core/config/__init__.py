@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     db_password: str
     api_key: str | None = None
 
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
     @property
     def database_url(self) -> str:
         user = quote_plus(self.db_user)
