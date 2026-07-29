@@ -12,7 +12,7 @@
 substitutions:
   _REGION: asia-south1
   _AR_REPO: catalog-service
-  _MIG_NAME: catalog-service
+  _MIG_NAME: catalog-service-ig
   _MIG_REGION: asia-south1
   _CLIENT_SECRET: catalog-service-client
   _SERVER_SECRET: catalog-service-server
