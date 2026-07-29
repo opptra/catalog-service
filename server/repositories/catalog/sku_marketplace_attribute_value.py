@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from entities.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
+from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 
 
 def get_by_id(session: Session, value_id: int) -> SkuMarketplaceAttributeValue | None:

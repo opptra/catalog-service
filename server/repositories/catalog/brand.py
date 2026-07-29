@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from entities.brand import Brand
+from entities.catalog.brand import Brand
 
 
 def get_by_id(session: Session, brand_id: int) -> Brand | None:

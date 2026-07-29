@@ -19,7 +19,9 @@ class Job(Base):
         nullable=False,
         default=uuid4,
     )
-    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # No DB-level FK: users live in a separate database. This stores the
+    # user's external_id, resolved via the user repository/service.
+    created_by: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     marketplace_id: Mapped[int] = mapped_column(ForeignKey("marketplace.id"), nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

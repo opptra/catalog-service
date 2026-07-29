@@ -14,22 +14,32 @@ class Settings(BaseSettings):
     db_name: str
     db_user: str
     db_password: str
+
+    user_service_db_name: str
+
     api_key: str | None = None
 
-    @property
-    def database_url(self) -> str:
+    def _build_url(self, db_name: str) -> str:
         user = quote_plus(self.db_user)
         password = quote_plus(self.db_password)
         # Cloud SQL Unix socket: DB_HOST=/cloudsql/PROJECT:REGION:INSTANCE
         if self.db_host.startswith("/"):
             return (
-                f"postgresql+psycopg://{user}:{password}@/{self.db_name}"
+                f"postgresql+psycopg://{user}:{password}@/{db_name}"
                 f"?host={self.db_host}"
             )
         return (
             f"postgresql+psycopg://{user}:{password}"
-            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+            f"@{self.db_host}:{self.db_port}/{db_name}"
         )
+
+    @property
+    def catalog_database_url(self) -> str:
+        return self._build_url(self.db_name)
+
+    @property
+    def user_database_url(self) -> str:
+        return self._build_url(self.user_service_db_name)
 
 
 settings = Settings()

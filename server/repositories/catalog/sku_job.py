@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from entities.sku_job import SkuJob
+from entities.catalog.sku_job import SkuJob
 
 
 def get_by_id(session: Session, sku_job_id: int) -> SkuJob | None:

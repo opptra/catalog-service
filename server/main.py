@@ -9,12 +9,15 @@ from routers import health, users
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db = DatabaseClient(settings)
-    app.state.db = db
+    catalog_db = DatabaseClient(settings.catalog_database_url)
+    user_db = DatabaseClient(settings.user_database_url)
+    app.state.catalog_db = catalog_db
+    app.state.user_db = user_db
     try:
         yield
     finally:
-        db.close()
+        catalog_db.close()
+        user_db.close()
 
 
 app = FastAPI(title="Catalog Service", lifespan=lifespan)

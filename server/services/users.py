@@ -3,8 +3,8 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from core.exceptions import UserNotFoundError
-from entities.user import User
-from repositories import user as user_repository
+from entities.user_service.user import User
+from repositories.user_service import user as user_repository
 
 
 def get_user_by_external_id(session: Session, external_id: UUID) -> User:

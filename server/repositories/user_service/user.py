@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from entities.user import User
+from entities.user_service.user import User
 
 
 def get_by_id(session: Session, user_id: int) -> User | None:
