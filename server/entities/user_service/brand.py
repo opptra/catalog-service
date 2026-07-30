@@ -9,8 +9,14 @@ from sqlalchemy.types import DateTime
 from entities.user_service.base import Base
 
 
-class User(Base):
-    __tablename__ = "users"
+class Brand(Base):
+    """Lightweight brand mirror in the user-service schema.
+
+    ``external_id`` matches the catalog-service ``brand.external_id`` so the two
+    stores can reference the same brand without a cross-database foreign key.
+    """
+
+    __tablename__ = "brand"
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     external_id: Mapped[UUID] = mapped_column(
@@ -20,8 +26,6 @@ class User(Base):
         default=uuid4,
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    google_sub: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

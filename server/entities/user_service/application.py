@@ -9,8 +9,8 @@ from sqlalchemy.types import DateTime
 from entities.user_service.base import Base
 
 
-class User(Base):
-    __tablename__ = "users"
+class Application(Base):
+    __tablename__ = "applications"
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     external_id: Mapped[UUID] = mapped_column(
@@ -19,9 +19,7 @@ class User(Base):
         nullable=False,
         default=uuid4,
     )
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    google_sub: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
+    name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

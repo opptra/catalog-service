@@ -4,7 +4,7 @@ from sqlalchemy import Boolean, Identity, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from entities.base import Base
+from entities.catalog.base import Base
 
 
 class AttributeMaster(Base):
