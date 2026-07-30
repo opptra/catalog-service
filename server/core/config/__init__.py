@@ -23,11 +23,14 @@ class Settings(BaseSettings):
 
     cors_origins: str = ""
 
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
     # Paths the auth middleware serves without a Google ID token.
     public_paths: list[str] = [
         "/",
-        "/health",
-        "/auth/google",
+        "/api/health",
+        "/api/auth/google",
         "/docs",
         "/redoc",
         "/openapi.json",
