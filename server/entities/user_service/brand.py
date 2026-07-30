@@ -12,8 +12,10 @@ from entities.user_service.base import Base
 class Brand(Base):
     """Lightweight brand mirror in the user-service schema.
 
-    ``external_id`` matches the catalog-service ``brand.external_id`` so the two
-    stores can reference the same brand without a cross-database foreign key.
+    Each row's ``external_id`` is independent of the catalog-service brand's
+    own ``external_id``; the catalog-service ``brand.user_service_brand_id``
+    column stores this row's ``external_id`` to link the two without a
+    cross-database foreign key.
     """
 
     __tablename__ = "brand"

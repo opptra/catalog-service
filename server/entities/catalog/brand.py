@@ -21,6 +21,10 @@ class Brand(Base):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     brand_dna: Mapped[str] = mapped_column(Text, nullable=False)
+    user_service_brand_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

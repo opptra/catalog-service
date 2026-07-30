@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
-from core.deps import CurrentUserDep, UserSessionDep
+from core.deps import CatalogSessionDep, CurrentUserDep, UserSessionDep
 from dto.brand_access import BrandAccessResponse
 from dto.users import UserResponse
 from services import brand_access as brand_access_service
@@ -19,10 +19,10 @@ def get_current_user(user: CurrentUserDep) -> UserResponse:
 def get_user_brand_access(
     external_id: UUID,
     user: CurrentUserDep,
-    session: UserSessionDep,
+    user_session: UserSessionDep,
+    catalog_session: CatalogSessionDep,
 ) -> list[BrandAccessResponse]:
     if external_id != user.external_id:
         raise HTTPException(status_code=403, detail="Cannot access another user's brand access")
 
-    rows = brand_access_service.list_brand_access_for_user(session, user.id)
-    return [BrandAccessResponse.model_validate(row) for row in rows]
+    return brand_access_service.list_brand_access_for_user(user_session, catalog_session, user.id)
