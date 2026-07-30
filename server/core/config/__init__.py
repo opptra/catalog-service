@@ -19,19 +19,20 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
+    generate_input_dir: str = "data/generate-pipeline/v1"
+    generate_output_dir: str = "storage/generated"
+    openrouter_text_model: str = "openai/gpt-4o-mini"
+    openrouter_image_model: str = "openai/gpt-5-image"
+
     @property
     def database_url(self) -> str:
         user = quote_plus(self.db_user)
         password = quote_plus(self.db_password)
         # Cloud SQL Unix socket: DB_HOST=/cloudsql/PROJECT:REGION:INSTANCE
         if self.db_host.startswith("/"):
-            return (
-                f"postgresql+psycopg://{user}:{password}@/{self.db_name}"
-                f"?host={self.db_host}"
-            )
+            return f"postgresql+psycopg://{user}:{password}@/{self.db_name}?host={self.db_host}"
         return (
-            f"postgresql+psycopg://{user}:{password}"
-            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+            f"postgresql+psycopg://{user}:{password}@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
 

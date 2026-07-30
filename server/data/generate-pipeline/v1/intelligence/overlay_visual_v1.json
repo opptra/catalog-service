@@ -1,0 +1,57 @@
+{
+  "name": "cortina_overlay_visual_intelligence_v1",
+  "purpose": "Shared visual intelligence for infographic/A+ overlays. Keep this file focused so PR review stays easy.",
+  "applies_to": ["infographic", "a_plus"],
+  "lighting": {
+    "style": "clean catalog daylight",
+    "quality": "soft even illumination on fabric folds; gentle window light; no harsh HDR bloom; no muddy shadows on callout cards",
+    "color_temperature": "neutral warm for Indian home interiors",
+    "avoid": [
+      "flat overexposed walls",
+      "neon rim light",
+      "heavy vignette",
+      "dramatic gothic contrast"
+    ]
+  },
+  "typography": {
+    "heading_font": "Montserrat Bold (or closest clean modern geometric sans-serif bold)",
+    "body_font": "Open Sans Regular (or closest clean humanist sans-serif)",
+    "heading_size_feel": "large and scannable; short title max 6 words",
+    "body_size_feel": "smaller supporting line; max 10 words",
+    "letter_spacing": "tight-normal; never decorative wide tracking",
+    "text_color": "#2F2F2F charcoal on light cards",
+    "banned": [
+      "script or cursive",
+      "comic fonts",
+      "thin low-contrast gray text",
+      "all-caps body paragraphs",
+      "em dash or en dash characters",
+      "blurry or warped letters"
+    ]
+  },
+  "callout_card": {
+    "layout": "side_panel_icons preferred; keep curtain product clearly visible (at least 55% of frame)",
+    "shape": "rounded rectangle cards with soft shadow and thin warm-beige accent border (#DCC7A1)",
+    "background": "solid opaque white (#FFFFFF) or soft cream card fill - never translucent glass over busy fabric",
+    "padding": "comfortable internal padding so text never touches card edges",
+    "icon": "small circular charcoal or cool-gray badge with simple white symbol; one icon per callout",
+    "alignment": "left-aligned text inside card; consistent card widths in a vertical stack on the right third",
+    "count": "4 to 6 cards",
+    "leader_lines": "thin solid charcoal lines optional; do not cross through product focal folds",
+    "readability_rule": "AA-like contrast: dark text on solid light card only"
+  },
+  "composition_guardrails": {
+    "leave_clear_corner": "top-left for official logo stamp",
+    "no_logo_drawing": true,
+    "product_priority": "curtain pattern and drape remain the hero",
+    "props": "minimal supporting furniture only; never crowd callouts"
+  },
+  "render_prompt_must_include": [
+    "exact callout titles and details from overlays.callouts",
+    "solid white/cream card backgrounds with charcoal Montserrat-like headings",
+    "Open Sans-like body text",
+    "soft even catalog lighting",
+    "no invented logos",
+    "no em dashes"
+  ]
+}

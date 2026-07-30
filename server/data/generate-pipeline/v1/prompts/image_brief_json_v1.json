@@ -1,0 +1,81 @@
+{
+  "name": "cortina_curtains_image_brief_json_v1",
+  "purpose": "Vision+text model inspects the raw product photo and Brand DNA, then returns one JSON image brief for the GPT image model.",
+  "response_schema": {
+    "image_type": "hero|infographic|lifestyle|a_plus",
+    "variant": 1,
+    "creative_angle_name": "string from creative concepts library",
+    "product_visual_lock": {
+      "observed_from_reference_photo": "string",
+      "must_preserve": ["color", "pattern", "fabric_texture", "panel_count_if_visible"]
+    },
+    "composition": {
+      "camera": "string",
+      "framing": "string",
+      "product_hero_priority": "dominant"
+    },
+    "scene": {
+      "room_type": "string",
+      "mood": "string",
+      "props": ["string"],
+      "lighting": "clean catalog daylight; soft even fabric light; no HDR bloom"
+    },
+    "overlays": {
+      "enabled": false,
+      "style": "side_panel_icons",
+      "card_background": "solid opaque white or soft cream",
+      "heading_font": "Montserrat Bold like",
+      "body_font": "Open Sans Regular like",
+      "text_color": "#2F2F2F",
+      "border_accent": "#DCC7A1",
+      "callouts": [
+        {"title": "string max 6 words", "detail": "string max 10 words"}
+      ]
+    },
+    "typography": {
+      "heading_style": "Montserrat Bold, high legibility",
+      "body_style": "Open Sans Regular, readable",
+      "contrast": "charcoal on solid light card"
+    },
+    "logo": {
+      "draw_any_logo_or_brand_wordmark": false,
+      "leave_clear_corner": "top-left"
+    },
+    "forbidden": [
+      "humans",
+      "hands",
+      "invented logos",
+      "em dashes",
+      "invented dimensions",
+      "cartoon style",
+      "translucent busy glass cards",
+      "blurry overlay text",
+      "script fonts"
+    ],
+    "render_prompt": "Single dense English paragraph for the GPT image model. Must spell out overlay font/card/lighting when overlays.enabled=true. ASCII hyphen only."
+  },
+  "system": "You are a Listing-Optimization-AI-class marketplace creative director for Amazon India Curtains. Return ONLY valid JSON with TOP-LEVEL keys matching the schema (render_prompt, product_visual_lock, composition, scene, overlays, logo, forbidden). Do not nest render_prompt under concept. Inspect the raw product photo and describe the REAL pattern/colors/trim in product_visual_lock.observed_from_reference_photo. Never invent curtain length or care. Never use em dashes. Callout titles must copy item_highlights exactly.",
+  "user_template": [
+    "BRAND DNA:\n{{brand_dna}}",
+    "CHANNEL IMAGE RULES:\n{{channel_image_rules_json}}",
+    "CREATIVE CONCEPTS LIBRARY (LOAI-style):\n{{creative_concepts_json}}",
+    "DESIGN SYSTEM:\n{{design_system_json}}",
+    "OVERLAY VISUAL INTELLIGENCE:\n{{overlay_visual_json}}",
+    "SKU CONTEXT:\n{{sku_context_json}}",
+    "GENERATED LISTING TEXT:\n{{generated_text_json}}",
+    "TARGET:\nimage_type={{image_type}}\nvariant={{variant}}\ncreative_angle_name={{creative_angle_name}}\nconcept_angle={{concept_angle}}\ntype_brief={{type_brief}}\nvariant_brief={{variant_brief}}",
+    "REFERENCE: The attached image is the raw Primary Image URL for this SKU. Lock color/pattern/fabric to it.",
+    "OUTPUT RULES:",
+    "- Return one JSON object only.",
+    "- Set creative_angle_name exactly from the TARGET creative_angle_name.",
+    "- PEOPLE: hero + infographic = no humans/hands. lifestyle = REQUIRED one adult model in render_prompt (24-40, natural pose, not covering pattern). a_plus = optional adult in soft background.",
+    "- For hero: overlays.enabled=false and callouts=[]. Clean catalog daylight. No people. Design system does NOT restyle main beyond product lock.",
+    "- For lifestyle: overlays.enabled=false and callouts=[]. MUST include the adult model requirement in render_prompt. Editorial lighting, deep folds, architectural depth.",
+    "- For infographic: overlays.enabled=true with 4-6 callouts. Titles EXACTLY from item_highlights. Right-third solid cards. No people.",
+    "- For a_plus: overlays.enabled=true with 3-5 chips/callouts from highlights. Premium wide module composition. Optional adult.",
+    "- Infographic/A+ cards: solid opaque white/cream, charcoal Montserrat-like headings, Open Sans-like body, warm beige thin border, soft shadow.",
+    "- render_prompt MUST be a dense paragraph that includes: creative angle name, product lock, lighting, people rule for this type, and every callout title+detail when overlays are on.",
+    "- logo.draw_any_logo_or_brand_wordmark must be false.",
+    "- No markdown fences."
+  ]
+}

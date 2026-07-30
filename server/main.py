@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from core.clients.db import DatabaseClient
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
-from routers import health, users
+from routers import generate, health, users
 
 
 @asynccontextmanager
@@ -34,3 +34,4 @@ app = FastAPI(title="Catalog Service", lifespan=lifespan)
 API_PREFIX = "/api"
 app.include_router(health.router, prefix=API_PREFIX)
 app.include_router(users.router, prefix=API_PREFIX)
+app.include_router(generate.router, prefix=API_PREFIX)

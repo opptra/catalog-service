@@ -1,0 +1,57 @@
+{
+  "principle": "Keep only viable source columns actually used by the generate pipeline. Description falls back to Product Name when empty.",
+  "product_key": "SKU",
+  "doc": "generation_input_columns.md",
+  "viable_required": [
+    {
+      "field": "SKU",
+      "pipeline_field": "product_key",
+      "why": "Product key for generation + output tracking"
+    },
+    {
+      "field": "Brand Name",
+      "pipeline_field": "brand",
+      "why": "Brand token + Brand DNA routing"
+    },
+    {
+      "field": "Product Name",
+      "pipeline_field": "product_name",
+      "why": "Main source text for type/color/pattern/pack/opacity cues"
+    },
+    {
+      "field": "Description",
+      "pipeline_field": "description",
+      "why": "Primary enrichment source; falls back to Product Name if empty"
+    },
+    {
+      "field": "Primary Image URL",
+      "pipeline_field": "primary_image_url",
+      "why": "Raw product photo for image brief + GPT image generation"
+    }
+  ],
+  "nice_to_have_if_already_present": [
+    {
+      "field": "Color",
+      "pipeline_field": "color",
+      "why": "Use if filled; else infer from Product Name/Description"
+    },
+    {
+      "field": "Material",
+      "pipeline_field": "material",
+      "why": "Use if filled; else infer from Product Name/Description"
+    }
+  ],
+  "do_not_use": [
+    "Product Length (cm)",
+    "Package LBH / carton dims",
+    "Pack Size / case pack",
+    "Master Title",
+    "Master Description",
+    "Master Bullets",
+    "Marketplace Titles",
+    "Marketplace Descriptions",
+    "Keywords",
+    "pricing/cost fields",
+    "ASIN/FSN and marketplace IDs"
+  ]
+}

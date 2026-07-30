@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "version": "v1",
+    "marketplace": "www.amazon.in",
+    "category": "Curtains & Drapes",
+    "brand": "Cortina",
+    "source_intelligence": "curtains-drapes-analysis.json",
+    "source_brand_dna": "server/cortina_brand_dna.md"
+  },
+  "cost_strategy": {
+    "text_generation": {
+      "mode": "single_batched_call",
+      "outputs": ["title", "bullet_points", "item_highlights"],
+      "calls_per_sku": 1,
+      "reason": "Shared Brand DNA + PIM + category context; avoid 3 separate text calls."
+    },
+    "image_generation": {
+      "mode": "same_type_quantity_variants",
+      "rule": "If user selects quantity N for an image type (e.g. hero=3), make N image calls. Same image type + same shared context; only the variant prompt changes.",
+      "outputs": ["hero", "infographic", "lifestyle", "a_plus"],
+      "calls_formula": "sum(selected_quantity_per_image_type)",
+      "example": {
+        "hero": 3,
+        "infographic": 1,
+        "lifestyle": 0,
+        "a_plus": 0,
+        "image_calls": 4
+      },
+      "reason": "Do not invent a new endpoint per variant. Reuse one image-call path; vary only the prompt."
+    },
+    "shared_context_rules": [
+      "Build sku_context once per SKU from brand_dna + channel_rules + pim product.",
+      "Pass the same sku_context into text batch and every image call.",
+      "Do not re-load Brand DNA / category intelligence / PIM for every attribute or variant.",
+      "After text succeeds, pass generated title + bullets + highlights into image prompts for consistency."
+    ],
+    "max_openrouter_calls_per_sku_formula": "1_text + sum(image_quantities)"
+  },
+  "text_rules": {
+    "title": {
+      "structure": "[Brand] + [Opacity Claim if stated] + [Door/Window Curtain] + [Pack Count if stated] + [Design/Pattern] + [Material if stated] + [Color if stated]",
+      "omit_when_unknown": ["length feet", "dims cm", "hanging style", "care"],
+      "priority_tokens_first_80_chars": ["opacity claim", "curtain form", "pack count", "pattern/color"]
+    },
+    "bullet_points": {
+      "count": 5,
+      "order": [
+        "pack contents + stated material/pattern/color (no invented dims)",
+        "opacity / room-darkening or light-filtering claim only if stated",
+        "design / room-use benefit grounded in product_name",
+        "brand quality / finish tone from Brand DNA (no fake hardware claims)",
+        "what is included / use occasion without inventing care instructions"
+      ],
+      "forbidden_unless_stated": [
+        "exact length/width",
+        "eyelet/grommet/rod-pocket",
+        "machine wash / dry clean",
+        "thermal / noise / UV"
+      ]
+    },
+    "item_highlights": {
+      "count_range": [4, 6],
+      "style": "short scannable benefit chips for A+/gallery overlays",
+      "rule": "No invented size or care chips",
+      "overlay_friendly": {
+        "title_max_words": 6,
+        "no_em_dash": true,
+        "prefer_benefit_nouns": true
+      }
+    }
+  },
+  "image_rules": {
+    "hero": {
+      "goal": "Product-led catalog hero; optional tiny official logo only; no marketing text overlays",
+      "logo": "official brand_logo_primary stamped after generation; never invent logos",
+      "quantity_variants": [
+        "variant_1: straight-on full-drape hero, clean room context",
+        "variant_2: angled/side fall hero showing fabric depth and fold",
+        "variant_3: tie-back / partially drawn hero showing versatility"
+      ]
+    },
+    "infographic": {
+      "goal": "Marketplace overlay image with crisp Brand DNA typography on solid callout cards",
+      "logo": "official logo stamped after generation; never invent logos",
+      "callout_count_range": [4, 6],
+      "overlay_visual": "intelligence/overlay_visual_v1.json",
+      "font": {
+        "heading": "Montserrat Bold like; charcoal #2F2F2F",
+        "body": "Open Sans Regular like; charcoal #2F2F2F"
+      },
+      "card": {
+        "background": "solid opaque white or soft cream",
+        "border": "thin warm beige #DCC7A1",
+        "shadow": "soft",
+        "layout": "right-third vertical stack; curtain remains dominant"
+      },
+      "lighting": "clean catalog daylight; soft even fabric light; no HDR bloom",
+      "quantity_variants": [
+        "variant_1: side-panel benefit icons with solid cards",
+        "variant_2: privacy/room-darkening overlay cards",
+        "variant_3: exploded spotlight without invented LBH"
+      ]
+    },
+    "lifestyle": {
+      "goal": "LOAI-style lifestyle concept: premium editorial Indian home scene WITH one required adult lifestyle model; curtain pattern-locked; no dense text overlays",
+      "people": "required_adult_model",
+      "quantity_variants": [
+        "variant_1: morning living ritual with adult model; curtain hero",
+        "variant_2: evening privacy mood with adult soft in frame; curtain readable",
+        "variant_3: host-ready room with adult; architectural depth"
+      ]
+    },
+    "a_plus": {
+      "goal": "LOAI-style Premium A+ module: wide composition, benefit chips from highlights, optional adult model, design-system palette",
+      "quantity_variants": [
+        "variant_1: premium module strip with benefit chips",
+        "variant_2: privacy/room-darkening proof module",
+        "variant_3: style + material benefit module"
+      ]
+    }
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "name": "cortina_loai_style_creative_concepts_v1",
+  "purpose": "Hardcoded creative library mirroring Listing Optimization AI pack structure (brief → typed concepts → images). No live scrape — concepts are grounded in Brand DNA + channel + PIM only.",
+  "pack_defaults": {
+    "hero": 1,
+    "infographic": 1,
+    "lifestyle": 2,
+    "a_plus": 1
+  },
+  "design_system": {
+    "mode": "studio",
+    "palette": {
+      "primary": ["#FFFFFF", "#2F2F2F"],
+      "secondary": ["#8A8F98", "#DCC7A1"],
+      "card_fill": "#FFFFFF",
+      "card_border": "#DCC7A1",
+      "text": "#2F2F2F"
+    },
+    "typography": {
+      "heading": "Montserrat Bold like",
+      "body": "Open Sans Regular like"
+    },
+    "layout_treatments": [
+      "right-third solid callout stack for infographic",
+      "full-bleed editorial lifestyle with product-dominant framing",
+      "premium A+ module: hero drape left/center + benefit chip strip"
+    ],
+    "steers": ["infographic", "lifestyle", "a_plus"],
+    "does_not_steer": ["hero"]
+  },
+  "concept_types": {
+    "image_concept_main": {
+      "maps_to": "hero",
+      "people": false,
+      "overlays": false,
+      "creative_angles": [
+        {
+          "name": "Clean Catalog CTR",
+          "variant": 1,
+          "angle": "Straight-on full-length drape, product fills frame, soft daylight, empty clean Indian living room, zero text"
+        },
+        {
+          "name": "Fold Depth Hero",
+          "variant": 2,
+          "angle": "Angled side-fall showing fabric thickness and sheen; still product-locked; no people; no text"
+        },
+        {
+          "name": "Drawn Versatility",
+          "variant": 3,
+          "angle": "Partially drawn / tie-back feel without inventing hardware; product identity unchanged"
+        }
+      ]
+    },
+    "image_concept_infographic": {
+      "maps_to": "infographic",
+      "people": false,
+      "overlays": true,
+      "creative_angles": [
+        {
+          "name": "Benefit Stack Right",
+          "variant": 1,
+          "angle": "4-6 solid white/cream callout cards on right third; titles EXACTLY from item_highlights; curtain dominant left/center"
+        },
+        {
+          "name": "Privacy Proof Overlay",
+          "variant": 2,
+          "angle": "Focus cards on room-darkening / privacy only if stated; no fake size chart"
+        },
+        {
+          "name": "Fabric Spotlight + Benefits",
+          "variant": 3,
+          "angle": "Close fabric texture hero plus benefit cards; still fact-locked"
+        }
+      ]
+    },
+    "image_concept_lifestyle": {
+      "maps_to": "lifestyle",
+      "people": "required_adult_model",
+      "overlays": false,
+      "creative_angles": [
+        {
+          "name": "Morning Living Ritual",
+          "variant": 1,
+          "angle": "REQUIRED: one adult (24-40) reading or coffee near window; curtain full-length with deep folds as clear hero; pattern fully readable; editorial natural light"
+        },
+        {
+          "name": "Evening Privacy Mood",
+          "variant": 2,
+          "angle": "REQUIRED: one adult soft in frame edge of bedroom/living; evening warm light; curtain pattern exact match to raw photo; no text overlays"
+        },
+        {
+          "name": "Host-Ready Room",
+          "variant": 3,
+          "angle": "REQUIRED: adult host vibe in modern Indian apartment; architectural depth; curtain never occluded"
+        }
+      ]
+    },
+    "a_plus_content": {
+      "maps_to": "a_plus",
+      "people": "optional_adult_model",
+      "overlays": true,
+      "creative_angles": [
+        {
+          "name": "Premium Module Strip",
+          "variant": 1,
+          "angle": "Wide A+ module feel: full-bleed room + 3-5 benefit chips from highlights; optional adult in soft background; brand palette; leave top-left clear"
+        },
+        {
+          "name": "Darkening Proof Module",
+          "variant": 2,
+          "angle": "A+ storytelling for room-darkening/privacy if stated; solid cards; crisp type"
+        },
+        {
+          "name": "Style + Material Module",
+          "variant": 3,
+          "angle": "Material/pattern beauty module using only stated facts; editorial polish above average marketplace A+"
+        }
+      ]
+    }
+  },
+  "quality_bar": {
+    "benchmark": "Beat typical Story@Home Amazon gallery: deeper folds, truer pattern lock, cleaner overlay cards, editorial lighting",
+    "product_lock": "Color, floral/geometric pattern, fabric hand, and panel count must match raw primary photo",
+    "logo": "Never draw logos; official Cortina logo stamped post-gen top-left",
+    "facts": "Callouts only from item_highlights / bullets / product_name — never invent grommets, sizes, care"
+  }
+}

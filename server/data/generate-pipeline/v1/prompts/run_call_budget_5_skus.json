@@ -1,0 +1,26 @@
+{
+  "for_each_sku_in_manifest": [
+    "1) Load Brand DNA once per run (cache in memory)",
+    "2) Load channel rules once per run (cache in memory)",
+    "3) Load PIM product by product_key=SKU",
+    "4) Build sku_context once",
+    "5) TEXT: 1 OpenRouter chat call -> title, bullet_points, item_highlights",
+    "6) IMAGES: for each selected image type and quantity N: make N calls of the SAME image generate method; only variant prompt changes",
+    "7) Persist text + local image paths/URLs with slot=variant_index"
+  ],
+  "call_budget_formula": {
+    "text_calls": "1 * sku_count",
+    "image_calls": "sum(selected_quantities_across_types) * sku_count",
+    "example_5_skus_hero3_only": {
+      "text_calls": 5,
+      "image_calls": 15,
+      "total_calls": 20
+    },
+    "example_5_skus_all_types_qty1": {
+      "text_calls": 5,
+      "image_calls": 20,
+      "total_calls": 25
+    },
+    "note": "No extra rewrite loops in v1. Quantity drives call count, not new endpoints."
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "cortina_curtains_image_quantity_variants_v1",
+  "rule": "For each selected image type/variant: (1) text/vision model builds JSON brief from Brand DNA + SKU + listing text + raw product photo, (2) GPT image model renders using that JSON + raw product photo. Official logo is stamped after generation.",
+  "image_types": ["hero", "infographic", "lifestyle", "a_plus"],
+  "call_shape": {
+    "endpoint": "same_image_generate_call",
+    "inputs": [
+      "json_image_brief (from vision/text model)",
+      "raw_product_primary_image",
+      "type + variant"
+    ]
+  },
+  "per_type_brief": {
+    "hero": "Product-led catalog hero. Curtain is the clear hero in a clean interior. No people. No logos. No marketing text overlays. No callout cards.",
+    "infographic": "Marketplace overlay image: realistic curtain room with soft catalog daylight PLUS 4-6 solid white/cream callout cards. Headings in Montserrat Bold-like charcoal; body in Open Sans-like charcoal. Thin warm-beige borders, soft shadows, right-third stack. Exact callout copy from generated highlights. No people. No logos. No invented LBH. Keep top-left clear.",
+    "lifestyle": "LOAI lifestyle concept. REQUIRED: show exactly one adult lifestyle model (24-40) clearly visible in the room (not cropped out, not tiny silhouette). Curtain remains the visual hero with exact pattern lock from raw photo. Photoreal Indian home, editorial light, deep folds, architectural depth. No text overlays. No logos.",
+    "a_plus": "LOAI Premium A+ module (wide 970px-feel). Curtain dominates. Optional adult soft in background. 3-5 solid benefit chips from item_highlights only with Montserrat/Open-Sans-like type. Design-system palette. Keep top-left clear for logo stamp."
+  },
+  "variant_briefs": {
+    "hero": {
+      "1": "Clean Catalog CTR: straight-on full-length drape; product fills frame; no text; no people.",
+      "2": "Fold Depth Hero: angled side-fall; fabric thickness/sheen; no text; no people.",
+      "3": "Drawn Versatility: partially drawn feel without inventing hardware; no text; no people."
+    },
+    "infographic": {
+      "1": "Benefit Stack Right: 4-6 solid cards; titles from highlights; no people.",
+      "2": "Privacy Proof Overlay: room-darkening/privacy cards if stated; no fake sizes; no people.",
+      "3": "Fabric Spotlight + Benefits: texture hero + fact-locked cards; no people."
+    },
+    "lifestyle": {
+      "1": "Morning Living Ritual: REQUIRED adult reading/coffee by window; curtain hero with deep folds.",
+      "2": "Evening Privacy Mood: REQUIRED adult soft at frame edge; warm evening light; pattern exact.",
+      "3": "Host-Ready Room: REQUIRED adult host vibe; architectural depth; curtain never occluded."
+    },
+    "a_plus": {
+      "1": "Premium Module Strip: full-bleed room + 3-5 highlight chips; optional adult background.",
+      "2": "Darkening Proof Module: privacy/darkening storytelling if stated; solid cards.",
+      "3": "Style + Material Module: stated facts only; editorial polish."
+    }
+  }
+}
