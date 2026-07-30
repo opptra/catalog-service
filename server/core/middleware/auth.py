@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from core.exceptions import UserInactiveError, UserNotFoundError
+from core.exceptions import UserNotFoundError
 from services import users as user_service
 
 
@@ -51,8 +51,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
             user = await run_in_threadpool(_lookup_user, request, claims["sub"])
         except UserNotFoundError as exc:
             return JSONResponse({"detail": str(exc)}, status_code=401)
-        except UserInactiveError as exc:
-            return JSONResponse({"detail": str(exc)}, status_code=403)
 
         request.state.user = user
         return await call_next(request)
@@ -71,6 +69,6 @@ def _extract_bearer_token(request: Request) -> str | None:
 def _lookup_user(request: Request, google_sub: str):
     session = request.app.state.user_db.session_factory()
     try:
-        return user_service.get_active_user_by_google_sub(session, google_sub)
+        return user_service.get_user_by_google_sub(session, google_sub)
     finally:
         session.close()

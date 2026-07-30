@@ -3,7 +3,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from core.exceptions import InvalidGoogleClaimsError, UserInactiveError, UserNotFoundError
+from core.exceptions import InvalidGoogleClaimsError, UserNotFoundError
 from entities.user_service.user import User
 from repositories.user_service import user as user_repository
 
@@ -35,10 +35,8 @@ def upsert_google_user(session: Session, claims: dict[str, Any]) -> User:
     return user
 
 
-def get_active_user_by_google_sub(session: Session, google_sub: str) -> User:
+def get_user_by_google_sub(session: Session, google_sub: str) -> User:
     user = user_repository.get_by_google_sub(session, google_sub)
     if user is None:
         raise UserNotFoundError(google_sub)
-    if not user.is_active:
-        raise UserInactiveError(google_sub)
     return user

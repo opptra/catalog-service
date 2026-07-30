@@ -9,9 +9,7 @@ export interface User {
   updated_at: string
 }
 
-export async function getUserByExternalId(externalId: string): Promise<User> {
-  const { data } = await api.get<User>(
-    `/users/by-external-id/${encodeURIComponent(externalId)}`,
-  )
+export async function getCurrentUser(): Promise<User> {
+  const { data } = await api.get<User>('/users/me')
   return data
 }

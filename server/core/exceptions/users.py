@@ -7,9 +7,3 @@ class UserNotFoundError(Exception):
 class InvalidGoogleClaimsError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
-
-
-class UserInactiveError(Exception):
-    def __init__(self, identifier: str) -> None:
-        self.identifier = identifier
-        super().__init__(f"User is inactive: {identifier}")

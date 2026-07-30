@@ -1,3 +1,0 @@
-ALTER TABLE users
-    ADD COLUMN google_sub TEXT UNIQUE,
-    ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT true;
