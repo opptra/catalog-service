@@ -11,6 +11,4 @@ def get_by_id(session: Session, attribute_id: int) -> AttributeMaster | None:
 
 
 def get_by_external_id(session: Session, external_id: UUID) -> AttributeMaster | None:
-    return session.scalar(
-        select(AttributeMaster).where(AttributeMaster.external_id == external_id)
-    )
+    return session.scalar(select(AttributeMaster).where(AttributeMaster.external_id == external_id))

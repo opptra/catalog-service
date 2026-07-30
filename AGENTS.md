@@ -28,6 +28,22 @@ tell the user the task is done:
 If a check fails on code you did not touch, flag it in your summary instead of silently fixing
 unrelated things.
 
+## Never write to a database — non-negotiable
+
+**You must not execute statements that modify any database.** This includes, against every
+environment (local, cloud, or otherwise):
+
+- Schema changes: `CREATE`, `ALTER`, `DROP`, `TRUNCATE`, migrations of any kind.
+- Data changes: `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `COPY ... FROM`.
+- Any script, ORM call, or tool invocation whose effect is a write.
+
+Read-only inspection (`SELECT`, `\d`, `EXPLAIN` without side effects) is allowed for verification.
+
+When a task needs a schema or data change, **produce the SQL/migration file for a human to review
+and run** — write it to `server/sql/` (or the appropriate migrations location) and tell the user to
+apply it themselves. Never apply it for them, even to "verify" your work. If you cannot verify
+without a DB change, say so and stop.
+
 ## Operating principles (intent, not rigid scripts)
 
 You have room to choose the best implementation — keep to the intent, not a fixed recipe:
