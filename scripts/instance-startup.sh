@@ -62,8 +62,16 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - server.env
     restart: unless-stopped
+EOF
+
+# Compose auto-loads `.env` for ${VAR} interpolation in compose.yml.
+# Keep secrets in server.env so characters like `$` in DB_PASSWORD are not
+# treated as compose variables.
+cat > .env <<EOF
+CLIENT_IMAGE=${CLIENT_IMAGE}
+SERVER_IMAGE=${SERVER_IMAGE}
 EOF
 
 curl -sf -H "Authorization: Bearer ${TOKEN}" \
@@ -74,12 +82,12 @@ raw=base64.b64decode(p["payload"]["data"])
 data=json.loads(raw)
 lines=[]
 for k,v in data.items():
-  t="" if v is None else str(v).replace("\n","\\n")
-  lines.append(f"{k}={t}")
-Path(".env").write_text("\n".join(lines)+"\n")
-print("Wrote .env", len(lines), "keys")'
+  t="" if v is None else str(v).replace("\\", "\\\\").replace("\n", "\\n")
+  # Quote values so special chars ($ # etc.) survive dotenv parsing.
+  lines.append(f"{k}={json.dumps(t)}")
+Path("server.env").write_text("\n".join(lines)+"\n")
+print("Wrote server.env", len(lines), "keys")'
 
-export CLIENT_IMAGE SERVER_IMAGE
 docker compose pull
 docker compose up -d --no-build --remove-orphans
 docker compose ps
