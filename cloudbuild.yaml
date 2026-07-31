@@ -5,16 +5,16 @@
 #   catalog-service-server  → read on VM by instance startup (not SCP'd by deploy)
 #
 # Substitutions:
-#   _REGION, _AR_REPO, _MIG_NAME
-#   Zonal MIG: _MIG_ZONE (e.g. asia-south1-a)
-#   Regional MIG: pass _MIG_REGION via trigger substitutions instead of _MIG_ZONE
+#   _REGION, _AR_REPO, _MIG_NAME, _MIG_REGION
+#   Deploy targets a regional MIG (zone-agnostic). Create the MIG with
+#   --region=asia-south1 (not --zone=...).
 #   _CLIENT_SECRET, _SERVER_SECRET  (optional overrides)
 
 substitutions:
   _REGION: asia-south1
   _AR_REPO: catalog-service
   _MIG_NAME: catalog-service-ig
-  _MIG_ZONE: asia-south1-a
+  _MIG_REGION: asia-south1
   _CLIENT_SECRET: catalog-service-client
   _SERVER_SECRET: catalog-service-server
 
@@ -92,6 +92,6 @@ steps:
         chmod +x scripts/deploy-gce.sh
         export PROJECT_ID="${PROJECT_ID}"
         export MIG_NAME="${_MIG_NAME}"
-        export MIG_ZONE="${_MIG_ZONE}"
+        export MIG_REGION="${_MIG_REGION}"
         ./scripts/deploy-gce.sh
     waitFor: [push-client, push-server]
