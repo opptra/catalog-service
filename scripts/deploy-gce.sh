@@ -5,10 +5,14 @@ set -euo pipefail
 # script (scripts/instance-startup.sh), which pulls :latest images from Artifact
 # Registry and loads server env from Secret Manager.
 #
+# Default path is a regional (zone-agnostic) MIG so replaces can land in any
+# zone in the region when one zone is out of capacity.
+#
 # Required env:
 #   MIG_NAME
-#   MIG_REGION  (regional MIG)  OR  MIG_ZONE (zonal MIG)
+#   MIG_REGION          (regional MIG — preferred; e.g. asia-south1)
 # Optional:
+#   MIG_ZONE            (zonal MIG only — legacy; do not set with MIG_REGION)
 #   PROJECT_ID          (defaults to gcloud config)
 #   MAX_SURGE           (default: 0)
 #   MAX_UNAVAILABLE     (default: 3 — required for many regional MIGs)
@@ -32,7 +36,8 @@ if [[ -n "${MIG_REGION}" && -n "${MIG_ZONE}" ]]; then
 fi
 
 if [[ -z "${MIG_REGION}" && -z "${MIG_ZONE}" ]]; then
-  echo "MIG_REGION (regional) or MIG_ZONE (zonal) is required." >&2
+  echo "MIG_REGION is required (regional / zone-agnostic MIG)." >&2
+  echo "For a legacy zonal MIG only, set MIG_ZONE instead." >&2
   exit 1
 fi
 
@@ -42,6 +47,7 @@ if [[ -n "${MIG_REGION}" ]]; then
   location_args=(--region="${MIG_REGION}")
   location_label="region ${MIG_REGION}"
 else
+  echo "Warning: MIG_ZONE is legacy; prefer a regional MIG with MIG_REGION." >&2
   location_args=(--zone="${MIG_ZONE}")
   location_label="zone ${MIG_ZONE}"
 fi
