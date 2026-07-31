@@ -43,7 +43,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         google_client = request.app.state.google_auth
         try:
-            claims = google_client.verify_id_token(token)
+            claims = await run_in_threadpool(google_client.verify_id_token, token)
         except (ValueError, GoogleAuthError):
             return JSONResponse({"detail": "Invalid Google ID token"}, status_code=401)
 
