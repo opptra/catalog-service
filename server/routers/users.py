@@ -2,19 +2,27 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
-from core.deps import SessionDep
-from core.exceptions import UserNotFoundError
+from core.deps import CatalogSessionDep, CurrentUserDep, UserSessionDep
+from dto.brand_access import BrandAccessResponse
 from dto.users import UserResponse
-from services import users as user_service
+from services import brand_access as brand_access_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/by-external-id/{external_id}", response_model=UserResponse)
-def get_user_by_external_id(external_id: UUID, session: SessionDep) -> UserResponse:
-    try:
-        user = user_service.get_user_by_external_id(session, external_id)
-    except UserNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
+@router.get("/me", response_model=UserResponse)
+def get_current_user(user: CurrentUserDep) -> UserResponse:
     return UserResponse.model_validate(user)
+
+
+@router.get("/{external_id}/brands", response_model=list[BrandAccessResponse])
+def get_user_brand_access(
+    external_id: UUID,
+    user: CurrentUserDep,
+    user_session: UserSessionDep,
+    catalog_session: CatalogSessionDep,
+) -> list[BrandAccessResponse]:
+    if external_id != user.external_id:
+        raise HTTPException(status_code=403, detail="Cannot access another user's brand access")
+
+    return brand_access_service.list_brand_access_for_user(user_session, catalog_session, user.id)

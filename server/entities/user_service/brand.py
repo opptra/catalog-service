@@ -1,16 +1,24 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, Identity, Text, func
+from sqlalchemy import Identity, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import DateTime
 
-from entities.base import Base
+from entities.user_service.base import Base
 
 
-class Job(Base):
-    __tablename__ = "job"
+class Brand(Base):
+    """Lightweight brand mirror in the user-service schema.
+
+    Each row's ``external_id`` is independent of the catalog-service brand's
+    own ``external_id``; the catalog-service ``brand.user_service_brand_id``
+    column stores this row's ``external_id`` to link the two without a
+    cross-database foreign key.
+    """
+
+    __tablename__ = "brand"
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     external_id: Mapped[UUID] = mapped_column(
@@ -19,9 +27,7 @@ class Job(Base):
         nullable=False,
         default=uuid4,
     )
-    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    marketplace_id: Mapped[int] = mapped_column(ForeignKey("marketplace.id"), nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

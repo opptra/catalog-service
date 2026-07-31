@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from entities.job_attribute import JobAttribute
+from entities.catalog.job_attribute import JobAttribute
 
 
 def get_by_id(session: Session, job_attribute_id: int) -> JobAttribute | None:

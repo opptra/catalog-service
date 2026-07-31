@@ -9,7 +9,7 @@ export interface User {
   updated_at: string
 }
 
-export async function getCurrentUser(): Promise<User> {
-  const { data } = await api.get<User>('/users/me')
+export async function loginWithGoogle(idToken: string): Promise<User> {
+  const { data } = await api.post<User>('/auth/google', { id_token: idToken })
   return data
 }

@@ -5,16 +5,40 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from core.clients.db import DatabaseClient
+from core.clients.google_auth import GoogleAuthClient
 from core.clients.openrouter import OpenRouterClient
+from entities.user_service.user import User
 
 
-def get_db_session(request: Request) -> Iterator[Session]:
-    db: DatabaseClient = request.app.state.db
+def _session(db: DatabaseClient) -> Iterator[Session]:
+    """One session per request. No request-level transaction: repository
+    writes commit immediately (see repositories.base), so partial progress
+    is never rolled back by a later failure in the same request.
+    """
     session = db.session_factory()
     try:
         yield session
     finally:
         session.close()
+
+
+def get_catalog_session(request: Request) -> Iterator[Session]:
+    yield from _session(request.app.state.catalog_db)
+
+
+def get_user_session(request: Request) -> Iterator[Session]:
+    yield from _session(request.app.state.user_db)
+
+
+CatalogSessionDep = Annotated[Session, Depends(get_catalog_session)]
+UserSessionDep = Annotated[Session, Depends(get_user_session)]
+
+
+def get_google_auth_client(request: Request) -> GoogleAuthClient:
+    return request.app.state.google_auth
+
+
+GoogleAuthClientDep = Annotated[GoogleAuthClient, Depends(get_google_auth_client)]
 
 
 def get_openrouter_client(request: Request) -> OpenRouterClient:
@@ -24,5 +48,17 @@ def get_openrouter_client(request: Request) -> OpenRouterClient:
     return client
 
 
-SessionDep = Annotated[Session, Depends(get_db_session)]
 OpenRouterDep = Annotated[OpenRouterClient, Depends(get_openrouter_client)]
+
+
+def get_current_user(request: Request) -> User:
+    """The authenticated user resolved by the auth middleware.
+
+    The middleware verifies the Google token, looks up the user and binds it
+    to ``request.state.user`` before any handler runs, so this is just an
+    accessor — it never verifies tokens or hits the database itself.
+    """
+    return request.state.user
+
+
+CurrentUserDep = Annotated[User, Depends(get_current_user)]

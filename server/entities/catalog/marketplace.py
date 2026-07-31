@@ -6,11 +6,11 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import DateTime
 
-from entities.base import Base
+from entities.catalog.base import Base
 
 
-class User(Base):
-    __tablename__ = "users"
+class Marketplace(Base):
+    __tablename__ = "marketplace"
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     external_id: Mapped[UUID] = mapped_column(
@@ -20,7 +20,6 @@ class User(Base):
         default=uuid4,
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

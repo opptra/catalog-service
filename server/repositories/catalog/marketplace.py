@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from entities.marketplace import Marketplace
+from entities.catalog.marketplace import Marketplace
 
 
 def get_by_id(session: Session, marketplace_id: int) -> Marketplace | None:
