@@ -8,7 +8,7 @@ from core.clients.google_auth import GoogleAuthClient
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from core.middleware.auth import AuthMiddleware
-from routers import auth, health, users
+from routers import auth, health, job, users
 
 
 @asynccontextmanager
@@ -54,3 +54,4 @@ API_PREFIX = "/api"
 app.include_router(health.router, prefix=API_PREFIX)
 app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(auth.router, prefix=API_PREFIX)
+app.include_router(job.router, prefix=API_PREFIX)

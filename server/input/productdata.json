@@ -1,0 +1,174 @@
+{"brand_image": "https://cortinaindia.com/cdn/shop/files/cortinalogo_140x.png?v=1735900797",
+  "products": [
+    {
+      "product_key": "COR-26756568",
+      "sku": "COR-26756568",
+      "article_code": "COR-26756568",
+      "brand": "Cortina",
+      "category": "CURTAIN",
+      "sub_category": "Curtains",
+      "product_name": "Cortina White & Grey 2 Pcs Floral Room Darkening Cotton Door Curtains",
+      "status": "draft",
+      "dimensions_cm": {
+        "product_length_cm": 25.0,
+        "product_width_cm": 25.0,
+        "product_height_cm": 6.0,
+        "package_length_cm": 25.0,
+        "package_width_cm": 25.0,
+        "package_height_cm": 6.0
+      },
+      "pack": {
+        "pack_size": 8.0,
+        "net_quantity": 8.0,
+        "case_pack": 8.0
+      },
+      "weight_kg": 0.75,
+      "attributes_optional": {
+        "color": null,
+        "material": null,
+        "fabric_care": null,
+        "keywords": null
+      },
+      "source_assets": {
+        "primary_image_url": "https://scbaqsxhzeouxqnijoex.supabase.co/storage/v1/object/public/product-images/Cortina/26756568/26756568-1.jpg",
+        "raw_image_link": null
+      }
+    },
+    {
+      "product_key": "COR-32499672",
+      "sku": "COR-32499672",
+      "article_code": "COR-32499672",
+      "brand": "Cortina",
+      "category": "CURTAIN",
+      "sub_category": "Curtains",
+      "product_name": "Cortina Pink & White 2 Pieces Quirky Cotton Window Curtains",
+      "status": "draft",
+      "dimensions_cm": {
+        "product_length_cm": 26.0,
+        "product_width_cm": 26.0,
+        "product_height_cm": 6.0,
+        "package_length_cm": 26.0,
+        "package_width_cm": 26.0,
+        "package_height_cm": 6.0
+      },
+      "pack": {
+        "pack_size": 10.0,
+        "net_quantity": 10.0,
+        "case_pack": 10.0
+      },
+      "weight_kg": 0.69,
+      "attributes_optional": {
+        "color": null,
+        "material": null,
+        "fabric_care": null,
+        "keywords": null
+      },
+      "source_assets": {
+        "primary_image_url": "https://scbaqsxhzeouxqnijoex.supabase.co/storage/v1/object/public/product-images/Cortina/32499672/32499672-1.jpg",
+        "raw_image_link": null
+      }
+    },
+    {
+      "product_key": "COR-26756544",
+      "sku": "COR-26756544",
+      "article_code": "COR-26756544",
+      "brand": "Cortina",
+      "category": "CURTAIN",
+      "sub_category": "Curtains",
+      "product_name": "Cortina White & Grey 2 Pcs Geometric Room Darkening Cotton Long Door Curtains",
+      "status": "draft",
+      "dimensions_cm": {
+        "product_length_cm": 26.0,
+        "product_width_cm": 26.0,
+        "product_height_cm": 6.0,
+        "package_length_cm": 26.0,
+        "package_width_cm": 26.0,
+        "package_height_cm": 6.0
+      },
+      "pack": {
+        "pack_size": 8.0,
+        "net_quantity": 8.0,
+        "case_pack": 8.0
+      },
+      "weight_kg": 0.85,
+      "attributes_optional": {
+        "color": null,
+        "material": null,
+        "fabric_care": null,
+        "keywords": null
+      },
+      "source_assets": {
+        "primary_image_url": "https://scbaqsxhzeouxqnijoex.supabase.co/storage/v1/object/public/product-images/Cortina/26756544/26756544-1.jpg",
+        "raw_image_link": null
+      }
+    },
+    {
+      "product_key": "COR-B0F4DTR48V",
+      "sku": "COR-B0F4DTR48V",
+      "article_code": "COR-B0F4DTR48V",
+      "brand": "Cortina",
+      "category": "Curtain",
+      "sub_category": "Home Furnishing",
+      "product_name": "Cortina Linen Polyester Printed Curtains Set of 2, Curtain for Doors Home Decor Items for Living Room Bedroom (Purple, 5FT)",
+      "status": "draft",
+      "dimensions_cm": {
+        "product_length_cm": 24.0,
+        "product_width_cm": 24.0,
+        "product_height_cm": 6.0,
+        "package_length_cm": 24.0,
+        "package_width_cm": 24.0,
+        "package_height_cm": 6.0
+      },
+      "pack": {
+        "pack_size": 15.0,
+        "net_quantity": 15.0,
+        "case_pack": 15.0
+      },
+      "weight_kg": 0.69,
+      "attributes_optional": {
+        "color": "Purple",
+        "material": "Polyester",
+        "fabric_care": null,
+        "keywords": null
+      },
+      "source_assets": {
+        "primary_image_url": "https://scbaqsxhzeouxqnijoex.supabase.co/storage/v1/object/public/product-images/Cortina/B0F4DTR48V/B0F4DTR48V-1.jpg",
+        "raw_image_link": null
+      }
+    },
+    {
+      "product_key": "COR-B0BPCV1MLJ",
+      "sku": "COR-B0BPCV1MLJ",
+      "article_code": "COR-B0BPCV1MLJ",
+      "brand": "Cortina",
+      "category": "Curtain",
+      "sub_category": "Home Furnishing",
+      "product_name": "Cortina semi Sheer 2 Piece Solid Design Panel Eyelet Velvet Window Curtains - 5 Feet, Red",
+      "status": "draft",
+      "dimensions_cm": {
+        "product_length_cm": 24.0,
+        "product_width_cm": 24.0,
+        "product_height_cm": 6.0,
+        "package_length_cm": 24.0,
+        "package_width_cm": 24.0,
+        "package_height_cm": 6.0
+      },
+      "pack": {
+        "pack_size": 10.0,
+        "net_quantity": 10.0,
+        "case_pack": 10.0
+      },
+      "weight_kg": 0.69,
+      "attributes_optional": {
+        "color": "Red",
+        "material": "Polyester",
+        "fabric_care": "Machine Wash",
+        "keywords": null
+      },
+      "source_assets": {
+        "primary_image_url": "https://scbaqsxhzeouxqnijoex.supabase.co/storage/v1/object/public/product-images/Cortina/B0BPCV1MLJ/B0BPCV1MLJ-1.jpg",
+        "raw_image_link": null
+      }
+    }
+  ]
+}

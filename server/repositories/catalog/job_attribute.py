@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
@@ -12,3 +13,7 @@ def get_by_id(session: Session, job_attribute_id: int) -> JobAttribute | None:
 
 def get_by_external_id(session: Session, external_id: UUID) -> JobAttribute | None:
     return session.scalar(select(JobAttribute).where(JobAttribute.external_id == external_id))
+
+
+def list_by_job_id(session: Session, job_id: int) -> Sequence[JobAttribute]:
+    return session.scalars(select(JobAttribute).where(JobAttribute.job_id == job_id)).all()

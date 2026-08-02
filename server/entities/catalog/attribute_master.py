@@ -1,10 +1,20 @@
+from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Identity, Text
+from sqlalchemy import Boolean, Enum, Identity
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from entities.catalog.attribute_enums import (
+    AttributeDataType,
+    AttributeGroupLabel,
+    AttributeName,
+)
 from entities.catalog.base import Base
+
+
+def _str_enum_values(enum_cls: type[StrEnum]) -> list[str]:
+    return [member.value for member in enum_cls]
 
 
 class AttributeMaster(Base):
@@ -17,8 +27,35 @@ class AttributeMaster(Base):
         nullable=False,
         default=uuid4,
     )
-    name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    data_type: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[AttributeName] = mapped_column(
+        Enum(
+            AttributeName,
+            name="attribute_name",
+            values_callable=_str_enum_values,
+            native_enum=False,
+            validate_strings=True,
+        ),
+        unique=True,
+        nullable=False,
+    )
+    data_type: Mapped[AttributeDataType] = mapped_column(
+        Enum(
+            AttributeDataType,
+            name="attribute_data_type",
+            values_callable=_str_enum_values,
+            native_enum=False,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
     allows_quantity: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    group_label: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status_group: Mapped[str | None] = mapped_column(Text, nullable=True)
+    group_label: Mapped[AttributeGroupLabel | None] = mapped_column(
+        Enum(
+            AttributeGroupLabel,
+            name="attribute_group_label",
+            values_callable=_str_enum_values,
+            native_enum=False,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )

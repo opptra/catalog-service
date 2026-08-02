@@ -26,6 +26,25 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
+    # Model IDs the generation pipeline passes to OpenRouter. The client never
+    # hardcodes models, so these are the single place to tune them. Override in
+    # .env; the image model must support the image output modality. Selected via
+    # the openrouter-models skill (live pricing/capabilities).
+    openrouter_prompt_model: str = "openai/gpt-5.4-mini"
+    openrouter_text_model: str = "openai/gpt-5.4-mini"
+    # Which image provider services.job._run_images() actually dispatches to
+    # ("gemini" or "gpt") — this is what makes switching providers safe. Each
+    # provider has its own request shape (see generate_gemini_image vs
+    # generate_gpt_image), so the provider and its model ID must change together;
+    # just editing openrouter_image_model below does NOT switch the code path.
+    openrouter_image_provider: str = "gpt"
+    # Gemini-family model ID, used only when openrouter_image_provider == "gemini".
+    openrouter_image_model: str = "google/gemini-3-pro-image"
+    # OpenAI image model ID ("ChatGPT" image generation), used only when
+    # openrouter_image_provider == "gpt". Separate dedicated Images API, separate
+    # aspect_ratio rules (only 1:1/3:2/2:3/auto) — see generate_gpt_image.
+    openrouter_gpt_image_model: str = "openai/gpt-image-1"
+
     # Paths the auth middleware serves without a Google ID token.
     public_paths: list[str] = [
         "/",
