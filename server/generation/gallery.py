@@ -44,7 +44,6 @@ class SlotPlan:
     slot: int
     prompt: str
     concept: str | None = None
-    aspect_ratio: str | None = None
 
 
 def plan(
@@ -111,6 +110,5 @@ def _index_plan(parsed: dict[str, Any]) -> dict[tuple[AttributeName, int], SlotP
                 slot=slot,
                 prompt=full_prompt,
                 concept=entry.get("concept"),
-                aspect_ratio=entry.get("aspect_ratio"),
             )
     return indexed

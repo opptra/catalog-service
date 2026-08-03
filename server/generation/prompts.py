@@ -67,9 +67,11 @@ def text_generation_prompt(
 def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeName, int]]) -> str:
     """Category-agnostic brief: plan ONE coherent, non-duplicated image gallery as strict JSON.
 
-    The model decides each image's role, composition, aspect ratio, on-image text and logo placement
-    from the Category Intelligence + Brand DNA + the attached real product image — no per-type
-    templates and no category-specific vocabulary in this prompt.
+    The model decides each image's role, composition and on-image text from the Category
+    Intelligence + Brand DNA + the attached real product image — no per-type templates and no
+    category-specific vocabulary in this prompt. Two things are deliberately NOT the model's job:
+    aspect ratio (the renderer uses a fixed ratio per image type) and brand-logo placement (the
+    logo is composited deterministically downstream, not drawn by the image model).
     """
     brief = category.image_brief(ctx.category_intelligence)
     schema = (
@@ -77,7 +79,7 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
         '  "shared_style": "<one paragraph: the visual system linking every image — palette, mood, '
         'product rendering, lighting>",\n'
         '  "slots": [\n'
-        '    {"type": "<TYPE>", "slot": <n>, "concept": "<short label>", "aspect_ratio": "<w:h>", '
+        '    {"type": "<TYPE>", "slot": <n>, "concept": "<short label>", '
         '"prompt": "<complete standalone image-generation prompt for this slot>"}\n'
         "  ]\n"
         "}"
@@ -94,6 +96,7 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
         "produce (by type and count). Decide from the Category Intelligence gallery guidance, the "
         "Brand DNA visual identity, and the attached product image(s) — what each image should "
         "be so that together they form one connected, non-duplicated gallery.\n\n"
+        f"{_reference_photos_note(ctx.product_image_urls)}\n\n"
         "Images to produce (output EXACTLY one plan entry per slot):\n"
         f"{_requested_block(requested)}\n\n"
         "For EVERY slot, reason it out (do NOT use fixed templates) and decide:\n"
@@ -107,13 +110,15 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
         "- physical coherence: show the product realistically and correctly used/placed;\n"
         "- on-image text/badges appropriate to this image role and the marketplace's compliance "
         "rules (a strict primary/main image carries no text or badges; secondary images may);\n"
-        "- brand-logo placement: the logo belongs on EVERY image, including the primary/main "
-        "image — always small, non-intrusive and never covering the product's focal details;\n"
-        "- the optimal aspect_ratio for this image role and product.\n\n"
+        "- do NOT place any brand logo or brand name on the image — the logo is added later by a "
+        "separate deterministic step, so never draw, render or leave space for it;\n"
+        "- do NOT choose or mention an aspect ratio, canvas shape, orientation or pixel/format "
+        "dimensions anywhere — the renderer uses a fixed ratio per image type, so compose for the "
+        "subject and leave the canvas shape entirely to the system.\n\n"
         "Keep the whole set LINKED via one shared visual system so every image clearly belongs to "
         "the same product and brand. Use product facts ONLY from PRODUCT DATA; if a helpful detail "
-        "is missing, stay neutral — never fabricate. The real product reference image(s) and the "
-        "brand logo are also supplied to the image model at render time.\n\n"
+        "is missing, stay neutral — never fabricate. The real product reference image(s) are also "
+        "supplied to the image model at render time.\n\n"
         f"{_RULES}\n\n"
         f"{_category_block(brief)}\n\n"
         f"{_brand_block(ctx.brand_dna)}\n\n"
@@ -144,9 +149,25 @@ def _text_format_instruction(names: list[AttributeName]) -> str:
 
 
 def _product_block(product: dict) -> str:
+    # source_assets is dropped from the text block: the images it points to are attached above as
+    # actual vision inputs, so repeating their raw URLs here is noise, not signal.
+    facts = {key: value for key, value in product.items() if key != "source_assets"}
     return (
         "=== PRODUCT DATA (authoritative — the ONLY source of product facts) ===\n"
-        f"{json.dumps(product, ensure_ascii=False, indent=2)}"
+        f"{json.dumps(facts, ensure_ascii=False, indent=2)}"
+    )
+
+
+def _reference_photos_note(image_urls: list[str]) -> str:
+    count = len(image_urls)
+    if not count:
+        return "No real product reference photos were available for this product."
+    return (
+        f"You are attached {count} real reference photo(s) of this exact product, taken from its "
+        "actual marketplace listing (different angles/closeups of the same physical item, in "
+        "listing order). Cross-reference all of them together as the single source of truth for "
+        "its true colour, pattern, texture, materials and construction — do not rely on only one "
+        "angle or assume a detail that isn't visible in any of them."
     )
 
 

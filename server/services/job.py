@@ -39,7 +39,8 @@ from utils import files
 _OUTPUT_ROOT = Path(__file__).resolve().parents[1] / "output"
 
 RenderFn = Callable[
-    [OpenRouterClient, GenerationContext, str, AttributeName, int, Path], images.ImageGeneration
+    [OpenRouterClient, GenerationContext, str, AttributeName, int, Path, str | None],
+    images.ImageGeneration,
 ]
 # Which render() to call for a given openrouter_image_provider setting — the same switch also
 # names the output subfolder (output/gemini/... vs output/gpt/...), so a run's images and its
@@ -150,6 +151,24 @@ def _run_text(
     return generation.values, generation.prompt
 
 
+# Fixed aspect ratio per image type, decided HERE — never taken from the AI plan. A+ content images
+# are wide 16:9 banners; every standard gallery image (hero/infographic/lifestyle) is square 1:1.
+# A+ ("A_PLUS") is not a generated image type yet: add it to AttributeName and uncomment its entry
+# below to make A+ render 16:9.
+_ASPECT_RATIO_BY_TYPE: dict[AttributeName, str] = {
+    AttributeName.HERO: "1:1",
+    AttributeName.INFOGRAPHIC: "1:1",
+    AttributeName.LIFESTYLE: "1:1",
+    # AttributeName.A_PLUS: "16:9",
+}
+_DEFAULT_ASPECT_RATIO = "1:1"
+
+
+def _aspect_ratio_for(name: AttributeName) -> str:
+    """The single fixed aspect ratio for this image type (never AI-chosen)."""
+    return _ASPECT_RATIO_BY_TYPE.get(name, _DEFAULT_ASPECT_RATIO)
+
+
 def _run_images(
     client: OpenRouterClient,
     ctx: GenerationContext,
@@ -188,7 +207,9 @@ def _run_images(
         for slot in range(1, quantity + 1):
             slot_plan = slot_plans[(name, slot)]
             try:
-                generation = render_fn(client, ctx, slot_plan.prompt, name, slot, images_dir)
+                generation = render_fn(
+                    client, ctx, slot_plan.prompt, name, slot, images_dir, _aspect_ratio_for(name)
+                )
             except Exception:  # noqa: BLE001 — one failed slot fails the attribute, keep going
                 continue
             completed += 1

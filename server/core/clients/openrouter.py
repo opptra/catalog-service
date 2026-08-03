@@ -125,7 +125,7 @@ class OpenRouterClient:
         a param on this one.
 
         ``references`` (remote or ``data:`` URLs) are attached to the message, each preceded by its
-        label, so the model knows each image's role (e.g. product source-of-truth, brand logo).
+        label, so the model knows each image's role (e.g. which product-angle it is).
         One attempt, no retry.
         """
         if not model:

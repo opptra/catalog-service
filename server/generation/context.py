@@ -16,4 +16,3 @@ class GenerationContext:
     category_intelligence: dict[str, Any]
     brand_dna: str
     product_image_urls: list[str] = field(default_factory=list)
-    brand_logo_url: str | None = None

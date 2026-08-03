@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # provider has its own request shape (see generate_gemini_image vs
     # generate_gpt_image), so the provider and its model ID must change together;
     # just editing openrouter_image_model below does NOT switch the code path.
-    openrouter_image_provider: str = "gpt"
+    openrouter_image_provider: str = "gemini"
     # Gemini-family model ID, used only when openrouter_image_provider == "gemini".
     openrouter_image_model: str = "google/gemini-3-pro-image"
     # OpenAI image model ID ("ChatGPT" image generation), used only when

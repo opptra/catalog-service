@@ -72,10 +72,19 @@ export function setCredentialListener(listener: CredentialListener | null): void
   credentialListener = listener
 }
 
-export async function renderSignInButton(parent: HTMLElement): Promise<void> {
+export async function renderSignInButton(
+  parent: HTMLElement,
+  options?: { width?: number },
+): Promise<void> {
   if (!(await whenGoogleReady())) return
   ensureInitialized()
-  window.google?.accounts.id.renderButton(parent, { theme: 'outline', size: 'medium' })
+  window.google?.accounts.id.renderButton(parent, {
+    theme: 'outline',
+    size: 'large',
+    shape: 'pill',
+    text: 'signin_with',
+    width: options?.width ?? 320,
+  })
 }
 
 export async function requestSilentIdToken(): Promise<string | null> {

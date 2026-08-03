@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { loginWithGoogle, type User } from '../api/auth'
+import { clearSelectedBrandId } from '../data/brands'
 import { AuthContext } from './context'
 import { setCredentialListener } from './google'
 import { clearIdToken, getIdToken, setIdToken } from './tokenStore'
@@ -20,6 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     clearIdToken()
+    clearSelectedBrandId()
     setUser(null)
   }, [])
 
