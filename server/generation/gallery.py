@@ -14,9 +14,8 @@ from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from core.exceptions import GalleryPlanError
 from entities.catalog.attribute_enums import AttributeName
-from generation import prompts
+from generation import prompts, tools
 from generation.context import GenerationContext
-from utils import llm
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +55,14 @@ def plan(
     """
     wanted = [(name, slot) for name, quantity in requested for slot in range(1, quantity + 1)]
     try:
-        response = client.generate_text(
+        parsed = client.call_tool(
             prompts.gallery_plan_prompt(ctx, requested),
             model=settings.openrouter_prompt_model,
+            tool=tools.GALLERY_PLAN_TOOL,
             image_urls=ctx.product_image_urls or None,
             max_tokens=_plan_max_tokens(len(wanted)),
-            json_mode=True,
         )
-        planned = _index_plan(llm.parse_json_object(response))
+        planned = _index_plan(parsed)
     except Exception as exc:
         logger.error("Gallery plan call failed: %s", exc)
         raise GalleryPlanError(f"Gallery plan call failed: {exc}") from exc

@@ -8,6 +8,7 @@ class AttributeName(StrEnum):
     HERO = "HERO"
     INFOGRAPHIC = "INFOGRAPHIC"
     LIFESTYLE = "LIFESTYLE"
+    A_PLUS = "A_PLUS"
 
 
 class AttributeDataType(StrEnum):

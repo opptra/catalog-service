@@ -50,6 +50,7 @@ def text_generation_prompt(
     ctx: GenerationContext, names: list[AttributeName], strategy: str
 ) -> str:
     """Final text prompt: apply the strategy + brand voice to the authoritative product facts."""
+    keys = ", ".join(name.value for name in names)
     return (
         "You are an expert marketplace copywriter. Using the STRATEGY and the authoritative "
         "PRODUCT DATA below, write the final text attributes. Apply the Brand DNA voice and "
@@ -60,12 +61,14 @@ def text_generation_prompt(
         f"{_RULES}\n\n"
         f"{_product_block(ctx.product)}\n\n"
         f"{_brand_block(ctx.brand_dna)}\n\n"
-        f"{_text_format_instruction(names)}"
+        f"When finished, call the submit_text_attributes tool with exactly these fields: {keys}. "
+        f'"{AttributeName.BULLET_POINTS.value}" must be an array of strings; all other fields '
+        "must be strings. Do not write the attributes as free-form JSON in the message body."
     )
 
 
 def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeName, int]]) -> str:
-    """Category-agnostic brief: plan ONE coherent, non-duplicated image gallery as strict JSON.
+    """Category-agnostic brief: plan ONE coherent, non-duplicated image gallery via a tool call.
 
     The model decides each image's role, composition and on-image text from the Category
     Intelligence + Brand DNA + the attached real product image — no per-type templates and no
@@ -73,22 +76,12 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
     aspect ratio (the renderer uses a fixed ratio per image type) and brand-logo placement (the
     logo is composited deterministically downstream, not drawn by the image model).
     """
-    brief = category.image_brief(ctx.category_intelligence)
-    schema = (
-        "{\n"
-        '  "shared_style": "<one paragraph: the visual system linking every image — palette, mood, '
-        'product rendering, lighting>",\n'
-        '  "slots": [\n'
-        '    {"type": "<TYPE>", "slot": <n>, "concept": "<short label>", '
-        '"prompt": "<complete standalone image-generation prompt for this slot>"}\n'
-        "  ]\n"
-        "}"
-    )
+    brief = category.image_brief(ctx.category_intelligence, [name for name, _ in requested])
     slot_rule = (
-        '"slot" is 1-based and restarts at 1 within EACH type — it is not a running count across '
-        "the whole gallery. E.g. if INFOGRAPHIC needs 2 images, they are "
-        '{"type": "INFOGRAPHIC", "slot": 1, ...} and {"type": "INFOGRAPHIC", "slot": 2, ...}, '
-        "regardless of how many other types/slots precede them."
+        "In the tool call, slot is 1-based and restarts at 1 within EACH type — it is not a "
+        "running count across the whole gallery. E.g. if INFOGRAPHIC needs 2 images, they are "
+        "type=INFOGRAPHIC slot=1 and type=INFOGRAPHIC slot=2, regardless of how many other "
+        "types/slots precede them."
     )
     return (
         "You are an expert e-commerce visual merchandiser and product-photography art director. "
@@ -97,7 +90,7 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
         "Brand DNA visual identity, and the attached product image(s) — what each image should "
         "be so that together they form one connected, non-duplicated gallery.\n\n"
         f"{_reference_photos_note(ctx.product_image_urls)}\n\n"
-        "Images to produce (output EXACTLY one plan entry per slot):\n"
+        "Images to produce (submit EXACTLY one plan entry per slot via the tool):\n"
         f"{_requested_block(requested)}\n\n"
         "For EVERY slot, reason it out (do NOT use fixed templates) and decide:\n"
         "- the role/objective for a high-converting, policy-compliant listing in this "
@@ -123,12 +116,11 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
         f"{_category_block(brief)}\n\n"
         f"{_brand_block(ctx.brand_dna)}\n\n"
         f"{_product_block(ctx.product)}\n\n"
-        "Return ONLY a valid JSON object (no markdown, no commentary) with this exact shape:\n"
-        f"{schema}\n"
-        f"{slot_rule}\n"
-        'Include one slots entry for each requested (type, slot). Each "prompt" must be a '
-        "complete, standalone image-generation prompt that incorporates the shared_style and "
-        "every decision above."
+        "When finished, call the submit_gallery_plan tool with shared_style and one slots entry "
+        "for each requested (type, slot). Each prompt must be a complete, standalone "
+        "image-generation prompt that incorporates the shared_style and every decision above. "
+        "Do not write the plan as free-form JSON in the message body.\n"
+        f"{slot_rule}"
     )
 
 
@@ -136,16 +128,6 @@ def _requested_block(requested: list[tuple[AttributeName, int]]) -> str:
     lines = [f"- {name.value}: {quantity} image(s)" for name, quantity in requested]
     total = sum(quantity for _, quantity in requested)
     return "\n".join(lines) + f"\nTotal: {total} images."
-
-
-def _text_format_instruction(names: list[AttributeName]) -> str:
-    keys = [name.value for name in names]
-    return (
-        "Return ONLY a valid JSON object (no markdown, no commentary) with exactly these keys: "
-        f"{json.dumps(keys)}. "
-        f'"{AttributeName.BULLET_POINTS.value}" must be a JSON array of strings; all other '
-        "values must be strings."
-    )
 
 
 def _product_block(product: dict) -> str:

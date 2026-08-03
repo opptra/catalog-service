@@ -6,9 +6,8 @@ from typing import Any
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
-from generation import prompts
+from generation import prompts, tools
 from generation.context import GenerationContext
-from utils import llm
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,15 +24,18 @@ def generate_attributes(
     """Generate all requested text attributes and return them with the prompt used.
 
     Step 1 derives a content strategy from the Category Intelligence + product angle. Step 2 writes
-    all attributes at once from the strategy, brand voice, and the authoritative product facts.
+    all attributes at once via a forced tool call (structured args, not free-form JSON text).
     """
     strategy = client.generate_text(
         prompts.text_strategy_prompt(ctx, names), model=settings.openrouter_prompt_model
     )
     generation_prompt = prompts.text_generation_prompt(ctx, names, strategy)
-    response = client.generate_text(generation_prompt, model=settings.openrouter_text_model)
+    parsed = client.call_tool(
+        generation_prompt,
+        model=settings.openrouter_text_model,
+        tool=tools.text_attributes_tool(names),
+    )
 
-    parsed = llm.parse_json_object(response)
     keys = [name.value for name in names]
     missing = [key for key in keys if key not in parsed]
     if missing:

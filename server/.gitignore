@@ -10,3 +10,7 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+
+# Local generation run outputs (versioned comparison folders)
+output_latest/
+output/

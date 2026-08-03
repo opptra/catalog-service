@@ -1,5 +1,6 @@
 """Stage 2: render one planned image against the real product reference."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,20 +16,32 @@ _PRODUCT_LABEL = (
     "and packaging exactly; do not invent a different product."
 )
 
-# Aspect ratios each provider's Images API actually accepts. The caller (services.job) supplies a
-# fixed per-image-type ratio — NOT an AI-chosen one — but if it isn't in the provider's set it can't
-# be sent as-is: gpt-image-1 400s on an unrecognised ratio, and Gemini silently ignores one. So the
-# supplied ratio is snapped to the nearest supported ratio by value (w/h).
-_GPT_ASPECT_RATIOS = ("1:1", "3:2", "2:3")
+# Aspect ratios each provider accepts. The caller (services.job) supplies a fixed per-image-type
+# ratio — NOT an AI-chosen one — snapped to the nearest supported ratio by value (w/h).
 _GEMINI_ASPECT_RATIOS = (
     "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
 )
-
+_GPT_ASPECT_RATIOS = ("1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9")
+_GROK_ASPECT_RATIOS = (
+    "1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "9:19.5", "19.5:9",
+    "9:20", "20:9", "1:2", "2:1",
+)
+# OpenRouter capability: Grok Imagine accepts at most 3 input_references (GPT accepts 16).
+# Sending more makes every Grok call 400 — keep the first N in listing order (MAIN first).
+_GROK_MAX_REFERENCES = 3
 
 @dataclass(frozen=True, slots=True)
 class ImageGeneration:
     path: Path
     prompt: str  # the image-generation prompt actually sent to the image model
+
+
+# Model ID from OPENROUTER_IMAGE_MODEL → (output folder name under output_latest/, render fn).
+# Swap the env model ID to compare; prompt planning stays the same for every path.
+RenderFn = Callable[
+    [OpenRouterClient, GenerationContext, str, AttributeName, int, Path, str | None],
+    ImageGeneration,
+]
 
 
 def render(
@@ -40,12 +53,7 @@ def render(
     images_dir: Path,
     aspect_ratio: str | None = None,
 ) -> ImageGeneration:
-    """Render one planned image with product references; return path + prompt.
-
-    ``aspect_ratio`` is the fixed per-image-type ratio chosen by the caller (never AI-chosen); it is
-    snapped to the nearest Gemini-supported ratio and sent as the API's canvas control. Whatever the
-    model returns is written straight to disk — no post-processing.
-    """
+    """Render one planned image via Gemini (chat + modalities)."""
     image = client.generate_gemini_image(
         image_prompt,
         model=settings.openrouter_image_model,
@@ -65,23 +73,55 @@ def render_gpt(
     images_dir: Path,
     aspect_ratio: str | None = None,
 ) -> ImageGeneration:
-    """Render the same planned prompt via OpenAI's gpt-image-1, for side-by-side comparison
-    against ``render()``'s Gemini output. Writes a ``_gpt`` suffixed file so it never collides
-    with the Gemini output for the same (name, slot).
-
-    gpt-image-1 only accepts ``aspect_ratio`` in ``{"1:1", "3:2", "2:3", "auto"}`` — confirmed
-    live against the real API; anything else 400s. The caller's fixed per-type ratio is therefore
-    snapped to the nearest of those before the call. Whatever the model returns is written straight
-    to disk — no post-processing.
-    """
+    """Render the same planned prompt via GPT Image (dedicated Images API)."""
     image = client.generate_gpt_image(
         image_prompt,
-        model=settings.openrouter_gpt_image_model,
+        model=settings.openrouter_image_model,
         references=_references(ctx) or None,
         aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GPT_ASPECT_RATIOS),
     )
-    path = _write_image(image, images_dir / f"{name.value}_{slot}_gpt")
+    path = _write_image(image, images_dir / f"{name.value}_{slot}")
     return ImageGeneration(path=path, prompt=image_prompt)
+
+
+def render_grok(
+    client: OpenRouterClient,
+    ctx: GenerationContext,
+    image_prompt: str,
+    name: AttributeName,
+    slot: int,
+    images_dir: Path,
+    aspect_ratio: str | None = None,
+) -> ImageGeneration:
+    """Render the same planned prompt via Grok Imagine (dedicated Images API)."""
+    refs = _references(ctx)[:_GROK_MAX_REFERENCES] or None
+    image = client.generate_grok_image(
+        image_prompt,
+        model=settings.openrouter_image_model,
+        references=refs,
+        aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GROK_ASPECT_RATIOS),
+    )
+    path = _write_image(image, images_dir / f"{name.value}_{slot}")
+    return ImageGeneration(path=path, prompt=image_prompt)
+
+
+# Known comparison models → short folder name + which render path to use.
+IMAGE_MODELS: dict[str, tuple[str, RenderFn]] = {
+    "google/gemini-3-pro-image": ("gemini", render),
+    "openai/gpt-image-2": ("gpt", render_gpt),
+    "x-ai/grok-imagine-image-quality": ("grok", render_grok),
+}
+
+
+def resolve_image_model(model: str) -> tuple[str, RenderFn]:
+    """Map ``OPENROUTER_IMAGE_MODEL`` to ``(folder_name, render_fn)``."""
+    try:
+        return IMAGE_MODELS[model]
+    except KeyError:
+        known = ", ".join(sorted(IMAGE_MODELS))
+        raise ValueError(
+            f"Unknown openrouter_image_model={model!r}; expected one of: {known}"
+        ) from None
 
 
 def _write_image(image: GeneratedImage, path_stem: Path) -> Path:

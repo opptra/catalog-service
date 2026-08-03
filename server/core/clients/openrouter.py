@@ -1,5 +1,6 @@
 import base64
 import binascii
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -72,19 +73,75 @@ class OpenRouterClient:
         system: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-        json_mode: bool = False,
     ) -> str:
-        """Generate text from a prompt. Caller picks the model; extra params are sent when given.
+        """Generate free-form text from a prompt. Caller picks the model.
 
         ``image_urls`` (remote or ``data:`` URLs) attach reference images to the user message so a
-        vision-capable model can reason over them (e.g. see the product before writing prompts).
-        ``json_mode`` constrains the model's decoding so it cannot emit syntactically invalid JSON
-        (a stray token breaking ``json.loads``); it does not guarantee the JSON's *content* is what
-        the caller asked for, only that it parses.
+        vision-capable model can reason over them. For structured JSON outputs, use
+        ``call_tool`` instead of asking the model to emit JSON in the message body.
         """
         if not model:
             raise ValueError("model is required")
 
+        body = self._chat_body(
+            prompt,
+            model=model,
+            image_urls=image_urls,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return self._message_text(self.chat_completions(body))
+
+    def call_tool(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        tool: dict[str, Any],
+        image_urls: list[str] | None = None,
+        system: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        """Force the model to call ``tool`` and return its parsed arguments as a dict.
+
+        Used for structured outputs: the tool is never executed — its JSON Schema parameters
+        *are* the payload. Prefer this over free-form ``response_format: json_object`` strings.
+        """
+        if not model:
+            raise ValueError("model is required")
+        try:
+            tool_name = tool["function"]["name"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                "tool must be an OpenAI-style function tool with function.name"
+            ) from exc
+        if not tool_name:
+            raise ValueError("tool function.name is required")
+
+        body = self._chat_body(
+            prompt,
+            model=model,
+            image_urls=image_urls,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        body["tools"] = [tool]
+        body["tool_choice"] = {"type": "function", "function": {"name": tool_name}}
+        return self._tool_arguments(self.chat_completions(body), tool_name=tool_name)
+
+    def _chat_body(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        image_urls: list[str] | None,
+        system: str | None,
+        temperature: float | None,
+        max_tokens: int | None,
+    ) -> dict[str, Any]:
         user_content: Any = prompt
         if image_urls:
             user_content = [{"type": "text", "text": prompt}]
@@ -102,10 +159,7 @@ class OpenRouterClient:
             body["temperature"] = temperature
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
-        if json_mode:
-            body["response_format"] = {"type": "json_object"}
-
-        return self._message_text(self.chat_completions(body))
+        return body
 
     def generate_gemini_image(
         self,
@@ -155,19 +209,42 @@ class OpenRouterClient:
         references: list[ReferenceImage] | None = None,
         aspect_ratio: str = "1:1",
     ) -> GeneratedImage:
-        """Generate an image via OpenAI's dedicated Images API (POST /images) — a different
-        endpoint and request shape than Gemini's chat-completions-with-modalities approach (see
-        ``generate_gemini_image``); OpenRouter documents gpt-image models as generating through
-        this dedicated Images API, not chat completions.
+        """Generate an image via OpenRouter's dedicated Images API (POST /images) for GPT Image.
 
-        ``references`` go under ``input_references`` — confirmed live against the real API; unlike
-        ``generate_gemini_image``, there is no per-reference text label here, so role context (e.g.
-        "this is the product photo") has to live in ``prompt`` itself if it matters.
-
-        ``aspect_ratio`` support is far narrower than Gemini's: confirmed live, gpt-image-1 only
-        accepts ``"1:1"``, ``"3:2"``, ``"2:3"``, or ``"auto"`` — anything else is rejected with a
-        400. One attempt, no retry.
+        Different endpoint and request shape than ``generate_gemini_image`` (chat + modalities).
+        ``references`` go under ``input_references`` with no per-reference text labels — any role
+        context must live in ``prompt``. One attempt, no retry.
         """
+        return self._generate_via_images_api(
+            prompt, model=model, references=references, aspect_ratio=aspect_ratio
+        )
+
+    def generate_grok_image(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        references: list[ReferenceImage] | None = None,
+        aspect_ratio: str = "1:1",
+    ) -> GeneratedImage:
+        """Generate an image via OpenRouter's dedicated Images API (POST /images) for Grok Imagine.
+
+        Same Images API as ``generate_gpt_image``, exposed separately so call sites stay explicit
+        about which provider path they intend. ``references`` go under ``input_references`` with
+        no per-reference text labels. One attempt, no retry.
+        """
+        return self._generate_via_images_api(
+            prompt, model=model, references=references, aspect_ratio=aspect_ratio
+        )
+
+    def _generate_via_images_api(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        references: list[ReferenceImage] | None,
+        aspect_ratio: str,
+    ) -> GeneratedImage:
         if not model:
             raise ValueError("model is required")
 
@@ -214,6 +291,45 @@ class OpenRouterClient:
         return content.strip()
 
     @staticmethod
+    def _tool_arguments(data: dict[str, Any], *, tool_name: str) -> dict[str, Any]:
+        try:
+            tool_calls = data["choices"][0]["message"]["tool_calls"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise OpenRouterError("OpenRouter response missing tool_calls") from exc
+
+        if not isinstance(tool_calls, list) or not tool_calls:
+            raise OpenRouterError("OpenRouter returned empty tool_calls")
+
+        chosen: dict[str, Any] | None = None
+        for call in tool_calls:
+            try:
+                if call["function"]["name"] == tool_name:
+                    chosen = call
+                    break
+            except (KeyError, TypeError):
+                continue
+        if chosen is None:
+            raise OpenRouterError(f"OpenRouter did not call required tool {tool_name!r}")
+
+        try:
+            raw_args = chosen["function"]["arguments"]
+        except (KeyError, TypeError) as exc:
+            raise OpenRouterError("OpenRouter tool call missing arguments") from exc
+
+        if isinstance(raw_args, dict):
+            return raw_args
+        if not isinstance(raw_args, str) or not raw_args.strip():
+            raise OpenRouterError("OpenRouter tool arguments were empty")
+
+        try:
+            parsed = json.loads(raw_args)
+        except json.JSONDecodeError as exc:
+            raise OpenRouterError("OpenRouter tool arguments were not valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise OpenRouterError("OpenRouter tool arguments were not a JSON object")
+        return parsed
+
+    @staticmethod
     def _image_from_chat(data: dict[str, Any]) -> GeneratedImage:
         try:
             url = data["choices"][0]["message"]["images"][0]["image_url"]["url"]
@@ -236,7 +352,7 @@ class OpenRouterClient:
         try:
             entry = data["data"][0]
             b64_data = entry["b64_json"]
-            content_type = entry["media_type"]
+            content_type = entry.get("media_type") or "image/png"
         except (KeyError, IndexError, TypeError) as exc:
             raise OpenRouterError("OpenRouter images response missing image data") from exc
 
