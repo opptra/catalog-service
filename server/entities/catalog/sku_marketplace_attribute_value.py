@@ -30,7 +30,7 @@ class SkuMarketplaceAttributeValue(Base):
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     # Stable across versions of the same slot — not unique alone; app mints/copies it.
     external_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
-    sku_id: Mapped[int] = mapped_column(nullable=False)
+    sku_id: Mapped[int] = mapped_column(ForeignKey("sku_master.id"), nullable=False)
     marketplace_id: Mapped[int] = mapped_column(ForeignKey("marketplace.id"), nullable=False)
     attribute_id: Mapped[int] = mapped_column(ForeignKey("attribute_master.id"), nullable=False)
     slot: Mapped[int] = mapped_column(Integer, nullable=False)
