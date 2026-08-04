@@ -5,34 +5,25 @@
 #   catalog-service
 #     .client → baked into client image via client/.env (build-time)
 #     .server → read on VM by instance startup (not SCP'd by deploy)
+#     .server.REGION is required — used for Artifact Registry, MIG, workflows,
+#     and the running server (no region hardcoded in this file).
+#     Do not put GOOGLE_CLOUD_PROJECT in the secret — ADC resolves it on GCE.
 #
 # Substitutions:
-#   _REGION, _AR_REPO, _MIG_NAME, _MIG_REGION
-#   Deploy targets a regional MIG (zone-agnostic). Create the MIG with
-#   --region=asia-south1 (not --zone=...).
+#   _AR_REPO, _MIG_NAME
 #   _SECRET_NAME  (optional override; default catalog-service)
-#   _WORKFLOWS_LOCATION  (default asia-south1; must match server WORKFLOWS_LOCATION)
 #   Workflow executions use the default Compute Engine SA (grant it Secret Manager access).
 
 substitutions:
-  _REGION: asia-south1
   _AR_REPO: catalog-service
   _MIG_NAME: catalog-service
-  _MIG_REGION: asia-south1
   _SECRET_NAME: catalog-service
-  _WORKFLOWS_LOCATION: asia-south1
 
 options:
   logging: CLOUD_LOGGING_ONLY
 
-images:
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:$SHORT_SHA
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:latest
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:$SHORT_SHA
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:latest
-
 steps:
-  # 1) Pull env JSON from Secret Manager and write dotenv files
+  # 1) Pull env JSON from Secret Manager (must include server.REGION)
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     id: fetch-secrets
     entrypoint: bash
@@ -40,51 +31,69 @@ steps:
       - -c
       - |
         set -euo pipefail
-        chmod +x scripts/fetch-secrets.sh
+        chmod +x scripts/fetch-secrets.sh scripts/read-dotenv-value.sh
         export SECRET_NAME="${_SECRET_NAME}"
         ./scripts/fetch-secrets.sh
+        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        echo "Using REGION=${REGION} from Secret Manager"
 
   # 2) Build client (Vite reads client/.env from secrets)
   - name: gcr.io/cloud-builders/docker
     id: build-client
+    entrypoint: bash
     args:
-      - build
-      - -t
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:$SHORT_SHA
-      - -t
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client:latest
-      - ./client
+      - -c
+      - |
+        set -euo pipefail
+        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client"
+        docker build \
+          -t "${IMAGE}:${SHORT_SHA}" \
+          -t "${IMAGE}:latest" \
+          ./client
     waitFor: [fetch-secrets]
 
   # 3) Build server (runtime secrets are NOT baked into the image)
   - name: gcr.io/cloud-builders/docker
     id: build-server
+    entrypoint: bash
     args:
-      - build
-      - -t
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:$SHORT_SHA
-      - -t
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server:latest
-      - ./server
+      - -c
+      - |
+        set -euo pipefail
+        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server"
+        docker build \
+          -t "${IMAGE}:${SHORT_SHA}" \
+          -t "${IMAGE}:latest" \
+          ./server
     waitFor: [fetch-secrets]
 
   - name: gcr.io/cloud-builders/docker
     id: push-client
+    entrypoint: bash
     args:
-      - push
-      - --all-tags
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client
+      - -c
+      - |
+        set -euo pipefail
+        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        docker push --all-tags \
+          "${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client"
     waitFor: [build-client]
 
   - name: gcr.io/cloud-builders/docker
     id: push-server
+    entrypoint: bash
     args:
-      - push
-      - --all-tags
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server
+      - -c
+      - |
+        set -euo pipefail
+        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        docker push --all-tags \
+          "${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server"
     waitFor: [build-server]
 
-  # 4) Deploy Cloud Workflows (YAML under cloud-workflows/; parallel with image builds)
+  # 4) Deploy Cloud Workflows
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: deploy-workflows
     entrypoint: bash
@@ -92,11 +101,11 @@ steps:
       - -c
       - |
         set -euo pipefail
-        chmod +x scripts/deploy-workflows.sh
+        chmod +x scripts/deploy-workflows.sh scripts/read-dotenv-value.sh
         export PROJECT_ID="${PROJECT_ID}"
-        export WORKFLOWS_LOCATION="${_WORKFLOWS_LOCATION}"
+        export REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
         ./scripts/deploy-workflows.sh
-    waitFor: ["-"]
+    waitFor: [fetch-secrets]
 
   # 5) Replace MIG VMs; startup pulls :latest and loads server section of secret
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -106,9 +115,9 @@ steps:
       - -c
       - |
         set -euo pipefail
-        chmod +x scripts/deploy-gce.sh
+        chmod +x scripts/deploy-gce.sh scripts/read-dotenv-value.sh
         export PROJECT_ID="${PROJECT_ID}"
         export MIG_NAME="${_MIG_NAME}"
-        export MIG_REGION="${_MIG_REGION}"
+        export REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
         ./scripts/deploy-gce.sh
     waitFor: [push-client, push-server]

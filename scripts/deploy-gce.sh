@@ -10,9 +10,9 @@ set -euo pipefail
 #
 # Required env:
 #   MIG_NAME
-#   MIG_REGION          (regional MIG — preferred; e.g. asia-south1)
+#   REGION              (from Secret Manager server.REGION — no script default)
 # Optional:
-#   MIG_ZONE            (zonal MIG only — legacy; do not set with MIG_REGION)
+#   MIG_ZONE            (zonal MIG only — legacy; do not set with REGION)
 #   PROJECT_ID          (defaults to gcloud config)
 #   MAX_SURGE           (default: 0)
 #   MAX_UNAVAILABLE     (default: 3 — required for many regional MIGs)
@@ -27,16 +27,17 @@ MAX_SURGE="${MAX_SURGE:-0}"
 MAX_UNAVAILABLE="${MAX_UNAVAILABLE:-3}"
 WAIT_FOR_STABLE="${WAIT_FOR_STABLE:-true}"
 
-MIG_REGION="${MIG_REGION:-}"
+# Prefer REGION (from secret/env); accept legacy MIG_REGION as an alias.
+MIG_REGION="${REGION:-${MIG_REGION:-}}"
 MIG_ZONE="${MIG_ZONE:-}"
 
 if [[ -n "${MIG_REGION}" && -n "${MIG_ZONE}" ]]; then
-  echo "Set only one of MIG_REGION or MIG_ZONE, not both." >&2
+  echo "Set only one of REGION or MIG_ZONE, not both." >&2
   exit 1
 fi
 
 if [[ -z "${MIG_REGION}" && -z "${MIG_ZONE}" ]]; then
-  echo "MIG_REGION is required (regional / zone-agnostic MIG)." >&2
+  echo "REGION is required (from Secret Manager server.REGION)." >&2
   echo "For a legacy zonal MIG only, set MIG_ZONE instead." >&2
   exit 1
 fi
@@ -47,7 +48,7 @@ if [[ -n "${MIG_REGION}" ]]; then
   location_args=(--region="${MIG_REGION}")
   location_label="region ${MIG_REGION}"
 else
-  echo "Warning: MIG_ZONE is legacy; prefer a regional MIG with MIG_REGION." >&2
+  echo "Warning: MIG_ZONE is legacy; prefer a regional MIG with REGION." >&2
   location_args=(--zone="${MIG_ZONE}")
   location_label="zone ${MIG_ZONE}"
 fi

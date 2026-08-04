@@ -13,15 +13,15 @@ set -euo pipefail
 #
 # Required env:
 #   PROJECT_ID
+#   REGION          (from Secret Manager / server.env — no script default)
 # Optional:
-#   WORKFLOWS_LOCATION   (default: asia-south1 — same as server WORKFLOWS_LOCATION)
-#   WORKFLOWS_DIR        (default: cloud-workflows)
-#   MANIFEST             (default: <WORKFLOWS_DIR>/manifest.yaml)
+#   WORKFLOWS_DIR   (default: cloud-workflows)
+#   MANIFEST        (default: <WORKFLOWS_DIR>/manifest.yaml)
 
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}"
 : "${PROJECT_ID:?PROJECT_ID is required}"
+: "${REGION:?REGION is required (from Secret Manager server.REGION)}"
 
-WORKFLOWS_LOCATION="${WORKFLOWS_LOCATION:-asia-south1}"
 WORKFLOWS_DIR="${WORKFLOWS_DIR:-cloud-workflows}"
 MANIFEST="${MANIFEST:-${WORKFLOWS_DIR}/manifest.yaml}"
 
@@ -64,10 +64,10 @@ for i in "${!ids[@]}"; do
     echo "Manifest entry '${name}' points at missing file: ${source_file}" >&2
     exit 1
   fi
-  echo "Deploying workflow ${name} (${source_file}) → ${WORKFLOWS_LOCATION}"
+  echo "Deploying workflow ${name} (${source_file}) → ${REGION}"
   gcloud workflows deploy "${name}" \
     --source="${source_file}" \
-    --location="${WORKFLOWS_LOCATION}" \
+    --location="${REGION}" \
     --project="${PROJECT_ID}"
 done
 

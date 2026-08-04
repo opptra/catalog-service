@@ -43,11 +43,11 @@ class Settings(BaseSettings):
     openrouter_text_model: str
     openrouter_image_model: str
 
-    # Google Cloud — used by GCS + Cloud Workflows clients (ADC for credentials).
-    # Leave unset to disable those clients locally.
-    google_cloud_project: str | None = None
+    # Google Cloud — credentials + project from ADC (not settings).
+    # REGION is required from env / Secret Manager (same key everywhere).
+    # Leave GCS_BUCKET unset to disable the GCS client.
     gcs_bucket: str | None = None
-    workflows_location: str = "asia-south1"
+    region: str
 
     @model_validator(mode="before")
     @classmethod

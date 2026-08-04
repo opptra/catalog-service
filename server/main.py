@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 
+import google.auth
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from google.auth.exceptions import DefaultCredentialsError
 
 from core.clients.db import DatabaseClient
 from core.clients.gcs import GcsClient
@@ -10,6 +12,15 @@ from core.clients.openrouter import OpenRouterClient
 from core.clients.workflows import WorkflowsClient
 from core.config import settings
 from routers import auth, health, job, users
+
+
+def _resolve_gcp_project() -> str | None:
+    """Project id from ADC — env locally, metadata on GCE. Same path both places."""
+    try:
+        _, project = google.auth.default()
+    except DefaultCredentialsError:
+        return None
+    return project
 
 
 @asynccontextmanager
@@ -27,15 +38,10 @@ async def lifespan(app: FastAPI):
         if settings.openrouter_api_key
         else None
     )
-    app.state.gcs = (
-        GcsClient(settings.gcs_bucket, project=settings.google_cloud_project)
-        if settings.gcs_bucket
-        else None
-    )
+    app.state.gcs = GcsClient(settings.gcs_bucket) if settings.gcs_bucket else None
+    gcp_project = _resolve_gcp_project()
     app.state.workflows = (
-        WorkflowsClient(settings.google_cloud_project, settings.workflows_location)
-        if settings.google_cloud_project
-        else None
+        WorkflowsClient(gcp_project, settings.region) if gcp_project else None
     )
     try:
         yield

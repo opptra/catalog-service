@@ -100,12 +100,18 @@ Create a single secret named `catalog-service`. Payload shape:
     "USER_SERVICE_DB_NAME": "user_service",
     "API_KEY": "...",
     "GOOGLE_CLIENT_ID": "your-google-client-id.apps.googleusercontent.com",
+    "GCS_BUCKET": "your-bucket",
+    "REGION": "asia-south1",
     "SERVICE_CLIENTS": {
       "catalog-workflows": "shared-token-also-in-catalog-service-cloud-secret"
     }
   }
 }
 ```
+
+Do **not** put `GOOGLE_CLOUD_PROJECT` in the secret — project comes from ADC on
+GCE. `REGION` is **required** under `server`; Cloud Build and instance startup
+read it from Secret Manager (not hardcoded in `cloudbuild.yaml`).
 
 ```bash
 # Create (once), then add versions when config changes
@@ -168,8 +174,9 @@ gcloud builds triggers create github \
   --repo-owner=opptra \
   --branch-pattern='^main$' \
   --build-config=cloudbuild.yaml \
-  --substitutions=_REGION=asia-south1,_AR_REPO=catalog-service,_VM_NAME=catalog-service-1,_VM_ZONE=asia-south1-c
+  --substitutions=_AR_REPO=catalog-service,_MIG_NAME=catalog-service
 ```
+
 
 ### 7. Manual build
 

@@ -42,6 +42,10 @@ def flatten_service_clients(server: dict) -> dict:
     """Expand nested SERVICE_CLIENTS into SERVICE_CLIENT_<ID> env keys."""
     out = dict(server)
     clients = out.pop("SERVICE_CLIENTS", None)
+    region = out.get("REGION")
+    if not isinstance(region, str) or not region.strip():
+        raise SystemExit("server.REGION is required in the catalog-service secret")
+    out["REGION"] = region.strip()
     if clients is None:
         return out
     if not isinstance(clients, dict):
