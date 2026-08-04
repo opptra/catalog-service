@@ -1,4 +1,5 @@
 .secrets/
-
-# Local SQL / migration scripts — apply manually, do not track
-server/sql/
+server/output/
+server/input/
+.DS_Store
+node_modules/

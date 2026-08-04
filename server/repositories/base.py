@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from sqlalchemy.orm import Session
 
 
@@ -11,6 +13,17 @@ def save[T](session: Session, instance: T) -> T:
     session.commit()
     session.refresh(instance)
     return instance
+
+
+def save_all[T](session: Session, instances: Sequence[T]) -> list[T]:
+    """Persist many inserts/updates in one commit."""
+    if not instances:
+        return []
+    session.add_all(instances)
+    session.commit()
+    for instance in instances:
+        session.refresh(instance)
+    return list(instances)
 
 
 def delete(session: Session, instance: object) -> None:

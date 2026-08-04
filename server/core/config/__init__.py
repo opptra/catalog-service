@@ -1,9 +1,13 @@
+import os
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
+
+_SERVICE_CLIENT_ENV_PREFIX = "SERVICE_CLIENT_"
 
 
 class Settings(BaseSettings):
@@ -21,20 +25,50 @@ class Settings(BaseSettings):
 
     google_client_id: str
 
+    # Machine callers for @internal_api routes: { "catalog-workflows": "<token>", ... }.
+    # Secret Manager stores these nested as server.SERVICE_CLIENTS; scripts flatten to
+    # SERVICE_CLIENT_<ID> env vars. Settings collects those flat keys here (see
+    # _collect_service_clients). Local .env uses the flat form for easy testing.
+    service_clients: dict[str, str] = {}
+
     cors_origins: str = ""
 
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
-    # Paths the auth middleware serves without a Google ID token.
-    public_paths: list[str] = [
-        "/",
-        "/api/health",
-        "/api/auth/google",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
-    ]
+    # Model IDs the generation pipeline passes to OpenRouter. The client never
+    # hardcodes models — set these in .env. Swap openrouter_image_model among the
+    # known comparison IDs (see .env.example) to pick gemini / gpt / grok path.
+    openrouter_prompt_model: str
+    openrouter_text_model: str
+    openrouter_image_model: str
+
+    # Google Cloud — credentials + project from ADC (not settings).
+    # REGION is required from env / Secret Manager (same key everywhere).
+    # Leave GCS_BUCKET unset to disable the GCS client.
+    gcs_bucket: str | None = None
+    region: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _collect_service_clients(cls, data: object) -> object:
+        """Build service_clients from flat SERVICE_CLIENT_<ID> env vars.
+
+        Secret Manager uses nested SERVICE_CLIENTS; scripts flatten before the
+        process starts. Client IDs are dynamic, so they can't be declared fields —
+        this reads os.environ directly.
+        SERVICE_CLIENT_CATALOG_WORKFLOWS=<token> -> {"catalog-workflows": "<token>"}.
+        """
+        if not isinstance(data, dict):
+            return data
+        clients = {}
+        for key, value in os.environ.items():
+            if not key.startswith(_SERVICE_CLIENT_ENV_PREFIX) or not value:
+                continue
+            client_id = key[len(_SERVICE_CLIENT_ENV_PREFIX) :].lower().replace("_", "-")
+            clients[client_id] = value
+        data["service_clients"] = clients
+        return data
 
     def _build_url(self, db_name: str) -> str:
         user = quote_plus(self.db_user)

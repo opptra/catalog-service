@@ -57,9 +57,7 @@ docker compose up --build
 
 1. **GCP project** + `gcloud` auth
 2. **APIs** — Cloud Build, Artifact Registry, Compute, Secret Manager
-3. **Secret Manager secrets** (JSON objects), already in your project:
-   - `catalog-service-client` — e.g. `{"VITE_API_BASE_URL":"/api"}`
-   - `catalog-service-server` — e.g. `{"DB_HOST":"...","DB_PORT":"5432","DB_NAME":"...","DB_USER":"...","DB_PASSWORD":"...","API_KEY":"..."}`
+3. **Secret Manager** secret `catalog-service` — one JSON with `client` + `server` sections
 4. **Artifact Registry** repo `catalog-service` in `asia-south1`
 5. **GCE VM** in `asia-south1-c` with Docker Compose + firewall TCP `80`
 6. **IAM** for Cloud Build SA (push images, read secrets, SSH to VM) and VM SA (pull images)
@@ -67,9 +65,9 @@ docker compose up --build
 
 Pipeline flow:
 
-1. Fetch both secrets → write `client/.env` + `server/.env` (not committed)
+1. Fetch `catalog-service` → write `client/.env` (from `.client`) + `server/.env` (from `.server`)
 2. Build/push client + server images (client bakes Vite env; server stays secret-free)
-3. SCP compose + `server/.env` to the VM and `docker compose up`
+3. MIG replace; instance startup loads `.server` into `server.env` and runs compose
 
 ## GCP setup (one-time)
 
@@ -85,20 +83,47 @@ gcloud services enable \
 
 ### 2. Secret Manager
 
-Secrets should look like:
+Create a single secret named `catalog-service`. Payload shape:
 
 ```json
 {
-  "DB_HOST": "x.x.x.x",
-  "DB_PORT": "5432",
-  "DB_NAME": "catalog_service",
-  "DB_USER": "postgres",
-  "DB_PASSWORD": "...",
-  "API_KEY": "..."
+  "client": {
+    "VITE_API_BASE_URL": "/api",
+    "VITE_GOOGLE_CLIENT_ID": "your-google-client-id.apps.googleusercontent.com"
+  },
+  "server": {
+    "DB_HOST": "x.x.x.x",
+    "DB_PORT": "5432",
+    "DB_NAME": "catalog_service",
+    "DB_USER": "postgres",
+    "DB_PASSWORD": "...",
+    "USER_SERVICE_DB_NAME": "user_service",
+    "API_KEY": "...",
+    "GOOGLE_CLIENT_ID": "your-google-client-id.apps.googleusercontent.com",
+    "GCS_BUCKET": "your-bucket",
+    "REGION": "asia-south1",
+    "SERVICE_CLIENTS": {
+      "catalog-workflows": "shared-token-also-in-catalog-service-cloud-secret"
+    }
+  }
 }
 ```
 
-Client secret may include Vite keys (`VITE_API_BASE_URL`, etc.).
+Do **not** put `GOOGLE_CLOUD_PROJECT` in the secret — project comes from ADC on
+GCE. `REGION` is **required** under `server`; Cloud Build and instance startup
+read it from Secret Manager (not hardcoded in `cloudbuild.yaml`).
+
+```bash
+# Create (once), then add versions when config changes
+gcloud secrets create catalog-service --replication-policy=automatic
+gcloud secrets versions add catalog-service --data-file=your-merged.json
+```
+
+`SERVICE_CLIENTS` is the allowlist of machine callers (`client-id` → token).
+`fetch-secrets.sh` / `instance-startup.sh` flatten it to `SERVICE_CLIENT_<ID>` env
+vars for the running process; local `server/.env` stays flat for easy testing.
+
+You can delete the old `catalog-service-client` / `catalog-service-server` secrets after migrating.
 
 ### 3. Artifact Registry (Mumbai)
 
@@ -149,8 +174,9 @@ gcloud builds triggers create github \
   --repo-owner=opptra \
   --branch-pattern='^main$' \
   --build-config=cloudbuild.yaml \
-  --substitutions=_REGION=asia-south1,_AR_REPO=catalog-service,_VM_NAME=catalog-service-1,_VM_ZONE=asia-south1-c
+  --substitutions=_AR_REPO=catalog-service,_MIG_NAME=catalog-service
 ```
+
 
 ### 7. Manual build
 

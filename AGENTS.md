@@ -39,10 +39,10 @@ environment (local, cloud, or otherwise):
 
 Read-only inspection (`SELECT`, `\d`, `EXPLAIN` without side effects) is allowed for verification.
 
-When a task needs a schema or data change, **produce the SQL/migration file for a human to review
-and run** — write it to `server/sql/` (or the appropriate migrations location) and tell the user to
-apply it themselves. Never apply it for them, even to "verify" your work. If you cannot verify
-without a DB change, say so and stop.
+When a task needs a schema or data change, **produce the SQL for a human to review and run** —
+put it in the response (do not keep a `server/sql/` folder in the repo) and tell the user to apply
+it themselves. Never apply it for them, even to "verify" your work. If you cannot verify without a
+DB change, say so and stop.
 
 ## Operating principles (intent, not rigid scripts)
 

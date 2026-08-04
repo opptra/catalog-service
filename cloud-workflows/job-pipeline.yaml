@@ -1,0 +1,70 @@
+# Catalog job pipeline — sequential SKU-job execution, then mark the parent job COMPLETED.
+#
+# Triggered by POST /api/jobs after DB rows are created. Argument shape:
+#   {
+#     "job_external_id": "<uuid>",
+#     "sku_job_external_ids": ["<uuid>", ...]
+#   }
+#
+# Machine auth is loaded from Secret Manager secret `catalog-service-cloud-secret`:
+#   { "client_id": "...", "client_token": "..." }
+# and sent as headers `client-id` / `client-token` on every catalog API call.
+#
+# Workflow SA needs roles/secretmanager.secretAccessor on that secret.
+# Any non-2xx from execute fails this workflow (no continue-on-error).
+
+main:
+  params: [args]
+  steps:
+    - init:
+        assign:
+          - api_base_url: "https://studio.opptra.com"
+          - job_external_id: ${args.job_external_id}
+          - sku_job_external_ids: ${args.sku_job_external_ids}
+          - cloud_secret_id: "catalog-service-cloud-secret"
+
+    - fetch_cloud_secret:
+        call: googleapis.secretmanager.v1.projects.secrets.versions.accessString
+        args:
+          secret_id: ${cloud_secret_id}
+          version: "latest"
+          project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+        result: cloud_secret_raw
+
+    - parse_credentials:
+        assign:
+          - cloud_credentials: ${json.decode(cloud_secret_raw)}
+          - client_id: ${cloud_credentials.client_id}
+          - client_token: ${cloud_credentials.client_token}
+
+    - execute_sku_jobs:
+        parallel:
+          concurrency_limit: 3
+          for:
+            value: sku_job_external_id
+            in: ${sku_job_external_ids}
+            steps:
+              - call_execute_sku_job:
+                  call: http.post
+                  args:
+                    url: ${api_base_url + "/api/jobs/sku/" + string(sku_job_external_id) + "/execute/internal"}
+                    headers:
+                      Content-Type: "application/json"
+                      client-id: ${client_id}
+                      client-token: ${client_token}
+                  result: execute_result
+
+    - complete_job:
+        call: http.post
+        args:
+          url: ${api_base_url + "/api/jobs/" + string(job_external_id) + "/complete/internal"}
+          headers:
+            Content-Type: "application/json"
+            client-id: ${client_id}
+            client-token: ${client_token}
+        result: complete_result
+
+    - done:
+        return:
+          job_external_id: ${job_external_id}
+          status: ${complete_result.body.status}

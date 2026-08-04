@@ -1,13 +1,14 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import HTTPException
 
+from core.auth import SecureAPIRouter
 from core.deps import CatalogSessionDep, CurrentUserDep, UserSessionDep
-from dto.brand_access import BrandAccessResponse
-from dto.users import UserResponse
+from dto.response.brand_access import BrandAccessResponse
+from dto.response.users import UserResponse
 from services import brand_access as brand_access_service
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = SecureAPIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("/me", response_model=UserResponse)

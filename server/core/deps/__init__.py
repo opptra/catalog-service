@@ -5,8 +5,10 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from core.clients.db import DatabaseClient
+from core.clients.gcs import GcsClient
 from core.clients.google_auth import GoogleAuthClient
 from core.clients.openrouter import OpenRouterClient
+from core.clients.workflows import WorkflowsClient
 from entities.user_service.user import User
 
 
@@ -51,14 +53,45 @@ def get_openrouter_client(request: Request) -> OpenRouterClient:
 OpenRouterDep = Annotated[OpenRouterClient, Depends(get_openrouter_client)]
 
 
-def get_current_user(request: Request) -> User:
-    """The authenticated user resolved by the auth middleware.
+def get_gcs_client(request: Request) -> GcsClient:
+    client: GcsClient | None = request.app.state.gcs
+    if client is None:
+        raise HTTPException(status_code=503, detail="GCS is not configured")
+    return client
 
-    The middleware verifies the Google token, looks up the user and binds it
-    to ``request.state.user`` before any handler runs, so this is just an
-    accessor — it never verifies tokens or hits the database itself.
+
+GcsDep = Annotated[GcsClient, Depends(get_gcs_client)]
+
+
+def get_workflows_client(request: Request) -> WorkflowsClient:
+    client: WorkflowsClient | None = request.app.state.workflows
+    if client is None:
+        raise HTTPException(status_code=503, detail="Cloud Workflows is not configured")
+    return client
+
+
+WorkflowsDep = Annotated[WorkflowsClient, Depends(get_workflows_client)]
+
+
+def get_current_user(request: Request) -> User:
+    """The authenticated user resolved by ``GoogleUserAuthenticator``.
+
+    ``AuthAPIRoute`` runs the authenticator before any handler, which verifies
+    the Google token, looks up the user, and binds it to ``request.state.user``,
+    so this is just an accessor — it never verifies tokens or hits the database.
     """
     return request.state.user
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+def get_service_client_id(request: Request) -> str:
+    """Client id authenticated on an ``@internal_api`` route (``client-id`` header)."""
+    client_id = getattr(request.state, "service_client_id", None)
+    if not client_id:
+        raise HTTPException(status_code=401, detail="Missing service client")
+    return client_id
+
+
+ServiceClientIdDep = Annotated[str, Depends(get_service_client_id)]
