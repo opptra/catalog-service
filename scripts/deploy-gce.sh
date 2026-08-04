@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deploy by replacing MIG VMs. New instances run the instance-template startup
-# script (scripts/instance-startup.sh), which pulls :latest images from Artifact
-# Registry and loads the "server" section of the catalog-service secret.
+# Deploy by restarting MIG VMs. On boot, instance-startup.sh pulls :latest
+# images from Artifact Registry and reloads the "server" section of the
+# catalog-service secret. Faster than rolling replace (no new VM provisioning).
 #
-# Default path is a regional (zone-agnostic) MIG so replaces can land in any
-# zone in the region when one zone is out of capacity.
+# Use rolling replace manually when the instance template / startup-script
+# itself changes — restart does not apply a new template.
 #
 # Required env:
 #   MIG_NAME
@@ -14,16 +14,14 @@ set -euo pipefail
 # Optional:
 #   MIG_ZONE            (zonal MIG only — legacy; do not set with REGION)
 #   PROJECT_ID          (defaults to gcloud config)
-#   MAX_SURGE           (default: 0)
 #   MAX_UNAVAILABLE     (default: 3 — required for many regional MIGs)
-#   WAIT_FOR_STABLE     (default: true) — wait until MIG is stable after replace
+#   WAIT_FOR_STABLE     (default: true) — wait until MIG is stable after restart
 
 : "${MIG_NAME:?MIG_NAME is required}"
 
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}"
 : "${PROJECT_ID:?PROJECT_ID is required}"
 
-MAX_SURGE="${MAX_SURGE:-0}"
 MAX_UNAVAILABLE="${MAX_UNAVAILABLE:-3}"
 WAIT_FOR_STABLE="${WAIT_FOR_STABLE:-true}"
 
@@ -53,14 +51,13 @@ else
   location_label="zone ${MIG_ZONE}"
 fi
 
-echo "Replacing MIG ${MIG_NAME} (${location_label})"
-echo "  max-surge=${MAX_SURGE} max-unavailable=${MAX_UNAVAILABLE}"
-echo "  New VMs will pull catalog-client:latest + catalog-server:latest via startup script."
+echo "Restarting MIG ${MIG_NAME} (${location_label})"
+echo "  max-unavailable=${MAX_UNAVAILABLE}"
+echo "  VMs will re-run startup and pull catalog-client:latest + catalog-server:latest."
 
-gcloud compute instance-groups managed rolling-action replace "${MIG_NAME}" \
+gcloud compute instance-groups managed rolling-action restart "${MIG_NAME}" \
   --project="${PROJECT_ID}" \
   "${location_args[@]}" \
-  --max-surge="${MAX_SURGE}" \
   --max-unavailable="${MAX_UNAVAILABLE}"
 
 if [[ "${WAIT_FOR_STABLE}" == "true" ]]; then
@@ -72,4 +69,4 @@ if [[ "${WAIT_FOR_STABLE}" == "true" ]]; then
   echo "MIG is stable."
 fi
 
-echo "MIG replace finished. Check startup logs on new VMs and LB backend health."
+echo "MIG restart finished. Check startup logs on VMs and LB backend health."

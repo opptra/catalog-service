@@ -67,7 +67,7 @@ Pipeline flow:
 
 1. Fetch `catalog-service` → write `client/.env` (from `.client`) + `server/.env` (from `.server`)
 2. Build/push client + server images (client bakes Vite env; server stays secret-free)
-3. MIG replace; instance startup loads `.server` into `server.env` and runs compose
+3. MIG restart; instance startup loads `.server` into `server.env` and pulls `:latest`
 
 ## GCP setup (one-time)
 

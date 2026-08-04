@@ -1,5 +1,5 @@
 # Cloud Build: fetch catalog-service secret → build/push images → deploy
-# Cloud Workflows → replace MIG VMs.
+# Cloud Workflows → restart MIG VMs (startup pulls :latest).
 #
 # Secret (JSON with client + server sections), latest version:
 #   catalog-service
@@ -110,7 +110,7 @@ steps:
         ./scripts/deploy-workflows.sh
     waitFor: [fetch-secrets]
 
-  # 5) Replace MIG VMs; startup pulls :latest and loads server section of secret
+  # 5) Restart MIG VMs; startup pulls :latest and loads server section of secret
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: deploy
     entrypoint: bash
