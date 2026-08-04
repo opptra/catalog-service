@@ -4,10 +4,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.clients.db import DatabaseClient
+from core.clients.gcs import GcsClient
 from core.clients.google_auth import GoogleAuthClient
 from core.clients.openrouter import OpenRouterClient
+from core.clients.workflows import WorkflowsClient
 from core.config import settings
-from core.middleware.auth import AuthMiddleware
 from routers import auth, health, job, users
 
 
@@ -26,6 +27,16 @@ async def lifespan(app: FastAPI):
         if settings.openrouter_api_key
         else None
     )
+    app.state.gcs = (
+        GcsClient(settings.gcs_bucket, project=settings.google_cloud_project)
+        if settings.gcs_bucket
+        else None
+    )
+    app.state.workflows = (
+        WorkflowsClient(settings.google_cloud_project, settings.workflows_location)
+        if settings.google_cloud_project
+        else None
+    )
     try:
         yield
     finally:
@@ -37,10 +48,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Catalog Service", lifespan=lifespan)
 
-# Added first so it runs innermost; CORS (added below) stays outermost and
-# attaches headers even to 401 responses from the auth middleware.
-app.add_middleware(AuthMiddleware, public_paths=settings.public_paths)
-
+# Auth is enforced per-route by AuthAPIRoute (see core.auth), not middleware.
+# CORS still needs to be outermost so it attaches headers to 401 responses too.
 if settings.cors_origin_list:
     app.add_middleware(
         CORSMiddleware,

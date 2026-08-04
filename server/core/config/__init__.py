@@ -1,9 +1,13 @@
+import os
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
+
+_SERVICE_CLIENT_ENV_PREFIX = "SERVICE_CLIENT_"
 
 
 class Settings(BaseSettings):
@@ -21,6 +25,12 @@ class Settings(BaseSettings):
 
     google_client_id: str
 
+    # Machine callers for @internal_api routes: { "catalog-workflows": "<token>", ... }.
+    # Populated from flat SERVICE_CLIENT_<ID> env vars (see _collect_service_clients),
+    # not set directly — SERVICE_CLIENT_* is excluded from the settings schema itself
+    # since client IDs are dynamic, so this field is filled in by the validator below.
+    service_clients: dict[str, str] = {}
+
     cors_origins: str = ""
 
     openrouter_api_key: str | None = None
@@ -33,15 +43,31 @@ class Settings(BaseSettings):
     openrouter_text_model: str
     openrouter_image_model: str
 
-    # Paths the auth middleware serves without a Google ID token.
-    public_paths: list[str] = [
-        "/",
-        "/api/health",
-        "/api/auth/google",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
-    ]
+    # Google Cloud — used by GCS + Cloud Workflows clients (ADC for credentials).
+    # Leave unset to disable those clients locally.
+    google_cloud_project: str | None = None
+    gcs_bucket: str | None = None
+    workflows_location: str = "asia-south1"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _collect_service_clients(cls, data: object) -> object:
+        """Build service_clients from flat SERVICE_CLIENT_<ID> env vars.
+
+        Client IDs are dynamic, so they can't be declared fields — pydantic-settings
+        only maps env vars to declared field names, so this reads os.environ
+        directly. SERVICE_CLIENT_CATALOG_WORKFLOWS=<token> -> {"catalog-workflows": "<token>"}.
+        """
+        if not isinstance(data, dict):
+            return data
+        clients = {}
+        for key, value in os.environ.items():
+            if not key.startswith(_SERVICE_CLIENT_ENV_PREFIX) or not value:
+                continue
+            client_id = key[len(_SERVICE_CLIENT_ENV_PREFIX) :].lower().replace("_", "-")
+            clients[client_id] = value
+        data["service_clients"] = clients
+        return data
 
     def _build_url(self, db_name: str) -> str:
         user = quote_plus(self.db_user)

@@ -1,16 +1,18 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import HTTPException
 from google.auth.exceptions import GoogleAuthError
 
+from core.auth import SecureAPIRouter, no_auth
 from core.deps import GoogleAuthClientDep, UserSessionDep
 from core.exceptions import InvalidGoogleClaimsError
 from dto.auth import GoogleLoginRequest
 from dto.users import UserResponse
 from services import users as user_service
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = SecureAPIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/google", response_model=UserResponse)
+@no_auth
 def google_login(
     payload: GoogleLoginRequest,
     session: UserSessionDep,
