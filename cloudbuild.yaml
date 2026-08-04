@@ -9,6 +9,9 @@
 #     and the running server (no region hardcoded in this file).
 #     Do not put GOOGLE_CLOUD_PROJECT in the secret — ADC resolves it on GCE.
 #
+# Bash vars that are not Cloud Build substitutions must use $$ (e.g. $$REGION)
+# so the YAML substituter does not treat them as build.substitutions keys.
+#
 # Substitutions:
 #   _AR_REPO, _MIG_NAME
 #   _SECRET_NAME  (optional override; default catalog-service)
@@ -34,8 +37,8 @@ steps:
         chmod +x scripts/fetch-secrets.sh scripts/read-dotenv-value.sh
         export SECRET_NAME="${_SECRET_NAME}"
         ./scripts/fetch-secrets.sh
-        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
-        echo "Using REGION=${REGION} from Secret Manager"
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        echo "Using REGION=$${REGION} from Secret Manager"
 
   # 2) Build client (Vite reads client/.env from secrets)
   - name: gcr.io/cloud-builders/docker
@@ -45,11 +48,11 @@ steps:
       - -c
       - |
         set -euo pipefail
-        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
-        IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client"
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        IMAGE="$${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client"
         docker build \
-          -t "${IMAGE}:${SHORT_SHA}" \
-          -t "${IMAGE}:latest" \
+          -t "$${IMAGE}:${SHORT_SHA}" \
+          -t "$${IMAGE}:latest" \
           ./client
     waitFor: [fetch-secrets]
 
@@ -61,11 +64,11 @@ steps:
       - -c
       - |
         set -euo pipefail
-        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
-        IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server"
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        IMAGE="$${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server"
         docker build \
-          -t "${IMAGE}:${SHORT_SHA}" \
-          -t "${IMAGE}:latest" \
+          -t "$${IMAGE}:${SHORT_SHA}" \
+          -t "$${IMAGE}:latest" \
           ./server
     waitFor: [fetch-secrets]
 
@@ -76,9 +79,9 @@ steps:
       - -c
       - |
         set -euo pipefail
-        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
         docker push --all-tags \
-          "${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client"
+          "$${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client"
     waitFor: [build-client]
 
   - name: gcr.io/cloud-builders/docker
@@ -88,9 +91,9 @@ steps:
       - -c
       - |
         set -euo pipefail
-        REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
         docker push --all-tags \
-          "${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server"
+          "$${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server"
     waitFor: [build-server]
 
   # 4) Deploy Cloud Workflows
@@ -103,7 +106,7 @@ steps:
         set -euo pipefail
         chmod +x scripts/deploy-workflows.sh scripts/read-dotenv-value.sh
         export PROJECT_ID="${PROJECT_ID}"
-        export REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        export REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
         ./scripts/deploy-workflows.sh
     waitFor: [fetch-secrets]
 
@@ -118,6 +121,6 @@ steps:
         chmod +x scripts/deploy-gce.sh scripts/read-dotenv-value.sh
         export PROJECT_ID="${PROJECT_ID}"
         export MIG_NAME="${_MIG_NAME}"
-        export REGION="$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        export REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
         ./scripts/deploy-gce.sh
     waitFor: [push-client, push-server]
