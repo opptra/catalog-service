@@ -3,10 +3,11 @@ from uuid import UUID
 from fastapi import HTTPException
 
 from core.auth import SecureAPIRouter, internal_api
-from core.deps import CatalogSessionDep, CurrentUserDep, OpenRouterDep, WorkflowsDep
+from core.deps import CatalogSessionDep, CurrentUserDep, GcsDep, OpenRouterDep, WorkflowsDep
 from core.exceptions import (
     AttributeNotFoundError,
     CategoryIntelligenceMissingError,
+    GcsError,
     InvalidJobAttributesError,
     JobNotFoundError,
     MarketplaceNotFoundError,
@@ -16,8 +17,9 @@ from core.exceptions import (
     SkuNotFoundError,
     WorkflowsError,
 )
-from dto.job import CompleteJobResponse, CreateJobRequest, CreateJobResponse
-from dto.sku_job import SkuJobExecutionResponse
+from dto.request.job import CreateJobRequest
+from dto.response.job import CompleteJobResponse, CreateJobResponse
+from dto.response.sku_job import SkuJobExecutionResponse
 from services import job as job_service
 
 # Generic jobs router. Job-kind-specific routes live under their own sub-prefix
@@ -62,15 +64,20 @@ def execute_sku_job(
     external_id: UUID,
     catalog_session: CatalogSessionDep,
     openrouter: OpenRouterDep,
+    gcs: GcsDep,
 ) -> SkuJobExecutionResponse:
     try:
-        summary = job_service.execute_sku_job(catalog_session, openrouter, external_id)
+        summary = job_service.execute_sku_job(catalog_session, openrouter, gcs, external_id)
     except SkuJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except JobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ProductNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except CategoryIntelligenceMissingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except GcsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except SkuJobExecutionFailedError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

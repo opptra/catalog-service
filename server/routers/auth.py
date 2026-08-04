@@ -4,8 +4,8 @@ from google.auth.exceptions import GoogleAuthError
 from core.auth import SecureAPIRouter, no_auth
 from core.deps import GoogleAuthClientDep, UserSessionDep
 from core.exceptions import InvalidGoogleClaimsError
-from dto.auth import GoogleLoginRequest
-from dto.users import UserResponse
+from dto.request.auth import GoogleLoginRequest
+from dto.response.users import UserResponse
 from services import users as user_service
 
 router = SecureAPIRouter(prefix="/auth", tags=["auth"])

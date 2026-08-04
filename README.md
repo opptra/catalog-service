@@ -100,7 +100,9 @@ Create a single secret named `catalog-service`. Payload shape:
     "USER_SERVICE_DB_NAME": "user_service",
     "API_KEY": "...",
     "GOOGLE_CLIENT_ID": "your-google-client-id.apps.googleusercontent.com",
-    "SERVICE_CLIENT_CATALOG_WORKFLOWS": "shared-token-also-in-catalog-service-cloud-secret"
+    "SERVICE_CLIENTS": {
+      "catalog-workflows": "shared-token-also-in-catalog-service-cloud-secret"
+    }
   }
 }
 ```
@@ -110,6 +112,10 @@ Create a single secret named `catalog-service`. Payload shape:
 gcloud secrets create catalog-service --replication-policy=automatic
 gcloud secrets versions add catalog-service --data-file=your-merged.json
 ```
+
+`SERVICE_CLIENTS` is the allowlist of machine callers (`client-id` → token).
+`fetch-secrets.sh` / `instance-startup.sh` flatten it to `SERVICE_CLIENT_<ID>` env
+vars for the running process; local `server/.env` stays flat for easy testing.
 
 You can delete the old `catalog-service-client` / `catalog-service-server` secrets after migrating.
 

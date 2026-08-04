@@ -1,4 +1,5 @@
-# Cloud Build: fetch catalog-service secret → build/push images → replace MIG VMs.
+# Cloud Build: fetch catalog-service secret → build/push images → deploy
+# Cloud Workflows → replace MIG VMs.
 #
 # Secret (JSON with client + server sections), latest version:
 #   catalog-service
@@ -10,6 +11,8 @@
 #   Deploy targets a regional MIG (zone-agnostic). Create the MIG with
 #   --region=asia-south1 (not --zone=...).
 #   _SECRET_NAME  (optional override; default catalog-service)
+#   _WORKFLOWS_LOCATION  (default asia-south1; must match server WORKFLOWS_LOCATION)
+#   Workflow executions use the default Compute Engine SA (grant it Secret Manager access).
 
 substitutions:
   _REGION: asia-south1
@@ -17,6 +20,7 @@ substitutions:
   _MIG_NAME: catalog-service
   _MIG_REGION: asia-south1
   _SECRET_NAME: catalog-service
+  _WORKFLOWS_LOCATION: asia-south1
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -80,7 +84,21 @@ steps:
       - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server
     waitFor: [build-server]
 
-  # 4) Replace MIG VMs; startup pulls :latest and loads server section of secret
+  # 4) Deploy Cloud Workflows (YAML under cloud-workflows/; parallel with image builds)
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: deploy-workflows
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        chmod +x scripts/deploy-workflows.sh
+        export PROJECT_ID="${PROJECT_ID}"
+        export WORKFLOWS_LOCATION="${_WORKFLOWS_LOCATION}"
+        ./scripts/deploy-workflows.sh
+    waitFor: ["-"]
+
+  # 5) Replace MIG VMs; startup pulls :latest and loads server section of secret
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: deploy
     entrypoint: bash

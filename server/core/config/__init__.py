@@ -26,9 +26,9 @@ class Settings(BaseSettings):
     google_client_id: str
 
     # Machine callers for @internal_api routes: { "catalog-workflows": "<token>", ... }.
-    # Populated from flat SERVICE_CLIENT_<ID> env vars (see _collect_service_clients),
-    # not set directly — SERVICE_CLIENT_* is excluded from the settings schema itself
-    # since client IDs are dynamic, so this field is filled in by the validator below.
+    # Secret Manager stores these nested as server.SERVICE_CLIENTS; scripts flatten to
+    # SERVICE_CLIENT_<ID> env vars. Settings collects those flat keys here (see
+    # _collect_service_clients). Local .env uses the flat form for easy testing.
     service_clients: dict[str, str] = {}
 
     cors_origins: str = ""
@@ -54,9 +54,10 @@ class Settings(BaseSettings):
     def _collect_service_clients(cls, data: object) -> object:
         """Build service_clients from flat SERVICE_CLIENT_<ID> env vars.
 
-        Client IDs are dynamic, so they can't be declared fields — pydantic-settings
-        only maps env vars to declared field names, so this reads os.environ
-        directly. SERVICE_CLIENT_CATALOG_WORKFLOWS=<token> -> {"catalog-workflows": "<token>"}.
+        Secret Manager uses nested SERVICE_CLIENTS; scripts flatten before the
+        process starts. Client IDs are dynamic, so they can't be declared fields —
+        this reads os.environ directly.
+        SERVICE_CLIENT_CATALOG_WORKFLOWS=<token> -> {"catalog-workflows": "<token>"}.
         """
         if not isinstance(data, dict):
             return data

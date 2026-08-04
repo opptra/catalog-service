@@ -8,6 +8,7 @@ set -euo pipefail
 # VM SA needs:
 #   - roles/artifactregistry.reader
 #   - roles/secretmanager.secretAccessor (catalog-service)
+#     server.SERVICE_CLIENTS is flattened here to SERVICE_CLIENT_<ID> env keys
 #   - Access scopes: Allow full access to all Cloud APIs
 # Optional: roles/logging.logWriter
 
@@ -85,12 +86,26 @@ if not isinstance(payload, dict) or "server" not in payload:
 data=payload["server"]
 if not isinstance(data, dict):
   raise SystemExit("catalog-service secret \"server\" must be a JSON object of env key/value pairs")
+# Nest SERVICE_CLIENTS in Secret Manager; flatten to SERVICE_CLIENT_<ID> for the process.
+clients=data.pop("SERVICE_CLIENTS", None)
+if clients is not None:
+  if not isinstance(clients, dict):
+    raise SystemExit("server.SERVICE_CLIENTS must be a JSON object of {\"client-id\": \"token\", ...}")
+  for client_id, token in clients.items():
+    if not isinstance(client_id, str) or not client_id.strip():
+      raise SystemExit("SERVICE_CLIENTS keys must be non-empty client-id strings")
+    env_key="SERVICE_CLIENT_"+client_id.strip().upper().replace("-", "_")
+    if env_key in data:
+      raise SystemExit(f"Conflict: both SERVICE_CLIENTS[{client_id!r}] and {env_key} are set")
+    data[env_key]=token
 lines=[]
 for k,v in data.items():
   if v is None:
     t=""
   elif isinstance(v, (dict, list)):
-    t=json.dumps(v, separators=(",", ":"))
+    raise SystemExit(
+      f"unexpected nested value for {k!r}; only SERVICE_CLIENTS may be an object"
+    )
   else:
     t=str(v).replace("\\", "\\\\").replace("\n", "\\n")
   # Quote values so special chars ($ # etc.) survive dotenv parsing.

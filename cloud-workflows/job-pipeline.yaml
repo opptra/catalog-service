@@ -18,7 +18,7 @@ main:
   steps:
     - init:
         assign:
-          - api_base_url: "https://REPLACE_WITH_CATALOG_API_HOST"
+          - api_base_url: "https://studio.opptra.com"
           - job_external_id: ${args.job_external_id}
           - sku_job_external_ids: ${args.sku_job_external_ids}
           - cloud_secret_id: "catalog-service-cloud-secret"

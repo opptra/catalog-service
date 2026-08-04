@@ -1,18 +1,19 @@
 """Job creation and SKU job orchestration.
 
 ``create_job`` inserts ``job`` + ``job_attribute`` + ``sku_job`` rows for the UI.
-``execute_sku_job`` runs generation against a pre-created ``sku_job``.
+``execute_sku_job`` runs generation against a pre-created ``sku_job``, uploads
+images to GCS, and persists attribute values.
 """
 
 import logging
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
+from core.clients.gcs import GcsClient
 from core.clients.openrouter import OpenRouterClient
 from core.clients.workflows import WorkflowsClient
 from core.config import settings
@@ -36,6 +37,7 @@ from entities.catalog.attribute_master import AttributeMaster
 from entities.catalog.job import Job
 from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.sku_job import SkuJob
+from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from generation import gallery, images, inputs, text
 from generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
@@ -43,6 +45,7 @@ from repositories.catalog import job as job_repo
 from repositories.catalog import job_attribute as job_attribute_repo
 from repositories.catalog import marketplace as marketplace_repo
 from repositories.catalog import sku_job as sku_job_repo
+from repositories.catalog import sku_marketplace_attribute_value as attribute_value_repo
 from repositories.catalog import sku_master as sku_master_repo
 from utils import files
 
@@ -51,10 +54,6 @@ logger = logging.getLogger(__name__)
 # Cloud Workflows resource id for cloud-workflows/job-pipeline.yaml
 _JOB_PIPELINE_WORKFLOW = "job-pipeline"
 
-# Per-run folders: output_latest/<gemini|gpt|grok>/<n>/ — never overwrite a prior run.
-# Legacy numbered folders under output/ (output/1, …) stay untouched if present.
-_OUTPUT_LATEST = Path(__file__).resolve().parents[1] / "output_latest"
-
 # Cap concurrent OpenRouter image calls. Slots are independent after planning; text + gallery
 # planning stay sequential.
 _IMAGE_RENDER_WORKERS = 6
@@ -62,7 +61,7 @@ _IMAGE_RENDER_WORKERS = 6
 _EXECUTABLE_TASK_STATUSES = frozenset({TaskStatus.PENDING, TaskStatus.FAILED})
 
 RenderFn = Callable[
-    [OpenRouterClient, GenerationContext, str, AttributeName, int, Path, str | None],
+    [OpenRouterClient, GenerationContext, str, AttributeName, int, str | None],
     images.ImageGeneration,
 ]
 
@@ -78,11 +77,66 @@ def _persist_tasks(session: Session, sku_job: SkuJob, tasks: dict[str, Any]) -> 
     sku_job_repo.save(session, sku_job)
 
 
-def _next_run_dir(provider: str) -> Path:
-    """A fresh numbered folder under output_latest/<provider>/ (1, 2, 3, …)."""
-    root = files.ensure_dir(_OUTPUT_LATEST / provider)
-    existing = [int(p.name) for p in root.iterdir() if p.is_dir() and p.name.isdigit()]
-    return files.ensure_dir(root / str(max(existing, default=0) + 1))
+def _gcs_image_object_name(
+    job_external_id: UUID,
+    sku_job_external_id: UUID,
+    name: AttributeName,
+    slot: int,
+    content_type: str,
+) -> str:
+    extension = files.extension_for_image_content_type(content_type)
+    return (
+        f"jobs/{job_external_id}/sku_jobs/{sku_job_external_id}/images/"
+        f"{name.value}_{slot}{extension}"
+    )
+
+
+def _persist_attribute_value(
+    session: Session,
+    *,
+    sku_job: SkuJob,
+    marketplace_id: int,
+    attribute_id: int,
+    name: str,
+    slot: int,
+    value: str,
+) -> dict[str, Any]:
+    """Insert a new versioned attribute value row; never update in place."""
+    latest = attribute_value_repo.get_latest_by_slot(
+        session,
+        sku_id=sku_job.sku_id,
+        marketplace_id=marketplace_id,
+        attribute_id=attribute_id,
+        slot=slot,
+    )
+    if latest is None:
+        external_id = uuid4()
+        version = 1
+    else:
+        external_id = latest.external_id
+        version = latest.version + 1
+
+    row = attribute_value_repo.save(
+        session,
+        SkuMarketplaceAttributeValue(
+            external_id=external_id,
+            sku_id=sku_job.sku_id,
+            marketplace_id=marketplace_id,
+            attribute_id=attribute_id,
+            slot=slot,
+            version=version,
+            value=value,
+            sku_job_id=sku_job.id,
+        ),
+    )
+    return {
+        "external_id": row.external_id,
+        "attribute_id": row.attribute_id,
+        "name": name,
+        "slot": row.slot,
+        "version": row.version,
+        "value": row.value,
+    }
 
 
 def create_job(
@@ -199,48 +253,61 @@ def complete_job(session: Session, external_id: UUID) -> dict[str, Any]:
 def execute_sku_job(
     session: Session,
     client: OpenRouterClient,
+    gcs: GcsClient,
     external_id: UUID,
 ) -> dict[str, Any]:
-    """Run generation for a SKU job's incomplete tasks and return a summary of the run."""
+    """Run generation for a SKU job's incomplete tasks; upload images and persist values."""
     sku_job = sku_job_repo.get_by_external_id(session, external_id)
     if sku_job is None:
         raise SkuJobNotFoundError(str(external_id))
 
+    # Overall COMPLETED is authoritative — skip reprocessing even if tasks look pending.
+    if sku_job.status == SkuJobStatus.COMPLETED.value:
+        return {
+            "external_id": sku_job.external_id,
+            "status": sku_job.status,
+            "tasks": dict(sku_job.tasks or {}),
+            "attributes": [],
+        }
+
+    job = job_repo.get_by_id(session, sku_job.job_id)
+    if job is None:
+        raise JobNotFoundError(f"job_id={sku_job.job_id}")
+
     text_attrs, image_attrs, quantities = _selected_attributes(session, sku_job.job_id)
     ctx = inputs.load_context(sku_job.sku_id)
-    folder, render_fn = images.resolve_image_model(settings.openrouter_image_model)
+    render_fn = images.resolve_image_model(settings.openrouter_image_model)
 
     # Pre-created task map — never seeded or extended with new attribute keys here.
     tasks: dict[str, Any] = dict(sku_job.tasks or {})
-    out_dir = _next_run_dir(folder)
+    persisted: list[dict[str, Any]] = []
 
-    text_values, text_prompt = _run_text(session, sku_job, client, ctx, text_attrs, tasks)
-    image_records = _run_images(
+    text_persisted = _run_text(session, sku_job, job.marketplace_id, client, ctx, text_attrs, tasks)
+    persisted.extend(text_persisted)
+
+    image_persisted = _run_images(
         session,
         sku_job,
+        job,
+        gcs,
         client,
         ctx,
         image_attrs,
         quantities,
-        out_dir / "images",
         tasks,
         render_fn,
     )
+    persisted.extend(image_persisted)
 
     status = _derive_status(tasks)
     sku_job.status = status.value
     _persist_tasks(session, sku_job, tasks)
 
-    result_path = _write_result(
-        out_dir, sku_job, ctx, status, text_values, text_prompt, image_records, tasks
-    )
     summary = {
         "external_id": sku_job.external_id,
         "status": status.value,
         "tasks": tasks,
-        "output_dir": str(out_dir),
-        "result_path": str(result_path),
-        "image_paths": [rec["path"] for rec in image_records],
+        "attributes": persisted,
     }
     # Non-COMPLETED must fail the HTTP call so Cloud Workflows stops the pipeline.
     if status != SkuJobStatus.COMPLETED:
@@ -265,37 +332,50 @@ def _selected_attributes(
 def _run_text(
     session: Session,
     sku_job: SkuJob,
+    marketplace_id: int,
     client: OpenRouterClient,
     ctx: GenerationContext,
     text_attrs: list[AttributeMaster],
     tasks: dict[str, Any],
-) -> tuple[dict[str, Any], str | None]:
-    """Generate incomplete text attributes in one call; return (values, prompt) or ({}, None).
-
-    Text is still one LLM call. After it succeeds, every requested text attribute is marked
-    COMPLETED (or all FAILED on error) and that map is persisted immediately so image work
-    cannot wipe the text progress.
-    """
-    names = [
-        AttributeName(attribute.name)
+) -> list[dict[str, Any]]:
+    """Generate incomplete text attributes; persist each value then mark tasks COMPLETED."""
+    pending = [
+        attribute
         for attribute in text_attrs
         if _task_needs_run(tasks, AttributeName(attribute.name).value)
     ]
-    if not names:
-        return {}, None
+    if not pending:
+        return []
 
+    names = [AttributeName(attribute.name) for attribute in pending]
     try:
         generation = text.generate_attributes(client, ctx, names)
     except Exception:  # noqa: BLE001 — mark failed, let images still run
         for name in names:
             tasks[name.value] = TaskStatus.FAILED
         _persist_tasks(session, sku_job, tasks)
-        return {}, None
+        return []
 
+    persisted: list[dict[str, Any]] = []
+    by_name = {AttributeName(attribute.name).value: attribute for attribute in pending}
     for name in names:
+        attribute = by_name[name.value]
+        raw = generation.values.get(name.value)
+        value = "" if raw is None else str(raw)
+        persisted.append(
+            _persist_attribute_value(
+                session,
+                sku_job=sku_job,
+                marketplace_id=marketplace_id,
+                attribute_id=attribute.id,
+                name=name.value,
+                slot=1,
+                value=value,
+            )
+        )
         tasks[name.value] = TaskStatus.COMPLETED
     _persist_tasks(session, sku_job, tasks)
-    return generation.values, generation.prompt
+    return persisted
 
 
 # Fixed aspect ratio per image type, decided HERE — never taken from the AI plan. A+ content
@@ -309,20 +389,6 @@ _ASPECT_RATIO_BY_TYPE: dict[AttributeName, str] = {
 }
 _DEFAULT_ASPECT_RATIO = "1:1"
 
-# A+ content renders into its own images/aplus/ subfolder, separate from the main PDP gallery
-# types (hero/infographic/lifestyle) which stay flat in images/ — they belong to a different
-# listing surface (the A+ detail-page module vs. the standard image gallery).
-_IMAGE_SUBDIR_BY_TYPE: dict[AttributeName, str] = {
-    AttributeName.A_PLUS: "aplus",
-}
-
-
-def _images_dir_for(name: AttributeName, images_dir: Path) -> Path:
-    """Where this image type's renders are written — a type-specific subfolder if one is mapped,
-    else the shared images_dir."""
-    subdir = _IMAGE_SUBDIR_BY_TYPE.get(name)
-    return images_dir / subdir if subdir else images_dir
-
 
 def _aspect_ratio_for(name: AttributeName) -> str:
     """The single fixed aspect ratio for this image type (never AI-chosen)."""
@@ -332,23 +398,16 @@ def _aspect_ratio_for(name: AttributeName) -> str:
 def _run_images(
     session: Session,
     sku_job: SkuJob,
+    job: Job,
+    gcs: GcsClient,
     client: OpenRouterClient,
     ctx: GenerationContext,
     image_attrs: list[AttributeMaster],
     quantities: dict[int, int],
-    images_dir: Path,
     tasks: dict[str, Any],
     render_fn: RenderFn,
 ) -> list[dict[str, Any]]:
-    """Plan and render only image tasks that are PENDING or FAILED.
-
-    COMPLETED image tasks are skipped. Planning covers the incomplete types only; if planning fails,
-    those incomplete types are marked FAILED and persisted, and nothing is rendered this run.
-
-    After planning, every slot is rendered concurrently (thread pool). Each image type is marked
-    COMPLETED/FAILED and committed as soon as all of its own slots finish — hero does not wait
-    for A+, etc.
-    """
+    """Plan and render incomplete image tasks; upload to GCS and persist gs:// links."""
     pending_attrs = [
         attribute
         for attribute in image_attrs
@@ -373,14 +432,13 @@ def _run_images(
         AttributeName(attribute.name): quantities.get(attribute.id, 1)
         for attribute in pending_attrs
     }
-    jobs = [
-        (name, slot)
-        for name, quantity in expected.items()
-        for slot in range(1, quantity + 1)
-    ]
+    attribute_id_by_name = {
+        AttributeName(attribute.name): attribute.id for attribute in pending_attrs
+    }
+    jobs = [(name, slot) for name, quantity in expected.items() for slot in range(1, quantity + 1)]
     remaining = dict(expected)
     successes: dict[AttributeName, int] = dict.fromkeys(expected, 0)
-    records: list[dict[str, Any]] = []
+    persisted: list[dict[str, Any]] = []
 
     workers = min(_IMAGE_RENDER_WORKERS, len(jobs)) or 1
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -392,7 +450,6 @@ def _run_images(
                 slot_plans[(name, slot)].prompt,
                 name,
                 slot,
-                _images_dir_for(name, images_dir),
                 _aspect_ratio_for(name),
             ): (name, slot)
             for name, slot in jobs
@@ -401,32 +458,44 @@ def _run_images(
             name, slot = futures[future]
             try:
                 generation = future.result()
+                uploaded = gcs.upload_bytes(
+                    generation.content,
+                    _gcs_image_object_name(
+                        job.external_id,
+                        sku_job.external_id,
+                        name,
+                        slot,
+                        generation.content_type,
+                    ),
+                    content_type=generation.content_type,
+                )
+                persisted.append(
+                    _persist_attribute_value(
+                        session,
+                        sku_job=sku_job,
+                        marketplace_id=job.marketplace_id,
+                        attribute_id=attribute_id_by_name[name],
+                        name=name.value,
+                        slot=slot,
+                        value=uploaded.gs_uri,
+                    )
+                )
             except Exception as exc:  # noqa: BLE001 — one failed slot fails the attribute
                 logger.exception(
-                    "Image render failed for %s slot %s: %s", name.value, slot, exc
+                    "Image render/upload failed for %s slot %s: %s", name.value, slot, exc
                 )
             else:
                 successes[name] += 1
-                records.append(
-                    {
-                        "name": name.value,
-                        "slot": slot,
-                        "path": str(generation.path),
-                        "prompt": generation.prompt,
-                    }
-                )
 
             remaining[name] -= 1
             if remaining[name] == 0:
                 tasks[name.value] = (
-                    TaskStatus.COMPLETED
-                    if successes[name] == expected[name]
-                    else TaskStatus.FAILED
+                    TaskStatus.COMPLETED if successes[name] == expected[name] else TaskStatus.FAILED
                 )
                 _persist_tasks(session, sku_job, tasks)
 
-    records.sort(key=lambda rec: (rec["name"], rec["slot"]))
-    return records
+    persisted.sort(key=lambda rec: (rec["name"], rec["slot"]))
+    return persisted
 
 
 def _derive_status(tasks: dict[str, Any]) -> SkuJobStatus:
@@ -434,26 +503,3 @@ def _derive_status(tasks: dict[str, Any]) -> SkuJobStatus:
     if tasks and all(status == TaskStatus.COMPLETED for status in tasks.values()):
         return SkuJobStatus.COMPLETED
     return SkuJobStatus.FAILED
-
-
-def _write_result(
-    out_dir: Path,
-    sku_job: SkuJob,
-    ctx: GenerationContext,
-    status: SkuJobStatus,
-    text_values: dict[str, Any],
-    text_prompt: str | None,
-    image_records: list[dict[str, Any]],
-    tasks: dict[str, Any],
-) -> Path:
-    result = {
-        "sku_job_external_id": str(sku_job.external_id),
-        "sku_id": sku_job.sku_id,
-        "status": status.value,
-        "product": ctx.product,
-        "text_attributes": text_values,
-        "text_prompt": text_prompt,
-        "images": image_records,
-        "tasks": tasks,
-    }
-    return files.write_json(out_dir / "result.json", result)

@@ -7,8 +7,17 @@ set -euo pipefail
 # Expected payload shape:
 #   {
 #     "client": { "VITE_API_BASE_URL": "/api", ... },
-#     "server": { "DB_HOST": "...", "API_KEY": "...", ... }
+#     "server": {
+#       "DB_HOST": "...",
+#       "SERVICE_CLIENTS": { "catalog-workflows": "<token>", ... },
+#       ...
+#     }
 #   }
+#
+# SERVICE_CLIENTS (nested map in the secret) is flattened here to
+# SERVICE_CLIENT_<ID> env keys so local .env and the running process stay flat
+# and easy to edit for testing. Humans edit the nested map; scripts own the
+# SERVICE_CLIENT_ naming convention.
 #
 # Writes:
 #   client/.env  ← .client  (Vite build-time)
@@ -29,6 +38,28 @@ import json
 from pathlib import Path
 
 
+def flatten_service_clients(server: dict) -> dict:
+    """Expand nested SERVICE_CLIENTS into SERVICE_CLIENT_<ID> env keys."""
+    out = dict(server)
+    clients = out.pop("SERVICE_CLIENTS", None)
+    if clients is None:
+        return out
+    if not isinstance(clients, dict):
+        raise SystemExit(
+            'server.SERVICE_CLIENTS must be a JSON object of {"client-id": "token", ...}'
+        )
+    for client_id, token in clients.items():
+        if not isinstance(client_id, str) or not client_id.strip():
+            raise SystemExit("SERVICE_CLIENTS keys must be non-empty client-id strings")
+        env_key = "SERVICE_CLIENT_" + client_id.strip().upper().replace("-", "_")
+        if env_key in out:
+            raise SystemExit(
+                f"Conflict: both SERVICE_CLIENTS[{client_id!r}] and {env_key} are set"
+            )
+        out[env_key] = token
+    return out
+
+
 def section_to_dotenv(data: dict, dest: Path) -> None:
     if not isinstance(data, dict):
         raise SystemExit(f"{dest}: section must be a JSON object of env key/value pairs")
@@ -37,10 +68,10 @@ def section_to_dotenv(data: dict, dest: Path) -> None:
         if value is None:
             text = ""
         elif isinstance(value, (dict, list)):
-            # Nested JSON values must stay valid JSON in dotenv (no longer used for
-            # service clients, which are flat SERVICE_CLIENT_<ID> scalars, but kept
-            # as a defensive fallback for any other nested config).
-            text = json.dumps(value, separators=(",", ":"))
+            raise SystemExit(
+                f"{dest}: unexpected nested value for {key!r}; "
+                "only SERVICE_CLIENTS may be an object (it is flattened before write)"
+            )
         else:
             text = str(value).replace("\n", "\\n")
         lines.append(f"{key}={text}")
@@ -59,7 +90,7 @@ if missing:
     raise SystemExit(f"catalog-service secret missing top-level key(s): {missing}")
 
 section_to_dotenv(payload["client"], root / "client/.env")
-section_to_dotenv(payload["server"], root / "server/.env")
+section_to_dotenv(flatten_service_clients(payload["server"]), root / "server/.env")
 PY
 
 # Keep JSON out of docker build contexts

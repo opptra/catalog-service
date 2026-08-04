@@ -2,13 +2,11 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
-from core.clients.openrouter import GeneratedImage, OpenRouterClient, ReferenceImage
+from core.clients.openrouter import OpenRouterClient, ReferenceImage
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
 from generation.context import GenerationContext
-from utils import files
 
 _PRODUCT_LABEL = (
     "PRODUCT REFERENCE {index} of {total} — the real product, this angle/closeup. Cross-reference "
@@ -18,28 +16,41 @@ _PRODUCT_LABEL = (
 
 # Aspect ratios each provider accepts. The caller (services.job) supplies a fixed per-image-type
 # ratio — NOT an AI-chosen one — snapped to the nearest supported ratio by value (w/h).
-_GEMINI_ASPECT_RATIOS = (
-    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
-)
+_GEMINI_ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
 _GPT_ASPECT_RATIOS = ("1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9")
 _GROK_ASPECT_RATIOS = (
-    "1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "9:19.5", "19.5:9",
-    "9:20", "20:9", "1:2", "2:1",
+    "1:1",
+    "3:4",
+    "4:3",
+    "9:16",
+    "16:9",
+    "2:3",
+    "3:2",
+    "9:19.5",
+    "19.5:9",
+    "9:20",
+    "20:9",
+    "1:2",
+    "2:1",
 )
 # OpenRouter capability: Grok Imagine accepts at most 3 input_references (GPT accepts 16).
 # Sending more makes every Grok call 400 — keep the first N in listing order (MAIN first).
 _GROK_MAX_REFERENCES = 3
 
+
 @dataclass(frozen=True, slots=True)
 class ImageGeneration:
-    path: Path
+    """In-memory image bytes from the model — caller uploads to GCS."""
+
+    content: bytes
+    content_type: str
     prompt: str  # the image-generation prompt actually sent to the image model
 
 
-# Model ID from OPENROUTER_IMAGE_MODEL → (output folder name under output_latest/, render fn).
+# Model ID from OPENROUTER_IMAGE_MODEL → render fn.
 # Swap the env model ID to compare; prompt planning stays the same for every path.
 RenderFn = Callable[
-    [OpenRouterClient, GenerationContext, str, AttributeName, int, Path, str | None],
+    [OpenRouterClient, GenerationContext, str, AttributeName, int, str | None],
     ImageGeneration,
 ]
 
@@ -48,9 +59,8 @@ def render(
     client: OpenRouterClient,
     ctx: GenerationContext,
     image_prompt: str,
-    name: AttributeName,
-    slot: int,
-    images_dir: Path,
+    _name: AttributeName,
+    _slot: int,
     aspect_ratio: str | None = None,
 ) -> ImageGeneration:
     """Render one planned image via Gemini (chat + modalities)."""
@@ -60,17 +70,19 @@ def render(
         references=_references(ctx) or None,
         aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GEMINI_ASPECT_RATIOS),
     )
-    path = _write_image(image, images_dir / f"{name.value}_{slot}")
-    return ImageGeneration(path=path, prompt=image_prompt)
+    return ImageGeneration(
+        content=image.content,
+        content_type=image.content_type,
+        prompt=image_prompt,
+    )
 
 
 def render_gpt(
     client: OpenRouterClient,
     ctx: GenerationContext,
     image_prompt: str,
-    name: AttributeName,
-    slot: int,
-    images_dir: Path,
+    _name: AttributeName,
+    _slot: int,
     aspect_ratio: str | None = None,
 ) -> ImageGeneration:
     """Render the same planned prompt via GPT Image (dedicated Images API)."""
@@ -80,17 +92,19 @@ def render_gpt(
         references=_references(ctx) or None,
         aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GPT_ASPECT_RATIOS),
     )
-    path = _write_image(image, images_dir / f"{name.value}_{slot}")
-    return ImageGeneration(path=path, prompt=image_prompt)
+    return ImageGeneration(
+        content=image.content,
+        content_type=image.content_type,
+        prompt=image_prompt,
+    )
 
 
 def render_grok(
     client: OpenRouterClient,
     ctx: GenerationContext,
     image_prompt: str,
-    name: AttributeName,
-    slot: int,
-    images_dir: Path,
+    _name: AttributeName,
+    _slot: int,
     aspect_ratio: str | None = None,
 ) -> ImageGeneration:
     """Render the same planned prompt via Grok Imagine (dedicated Images API)."""
@@ -101,20 +115,23 @@ def render_grok(
         references=refs,
         aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GROK_ASPECT_RATIOS),
     )
-    path = _write_image(image, images_dir / f"{name.value}_{slot}")
-    return ImageGeneration(path=path, prompt=image_prompt)
+    return ImageGeneration(
+        content=image.content,
+        content_type=image.content_type,
+        prompt=image_prompt,
+    )
 
 
-# Known comparison models → short folder name + which render path to use.
-IMAGE_MODELS: dict[str, tuple[str, RenderFn]] = {
-    "google/gemini-3-pro-image": ("gemini", render),
-    "openai/gpt-image-2": ("gpt", render_gpt),
-    "x-ai/grok-imagine-image-quality": ("grok", render_grok),
+# Known comparison models → which render path to use.
+IMAGE_MODELS: dict[str, RenderFn] = {
+    "google/gemini-3-pro-image": render,
+    "openai/gpt-image-2": render_gpt,
+    "x-ai/grok-imagine-image-quality": render_grok,
 }
 
 
-def resolve_image_model(model: str) -> tuple[str, RenderFn]:
-    """Map ``OPENROUTER_IMAGE_MODEL`` to ``(folder_name, render_fn)``."""
+def resolve_image_model(model: str) -> RenderFn:
+    """Map ``OPENROUTER_IMAGE_MODEL`` to the matching render function."""
     try:
         return IMAGE_MODELS[model]
     except KeyError:
@@ -122,13 +139,6 @@ def resolve_image_model(model: str) -> tuple[str, RenderFn]:
         raise ValueError(
             f"Unknown openrouter_image_model={model!r}; expected one of: {known}"
         ) from None
-
-
-def _write_image(image: GeneratedImage, path_stem: Path) -> Path:
-    """Write the model's image exactly as returned, choosing the extension from its content type."""
-    extension = files.extension_for_image_content_type(image.content_type)
-    files.ensure_dir(path_stem.parent)
-    return files.write_bytes(path_stem.with_name(path_stem.name + extension), image.content)
 
 
 def _normalize_aspect_ratio(requested: str | None, allowed: tuple[str, ...]) -> str:

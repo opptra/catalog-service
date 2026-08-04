@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from dto.brand_access import BrandAccessResponse
+from dto.response.brand_access import BrandAccessResponse
 from repositories.catalog import brand as catalog_brand_repository
 from repositories.user_service import user_access_grant as grant_repository
 
