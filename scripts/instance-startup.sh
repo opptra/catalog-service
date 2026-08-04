@@ -7,13 +7,13 @@ set -euo pipefail
 #
 # VM SA needs:
 #   - roles/artifactregistry.reader
-#   - roles/secretmanager.secretAccessor (catalog-service-server)
+#   - roles/secretmanager.secretAccessor (catalog-service)
 #   - Access scopes: Allow full access to all Cloud APIs
 # Optional: roles/logging.logWriter
 
 REGION="${REGION:-asia-south1}"
 AR_REPO="${AR_REPO:-catalog-service}"
-SERVER_SECRET_NAME="${SERVER_SECRET_NAME:-catalog-service-server}"
+SECRET_NAME="${SECRET_NAME:-catalog-service}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 APP_DIR=/opt/catalog-service
 
@@ -75,14 +75,24 @@ SERVER_IMAGE=${SERVER_IMAGE}
 EOF
 
 curl -sf -H "Authorization: Bearer ${TOKEN}" \
-  "https://secretmanager.googleapis.com/v1/projects/${PROJECT_ID}/secrets/${SERVER_SECRET_NAME}/versions/latest:access" \
+  "https://secretmanager.googleapis.com/v1/projects/${PROJECT_ID}/secrets/${SECRET_NAME}/versions/latest:access" \
   | python3 -c 'import sys,json,base64; from pathlib import Path
 p=json.load(sys.stdin)
 raw=base64.b64decode(p["payload"]["data"])
-data=json.loads(raw)
+payload=json.loads(raw)
+if not isinstance(payload, dict) or "server" not in payload:
+  raise SystemExit("catalog-service secret must be a JSON object with a top-level \"server\" key")
+data=payload["server"]
+if not isinstance(data, dict):
+  raise SystemExit("catalog-service secret \"server\" must be a JSON object of env key/value pairs")
 lines=[]
 for k,v in data.items():
-  t="" if v is None else str(v).replace("\\", "\\\\").replace("\n", "\\n")
+  if v is None:
+    t=""
+  elif isinstance(v, (dict, list)):
+    t=json.dumps(v, separators=(",", ":"))
+  else:
+    t=str(v).replace("\\", "\\\\").replace("\n", "\\n")
   # Quote values so special chars ($ # etc.) survive dotenv parsing.
   lines.append(f"{k}={json.dumps(t)}")
 Path("server.env").write_text("\n".join(lines)+"\n")

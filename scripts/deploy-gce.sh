@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Deploy by replacing MIG VMs. New instances run the instance-template startup
 # script (scripts/instance-startup.sh), which pulls :latest images from Artifact
-# Registry and loads server env from Secret Manager.
+# Registry and loads the "server" section of the catalog-service secret.
 #
 # Default path is a regional (zone-agnostic) MIG so replaces can land in any
 # zone in the region when one zone is out of capacity.

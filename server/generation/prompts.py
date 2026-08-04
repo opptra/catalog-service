@@ -25,7 +25,11 @@ _RULES = (
     "keywords; use Brand DNA for tone, personality and restricted claims. Do not let Brand DNA "
     "override category best practices unless a brand guardrail requires it.\n"
     "- Optimize for listing quality, customer trust, marketplace compliance and conversion — "
-    "quality over completeness."
+    "quality over completeness.\n"
+    "- For ANY image (hero, infographic, lifestyle, A+, or any other type): do NOT draw, render, "
+    "watermark, or place any brand logo or brand name on the image. Do NOT leave empty reserved "
+    "space, corners, banners, margins, or padding for a logo — the logo is added later by a "
+    "deterministic code step, so compose the full frame with product/content only."
 )
 
 
@@ -103,8 +107,9 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
         "- physical coherence: show the product realistically and correctly used/placed;\n"
         "- on-image text/badges appropriate to this image role and the marketplace's compliance "
         "rules (a strict primary/main image carries no text or badges; secondary images may);\n"
-        "- do NOT place any brand logo or brand name on the image — the logo is added later by a "
-        "separate deterministic step, so never draw, render or leave space for it;\n"
+        "- brand logo: never draw/render a logo or brand wordmark, and never leave reserved "
+        "space for one — every slot prompt must state this explicitly; the logo is composited "
+        "later in code;\n"
         "- do NOT choose or mention an aspect ratio, canvas shape, orientation or pixel/format "
         "dimensions anywhere — the renderer uses a fixed ratio per image type, so compose for the "
         "subject and leave the canvas shape entirely to the system.\n\n"

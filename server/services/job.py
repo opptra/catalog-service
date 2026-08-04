@@ -1,22 +1,11 @@
-"""SKU job orchestration.
+"""Job creation and SKU job orchestration.
 
-Thin use-case layer: resolve the SKU job, consume its pre-created task entries, delegate generation
-to ``generation`` (which uses the OpenRouter client), update per-task status, persist job/task
-status, and write the outputs locally.
-
-The database is used ONLY to read metadata and update job/task status — generated content is never
-persisted. ``sku_job.tasks`` is assumed to already contain every task as
-``{attribute_name: STATUS}`` (default ``PENDING``). This runner never creates or initializes tasks;
-it only executes entries that are ``PENDING`` or ``FAILED`` and leaves ``COMPLETED`` tasks untouched.
-
-Task status is written to the DB the moment an attribute finishes (text batch after its one call;
-each image type as soon as all of its slots succeed or fail). Later attributes do not need to
-finish before earlier ones become COMPLETED — that is what makes retry skip already-done work.
-Images are planned once (``generation.gallery``), then every slot is rendered in parallel.
+``create_job`` inserts ``job`` + ``job_attribute`` + ``sku_job`` rows for the UI.
+``execute_sku_job`` runs generation against a pre-created ``sku_job``.
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -24,25 +13,43 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger(__name__)
-
 from core.clients.openrouter import OpenRouterClient
+from core.clients.workflows import WorkflowsClient
 from core.config import settings
-from core.exceptions import SkuJobNotFoundError
+from core.exceptions import (
+    AttributeNotFoundError,
+    InvalidJobAttributesError,
+    JobNotFoundError,
+    MarketplaceNotFoundError,
+    SkuJobExecutionFailedError,
+    SkuJobNotFoundError,
+    SkuNotFoundError,
+)
 from entities.catalog.attribute_enums import (
     AttributeDataType,
     AttributeName,
+    JobStatus,
     SkuJobStatus,
     TaskStatus,
 )
 from entities.catalog.attribute_master import AttributeMaster
+from entities.catalog.job import Job
+from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.sku_job import SkuJob
 from generation import gallery, images, inputs, text
 from generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
+from repositories.catalog import job as job_repo
 from repositories.catalog import job_attribute as job_attribute_repo
+from repositories.catalog import marketplace as marketplace_repo
 from repositories.catalog import sku_job as sku_job_repo
+from repositories.catalog import sku_master as sku_master_repo
 from utils import files
+
+logger = logging.getLogger(__name__)
+
+# Cloud Workflows resource id for cloud-workflows/job-pipeline.yaml
+_JOB_PIPELINE_WORKFLOW = "job-pipeline"
 
 # Per-run folders: output_latest/<gemini|gpt|grok>/<n>/ — never overwrite a prior run.
 # Legacy numbered folders under output/ (output/1, …) stay untouched if present.
@@ -76,6 +83,117 @@ def _next_run_dir(provider: str) -> Path:
     root = files.ensure_dir(_OUTPUT_LATEST / provider)
     existing = [int(p.name) for p in root.iterdir() if p.is_dir() and p.name.isdigit()]
     return files.ensure_dir(root / str(max(existing, default=0) + 1))
+
+
+def create_job(
+    session: Session,
+    workflows: WorkflowsClient,
+    *,
+    created_by: UUID,
+    sku_ids: Sequence[int],
+    marketplace_id: int,
+    attributes: Sequence[tuple[int, int]],
+) -> dict[str, Any]:
+    """Create a job + job_attribute rows + one sku_job per SKU, then start the pipeline workflow.
+
+    ``attributes`` is ``(attribute_id, quantity)`` pairs. Quantity must be 1 when the
+    attribute does not allow quantity. Returns identifiers the UI needs to track the job.
+    """
+    if marketplace_repo.get_by_id(session, marketplace_id) is None:
+        raise MarketplaceNotFoundError(f"marketplace_id={marketplace_id}")
+
+    if not sku_ids:
+        raise SkuNotFoundError("sku_ids must not be empty")
+    if len(sku_ids) != len(set(sku_ids)):
+        raise InvalidJobAttributesError("Duplicate sku_id in sku_ids")
+    if any(sku_id <= 0 for sku_id in sku_ids):
+        raise InvalidJobAttributesError("sku_ids must contain positive integers")
+
+    found_sku_ids = {sku.id for sku in sku_master_repo.list_by_ids(session, sku_ids)}
+    missing_skus = [sku_id for sku_id in sku_ids if sku_id not in found_sku_ids]
+    if missing_skus:
+        raise SkuNotFoundError(f"Unknown or deleted sku_id(s): {missing_skus}")
+
+    attribute_ids = [attribute_id for attribute_id, _quantity in attributes]
+    if len(attribute_ids) != len(set(attribute_ids)):
+        raise InvalidJobAttributesError("Duplicate attribute_id in attributes")
+
+    masters = list(attribute_master_repo.list_by_ids(session, attribute_ids))
+    by_id = {master.id: master for master in masters}
+    missing = [attribute_id for attribute_id in attribute_ids if attribute_id not in by_id]
+    if missing:
+        raise AttributeNotFoundError(f"Unknown attribute_id(s): {missing}")
+
+    resolved: list[tuple[AttributeMaster, int]] = []
+    for attribute_id, quantity in attributes:
+        master = by_id[attribute_id]
+        if not master.allows_quantity and quantity != 1:
+            raise InvalidJobAttributesError(
+                f"attribute_id={attribute_id} ({master.name.value}) does not allow quantity>1"
+            )
+        resolved.append((master, quantity))
+
+    job = job_repo.save(
+        session,
+        Job(
+            created_by=created_by,
+            marketplace_id=marketplace_id,
+            status=JobStatus.PENDING.value,
+        ),
+    )
+
+    job_attribute_repo.save_all(
+        session,
+        [
+            JobAttribute(job_id=job.id, attribute_id=master.id, quantity=quantity)
+            for master, quantity in resolved
+        ],
+    )
+
+    tasks = {master.name.value: TaskStatus.PENDING.value for master, _quantity in resolved}
+    sku_jobs = sku_job_repo.save_all(
+        session,
+        [
+            SkuJob(
+                job_id=job.id,
+                sku_id=sku_id,
+                status=SkuJobStatus.PENDING.value,
+                tasks=dict(tasks),
+            )
+            for sku_id in sku_ids
+        ],
+    )
+
+    execution = workflows.trigger(
+        _JOB_PIPELINE_WORKFLOW,
+        {
+            "job_external_id": str(job.external_id),
+            "sku_job_external_ids": [str(sku_job.external_id) for sku_job in sku_jobs],
+        },
+    )
+
+    return {
+        "external_id": job.external_id,
+        "status": job.status,
+        "marketplace_id": marketplace_id,
+        "sku_ids": list(sku_ids),
+        "sku_jobs": [
+            {"sku_id": sku_job.sku_id, "external_id": sku_job.external_id} for sku_job in sku_jobs
+        ],
+        "attribute_ids": attribute_ids,
+        "workflow_execution": execution.name,
+    }
+
+
+def complete_job(session: Session, external_id: UUID) -> dict[str, Any]:
+    """Mark a parent job COMPLETED (called by the Cloud Workflow after all SKU jobs succeed)."""
+    job = job_repo.get_by_external_id(session, external_id)
+    if job is None:
+        raise JobNotFoundError(str(external_id))
+
+    job.status = JobStatus.COMPLETED.value
+    job_repo.save(session, job)
+    return {"external_id": job.external_id, "status": job.status}
 
 
 def execute_sku_job(
@@ -116,7 +234,7 @@ def execute_sku_job(
     result_path = _write_result(
         out_dir, sku_job, ctx, status, text_values, text_prompt, image_records, tasks
     )
-    return {
+    summary = {
         "external_id": sku_job.external_id,
         "status": status.value,
         "tasks": tasks,
@@ -124,6 +242,12 @@ def execute_sku_job(
         "result_path": str(result_path),
         "image_paths": [rec["path"] for rec in image_records],
     }
+    # Non-COMPLETED must fail the HTTP call so Cloud Workflows stops the pipeline.
+    if status != SkuJobStatus.COMPLETED:
+        raise SkuJobExecutionFailedError(
+            f"sku_job {sku_job.external_id} finished with status {status.value}"
+        )
+    return summary
 
 
 def _selected_attributes(

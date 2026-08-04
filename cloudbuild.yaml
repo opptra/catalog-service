@@ -1,22 +1,22 @@
-# Cloud Build: fetch client secret → build/push images → replace MIG VMs.
+# Cloud Build: fetch catalog-service secret → build/push images → replace MIG VMs.
 #
-# Secrets (JSON object of env keys), latest version:
-#   catalog-service-client  → baked into client image via client/.env (build-time)
-#   catalog-service-server  → read on VM by instance startup (not SCP'd by deploy)
+# Secret (JSON with client + server sections), latest version:
+#   catalog-service
+#     .client → baked into client image via client/.env (build-time)
+#     .server → read on VM by instance startup (not SCP'd by deploy)
 #
 # Substitutions:
 #   _REGION, _AR_REPO, _MIG_NAME, _MIG_REGION
 #   Deploy targets a regional MIG (zone-agnostic). Create the MIG with
 #   --region=asia-south1 (not --zone=...).
-#   _CLIENT_SECRET, _SERVER_SECRET  (optional overrides)
+#   _SECRET_NAME  (optional override; default catalog-service)
 
 substitutions:
   _REGION: asia-south1
   _AR_REPO: catalog-service
   _MIG_NAME: catalog-service
   _MIG_REGION: asia-south1
-  _CLIENT_SECRET: catalog-service-client
-  _SERVER_SECRET: catalog-service-server
+  _SECRET_NAME: catalog-service
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -37,8 +37,7 @@ steps:
       - |
         set -euo pipefail
         chmod +x scripts/fetch-secrets.sh
-        export CLIENT_SECRET_NAME="${_CLIENT_SECRET}"
-        export SERVER_SECRET_NAME="${_SERVER_SECRET}"
+        export SECRET_NAME="${_SECRET_NAME}"
         ./scripts/fetch-secrets.sh
 
   # 2) Build client (Vite reads client/.env from secrets)
@@ -81,7 +80,7 @@ steps:
       - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server
     waitFor: [build-server]
 
-  # 4) Replace MIG VMs; startup pulls :latest and loads server secret
+  # 4) Replace MIG VMs; startup pulls :latest and loads server section of secret
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: deploy
     entrypoint: bash

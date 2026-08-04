@@ -20,6 +20,12 @@ class AttributeGroupLabel(StrEnum):
     IMAGE = "IMAGE"
 
 
+class JobStatus(StrEnum):
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
 class SkuJobStatus(StrEnum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"

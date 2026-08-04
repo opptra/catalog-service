@@ -30,6 +30,14 @@ _PLAN_TOKENS_BASE = 400
 _PLAN_TOKENS_PER_SLOT = 210
 _PLAN_TOKENS_SAFETY_MULTIPLIER = 1.5
 
+# Appended to every slot prompt so the image model never invents a logo or reserved logo space;
+# logos are composited later in a deterministic code step.
+_NO_LOGO_PROMPT_SUFFIX = (
+    "Brand logo: do not draw, render, watermark, or place any brand logo or brand name on the "
+    "image. Do not leave empty reserved space, corners, banners, margins, or padding for a logo "
+    "— the logo is added later by a deterministic code step."
+)
+
 
 def _plan_max_tokens(num_slots: int) -> int:
     """Token budget for a plan call requesting ``num_slots`` images, with a safety margin."""
@@ -104,6 +112,7 @@ def _index_plan(parsed: dict[str, Any]) -> dict[tuple[AttributeName, int], SlotP
                 full_prompt = (
                     f"{full_prompt}\n\nShared visual system (keep consistent): {shared_style}"
                 )
+            full_prompt = f"{full_prompt}\n\n{_NO_LOGO_PROMPT_SUFFIX}"
             indexed[(name, slot)] = SlotPlan(
                 name=name,
                 slot=slot,
