@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
+import { useBrands } from '../brands/useBrands'
 import AppHeader from '../components/AppHeader'
-import { getBrandById, getSelectedBrandId } from '../data/brands'
 
 function PlusIcon() {
   return (
@@ -18,8 +18,7 @@ function PlusIcon() {
 
 function Workspace() {
   const navigate = useNavigate()
-  const brandId = getSelectedBrandId()
-  const brand = brandId ? getBrandById(brandId) : undefined
+  const { selectedBrand: brand } = useBrands()
 
   useEffect(() => {
     document.title = brand ? `Listing Studio · ${brand.name}` : 'Listing Studio'
@@ -34,7 +33,6 @@ function Workspace() {
       <AppHeader
         brandName={brand.name}
         showExecutionHistory
-        onBrandClick={() => navigate('/brands')}
         onExecutionHistoryClick={() => {
           navigate('/workspace/batch/summer-tees')
         }}

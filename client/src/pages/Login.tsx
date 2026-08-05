@@ -3,10 +3,11 @@ import { Navigate } from 'react-router-dom'
 import opptraLogo from '../assets/opptra-logo.png'
 import GoogleSignInButton from '../components/GoogleSignInButton'
 import { useAuth } from '../auth/useAuth'
-import { getSelectedBrandId } from '../data/brands'
+import { useBrands } from '../brands/useBrands'
 
 function Login() {
   const { user, loading } = useAuth()
+  const { selectedBrand } = useBrands()
 
   useEffect(() => {
     document.title = 'Listing Studio · Sign in'
@@ -21,7 +22,7 @@ function Login() {
   }
 
   if (user) {
-    return <Navigate to={getSelectedBrandId() ? '/workspace' : '/brands'} replace />
+    return <Navigate to={selectedBrand ? '/workspace' : '/brands'} replace />
   }
 
   return (

@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import RequireAuth from './components/RequireAuth'
 import { useAuth } from './auth/useAuth'
-import { getSelectedBrandId } from './data/brands'
+import { useBrands } from './brands/useBrands'
 import BatchUploadReceipt from './pages/BatchUploadReceipt'
 import BrandSelect from './pages/BrandSelect'
 import Login from './pages/Login'
@@ -13,6 +13,7 @@ import Workspace from './pages/Workspace'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
+  const { selectedBrand } = useBrands()
 
   if (loading) {
     return (
@@ -26,7 +27,7 @@ function RootRedirect() {
     return <Navigate to="/login" replace />
   }
 
-  return <Navigate to={getSelectedBrandId() ? '/workspace' : '/brands'} replace />
+  return <Navigate to={selectedBrand ? '/workspace' : '/brands'} replace />
 }
 
 function App() {

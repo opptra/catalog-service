@@ -1,19 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import iconCsv from '../assets/icon-csv.svg'
 import iconExport from '../assets/icon-export.svg'
 import iconLockBanner from '../assets/icon-lock-banner.svg'
 import iconWarning from '../assets/icon-warning.svg'
 import iconZip from '../assets/icon-zip.svg'
 import AppHeader from '../components/AppHeader'
-import { getBrandById, getSelectedBrandId } from '../data/brands'
+import { useBrands } from '../brands/useBrands'
 
 type ReceiptTab = 'content' | 'exports' | 'upload'
 
 function BatchUploadReceipt() {
-  const navigate = useNavigate()
-  const brandId = getSelectedBrandId()
-  const brand = brandId ? getBrandById(brandId) : undefined
+  const { selectedBrand: brand } = useBrands()
   const [tab, setTab] = useState<ReceiptTab>('upload')
 
   useEffect(() => {
@@ -29,7 +27,6 @@ function BatchUploadReceipt() {
       <AppHeader
         brandName={brand.name}
         showExecutionHistory
-        onBrandClick={() => navigate('/brands')}
         onExecutionHistoryClick={() => {
           // Execution history UI — not wired to the backend yet.
         }}

@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
+import { useBrands } from '../brands/useBrands'
 import AppHeader from './AppHeader'
 import BatchStepper from './BatchStepper'
-import { getBrandById, getSelectedBrandId } from '../data/brands'
 
 interface BatchShellProps {
   title: string
@@ -14,8 +14,7 @@ interface BatchShellProps {
 
 function BatchShell({ title, stepIndex, stepLabel, children, bodyClassName }: BatchShellProps) {
   const navigate = useNavigate()
-  const brandId = getSelectedBrandId()
-  const brand = brandId ? getBrandById(brandId) : undefined
+  const { selectedBrand: brand } = useBrands()
 
   if (!brand) {
     return <Navigate to="/brands" replace />
@@ -26,7 +25,6 @@ function BatchShell({ title, stepIndex, stepLabel, children, bodyClassName }: Ba
       <AppHeader
         brandName={brand.name}
         showExecutionHistory
-        onBrandClick={() => navigate('/brands')}
         onExecutionHistoryClick={() => navigate('/workspace/batch/summer-tees')}
       />
       <main className="batch-page">

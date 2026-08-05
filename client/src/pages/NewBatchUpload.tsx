@@ -15,7 +15,6 @@ function NewBatchUpload() {
   const navigate = useNavigate()
   const subcategory = getBatchSubcategory()
   const [filesUploaded, setFilesUploaded] = useState(getBatchFilesUploaded)
-  const [previewFailure, setPreviewFailure] = useState(false)
 
   useEffect(() => {
     document.title = 'Listing Studio · Upload'
@@ -35,11 +34,6 @@ function NewBatchUpload() {
     setFilesUploaded(false)
   }
 
-  function handleValidate() {
-    if (!filesUploaded) return
-    navigate(previewFailure ? '/workspace/new/validation?status=problems' : '/workspace/new/validation')
-  }
-
   return (
     <BatchShell
       title={`New batch · ${subcategory}`}
@@ -48,8 +42,8 @@ function NewBatchUpload() {
     >
       <h2 className="batch-page__heading">Upload your product data</h2>
       <p className="batch-page__lede">
-        Two files, both mandatory. Every CSV row needs a matching image folder — that pairing is what
-        validation checks hardest. Once generation starts, these files are fixed for the batch.
+        Two files, both mandatory. Every product row needs a matching image folder — that pairing is
+        what validation checks hardest. Once generation starts, these files are fixed for the batch.
       </p>
 
       <div className="upload-grid">
@@ -58,13 +52,13 @@ function NewBatchUpload() {
           <button type="button" className="upload-dropzone" onClick={markUploaded}>
             <img src={iconCsv} alt="" width={28} height={28} />
             <p className="upload-dropzone__text">
-              Drop your CSV here or <span>browse</span>
+              Drop your file here or <span>browse</span>
             </p>
           </button>
           <p className="upload-card__hint">
-            Must match the {subcategory} template.
+            Allowed file types: CSV, XLS, XLSX
             <br />
-            All fields mandatory. One row per SKU.
+            Must match the {subcategory} template. One row per SKU.
           </p>
         </div>
 
@@ -81,7 +75,6 @@ function NewBatchUpload() {
             <br />
             Minimum one image per folder.
           </p>
-          <p className="upload-card__proto">prototype: simulate an interrupted upload</p>
         </div>
       </div>
 
@@ -164,33 +157,23 @@ function NewBatchUpload() {
         </div>
       ) : null}
 
-      <div className="batch-page__footer batch-page__footer--split">
-        <label className="proto-check">
-          <input
-            type="checkbox"
-            checked={previewFailure}
-            onChange={(event) => setPreviewFailure(event.target.checked)}
-          />
-          <span>prototype: preview the validation failure state</span>
-        </label>
-        <div className="batch-page__footer-actions">
-          <button
-            type="button"
-            className="btn-outline"
-            onClick={() => navigate('/workspace/new')}
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            className={filesUploaded ? 'btn-primary' : 'btn-muted btn-muted--continue'}
-            disabled={!filesUploaded}
-            onClick={handleValidate}
-          >
-            Validate
-            <img src={iconArrowRight} alt="" width={16} height={16} />
-          </button>
-        </div>
+      <div className="batch-page__footer-actions">
+        <button
+          type="button"
+          className="btn-outline"
+          onClick={() => navigate('/workspace/new')}
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          className={filesUploaded ? 'btn-primary' : 'btn-muted btn-muted--continue'}
+          disabled={!filesUploaded}
+          onClick={() => navigate('/workspace/new/validation')}
+        >
+          Validate
+          <img src={iconArrowRight} alt="" width={16} height={16} />
+        </button>
       </div>
     </BatchShell>
   )

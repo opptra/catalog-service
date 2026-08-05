@@ -1,3 +1,4 @@
+from core.exceptions.category import CategoryNotFoundError
 from core.exceptions.gallery import GalleryPlanError
 from core.exceptions.gcs import GcsError
 from core.exceptions.job import (
@@ -23,6 +24,7 @@ from core.exceptions.workflows import WorkflowsError
 __all__ = [
     "AttributeNotFoundError",
     "CategoryIntelligenceMissingError",
+    "CategoryNotFoundError",
     "GalleryPlanError",
     "GcsError",
     "InvalidGoogleClaimsError",

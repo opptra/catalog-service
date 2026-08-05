@@ -1,10 +1,11 @@
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import opptraLogo from '../assets/opptra-logo.png'
 import { useAuth } from '../auth/useAuth'
+import { useBrands } from '../brands/useBrands'
 
 interface AppHeaderProps {
   brandName?: string
-  onBrandClick?: () => void
   showExecutionHistory?: boolean
   onExecutionHistoryClick?: () => void
 }
@@ -25,11 +26,41 @@ function ChevronDownIcon() {
 
 function AppHeader({
   brandName,
-  onBrandClick,
   showExecutionHistory = false,
   onExecutionHistoryClick,
 }: AppHeaderProps) {
   const { user, signOut } = useAuth()
+  const { brands, loading, loadFailed, selectedBrand, selectBrand } = useBrands()
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+
+    function onPointerDown(event: PointerEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  function handleSelect(brandId: string, brandNameValue: string) {
+    selectBrand({ id: brandId, name: brandNameValue })
+    setOpen(false)
+    navigate('/workspace')
+  }
 
   return (
     <header className="app-header">
@@ -41,15 +72,60 @@ function AppHeader({
 
         {brandName ? (
           <div className="app-header__actions">
-            <button
-              type="button"
-              className="app-header__pill"
-              onClick={onBrandClick}
-              aria-label={`Current brand ${brandName}. Change brand`}
-            >
-              <span>{brandName}</span>
-              <ChevronDownIcon />
-            </button>
+            <div className="app-header__brand-menu" ref={dropdownRef}>
+              <button
+                type="button"
+                className="app-header__pill"
+                onClick={() => setOpen((current) => !current)}
+                aria-expanded={open}
+                aria-haspopup="listbox"
+                aria-label={`Current brand ${brandName}. Change brand`}
+              >
+                <span>{brandName}</span>
+                <ChevronDownIcon />
+              </button>
+
+              {open ? (
+                <div className="app-header__dropdown" role="listbox" aria-label="Available brands">
+                  {loading ? <p className="app-header__dropdown-status">Loading brands…</p> : null}
+
+                  {loadFailed ? (
+                    <p className="app-header__dropdown-status">
+                      Couldn&apos;t load brands. Try again.
+                    </p>
+                  ) : null}
+
+                  {!loading && !loadFailed && brands.length === 0 ? (
+                    <p className="app-header__dropdown-status">
+                      No brands available. Contact your admin to get access.
+                    </p>
+                  ) : null}
+
+                  {!loading && !loadFailed
+                    ? brands.map((brand) => {
+                        const selected = brand.external_id === selectedBrand?.id
+                        return (
+                          <button
+                            key={brand.external_id}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            className={
+                              selected
+                                ? 'app-header__dropdown-item app-header__dropdown-item--selected'
+                                : 'app-header__dropdown-item'
+                            }
+                            onClick={() => handleSelect(brand.external_id, brand.name)}
+                          >
+                            {brand.name}
+                          </button>
+                        )
+                      })
+                    : null}
+                </div>
+              ) : null}
+            </div>
+
             {showExecutionHistory ? (
               <button
                 type="button"
