@@ -31,9 +31,16 @@ function RefreshIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path
-        d="M13.5 8A5.5 5.5 0 1 1 11.2 3.4M13.5 8V3.5H9"
+        d="M13.5 2.5v3.5h-3.5"
         stroke="currentColor"
-        strokeWidth="1.4"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13.2 6A5.5 5.5 0 1 0 12.4 11.2"
+        stroke="currentColor"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
