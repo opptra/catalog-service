@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import {
   getJobStatus,
   getSkuGenerationJobContent,
@@ -147,7 +147,6 @@ function isAttributePending(
 
 function BatchContent() {
   const { jobExternalId = '' } = useParams<{ jobExternalId: string }>()
-  const navigate = useNavigate()
   const { selectedBrand: brand } = useBrands()
 
   const [status, setStatus] = useState<JobStatusResponse | null>(null)

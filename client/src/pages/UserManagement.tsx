@@ -34,13 +34,14 @@ function UserManagement() {
   useEffect(() => {
     if (!brand) return
 
+    const brandExternalId = brand.id
     let cancelled = false
 
     async function load() {
       setLoading(true)
       setError(null)
       try {
-        const rows = await listBrandUsers(brand.id)
+        const rows = await listBrandUsers(brandExternalId)
         if (cancelled) return
         setUsers(rows)
       } catch {

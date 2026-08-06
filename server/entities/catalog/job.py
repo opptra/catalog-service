@@ -22,6 +22,9 @@ class Job(Base):
     # No DB-level FK: users live in a separate database. This stores the
     # user's external_id, resolved via the user repository/service.
     created_by: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    # Stores brand.external_id (not brand.id). Lets list/filter jobs by brand
+    # without joining through SKUs.
+    brand_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     job_type: Mapped[str] = mapped_column(Text, nullable=False, default="GENERATION")
     marketplace_id: Mapped[int | None] = mapped_column(
         ForeignKey("marketplace.id"),

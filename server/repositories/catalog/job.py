@@ -17,14 +17,15 @@ def get_by_external_id(session: Session, external_id: UUID) -> Job | None:
     return session.scalar(select(Job).where(Job.external_id == external_id))
 
 
-def list_generation_by_created_by(
-    session: Session, created_by: UUID
+def list_generation_by_created_by_and_brand(
+    session: Session, created_by: UUID, brand_id: UUID
 ) -> Sequence[Job]:
-    """Newest generation jobs first for the given user."""
+    """Newest generation jobs first for the given user and brand.external_id."""
     return session.scalars(
         select(Job)
         .where(
             Job.created_by == created_by,
+            Job.brand_id == brand_id,
             Job.job_type == JobType.GENERATION.value,
         )
         .order_by(Job.created_at.desc())

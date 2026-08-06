@@ -3,9 +3,10 @@
 # Triggered by POST /api/jobs after DB rows are created. Argument shape:
 #   {
 #     "job_external_id": "<uuid>",
-#     "brand_external_id": "<uuid>",
 #     "sku_generation_job_external_ids": ["<uuid>", ...]
 #   }
+#
+# Brand comes from job.brand_id (brand.external_id) set at create time — not passed here.
 #
 # Machine auth is loaded from Secret Manager secret `catalog-service-cloud-secret`:
 #   { "client_id": "...", "client_token": "..." }
@@ -21,7 +22,6 @@ main:
         assign:
           - api_base_url: "https://studio.opptra.com"
           - job_external_id: ${args.job_external_id}
-          - brand_external_id: ${args.brand_external_id}
           - sku_generation_job_external_ids: ${args.sku_generation_job_external_ids}
           - cloud_secret_id: "catalog-service-cloud-secret"
 
@@ -56,8 +56,6 @@ main:
                       Content-Type: "application/json"
                       client-id: ${client_id}
                       client-token: ${client_token}
-                    body:
-                      brand_external_id: ${brand_external_id}
                   result: execute_result
 
     # Parent complete is fast; keep under the same 10-minute stack ceiling.
