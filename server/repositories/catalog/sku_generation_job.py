@@ -26,6 +26,16 @@ def list_by_job_id(session: Session, job_id: int) -> Sequence[SkuGenerationJob]:
     ).all()
 
 
+def list_by_job_ids(
+    session: Session, job_ids: Sequence[int]
+) -> Sequence[SkuGenerationJob]:
+    if not job_ids:
+        return []
+    return session.scalars(
+        select(SkuGenerationJob).where(SkuGenerationJob.job_id.in_(job_ids))
+    ).all()
+
+
 def save(session: Session, sku_generation_job: SkuGenerationJob) -> SkuGenerationJob:
     return base.save(session, sku_generation_job)
 

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 
 from core.auth import SecureAPIRouter, internal_api
 from core.deps import CatalogSessionDep, CurrentUserDep, GcsDep, OpenRouterDep, WorkflowsDep
@@ -33,7 +33,11 @@ from dto.response.job import (
     CreateFlatfileJobResponse,
     CreateJobResponse,
 )
-from dto.response.job_status import JobStatusResponse, SkuGenerationJobContentResponse
+from dto.response.job_status import (
+    JobListResponse,
+    JobStatusResponse,
+    SkuGenerationJobContentResponse,
+)
 from dto.response.sku_generation_job import SkuGenerationJobExecutionResponse
 from services import job as job_service
 
@@ -42,6 +46,25 @@ from services import job as job_service
 # Static path segments (/sku/..., /flatfile/...) must be registered before
 # parameterized /{external_id}/... routes.
 router = SecureAPIRouter(prefix="/jobs", tags=["jobs"])
+
+
+@router.get("", response_model=JobListResponse)
+def list_jobs(
+    user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+    brand_external_id: UUID = Query(...),
+) -> JobListResponse:
+    """Execution history for the current user in a brand workspace."""
+    try:
+        listed = job_service.list_jobs(
+            catalog_session,
+            created_by=user.external_id,
+            brand_external_id=brand_external_id,
+        )
+    except BrandNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return JobListResponse.model_validate(listed)
 
 
 @router.get("/sku/{external_id}", response_model=SkuGenerationJobContentResponse)

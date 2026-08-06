@@ -29,13 +29,7 @@ function BatchShell({
 
   return (
     <div className="page-shell page-shell--fixed">
-      <AppHeader
-        brandName={brand.name}
-        showExecutionHistory
-        onExecutionHistoryClick={() => {
-          // Execution history / pipeline UI — not wired yet.
-        }}
-      />
+      <AppHeader brandName={brand.name} showExecutionHistory />
       <main className="batch-page">
         <div className="batch-page__scroll">
           <div className="batch-page__top">
