@@ -1,18 +1,20 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import RequireAuth from './components/RequireAuth'
 import { useAuth } from './auth/useAuth'
-import { getSelectedBrandId } from './data/brands'
-import BatchUploadReceipt from './pages/BatchUploadReceipt'
+import { useBrands } from './brands/useBrands'
 import BrandSelect from './pages/BrandSelect'
 import Login from './pages/Login'
+import BatchContent from './pages/BatchContent'
 import NewBatchMarketplaces from './pages/NewBatchMarketplaces'
 import NewBatchSubcategory from './pages/NewBatchSubcategory'
 import NewBatchUpload from './pages/NewBatchUpload'
+import NewBatchUploading from './pages/NewBatchUploading'
 import NewBatchValidation from './pages/NewBatchValidation'
 import Workspace from './pages/Workspace'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
+  const { selectedBrand } = useBrands()
 
   if (loading) {
     return (
@@ -26,7 +28,7 @@ function RootRedirect() {
     return <Navigate to="/login" replace />
   }
 
-  return <Navigate to={getSelectedBrandId() ? '/workspace' : '/brands'} replace />
+  return <Navigate to={selectedBrand ? '/workspace' : '/brands'} replace />
 }
 
 function App() {
@@ -74,6 +76,14 @@ function App() {
         }
       />
       <Route
+        path="/workspace/new/uploading"
+        element={
+          <RequireAuth>
+            <NewBatchUploading />
+          </RequireAuth>
+        }
+      />
+      <Route
         path="/workspace/new/marketplaces"
         element={
           <RequireAuth>
@@ -82,10 +92,10 @@ function App() {
         }
       />
       <Route
-        path="/workspace/batch/summer-tees"
+        path="/batches/preview/:jobExternalId"
         element={
           <RequireAuth>
-            <BatchUploadReceipt />
+            <BatchContent />
           </RequireAuth>
         }
       />

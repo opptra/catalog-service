@@ -79,8 +79,9 @@ client/src/
 - **Routing:** a new page is a component in `pages/` plus a `<Route>` in `App.tsx`. Use react-router
   navigation (`Link`, `useNavigate`) — never `window.location`.
 - **Naming:** components `PascalCase.tsx`; hooks `useThing.ts`; other modules `camelCase.ts`.
-- **State:** default to local `useState`/`useReducer` and lifting state up. Introduce a shared-state
-  library only when genuinely needed, and then use it consistently across the app.
+- **State:** default to local `useState`/`useReducer` for UI-only state. Shared app state (auth,
+  brands, etc.) uses **Zustand** stores under the matching domain folder (e.g. `auth/authStore.ts`,
+  `brands/brandsStore.ts`) — not React Context and not Redux. Bootstrap stores from `main.tsx`.
 
 ## Server architecture (`server/`)
 

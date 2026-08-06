@@ -11,8 +11,8 @@ from sqlalchemy.types import DateTime
 from entities.catalog.base import Base
 
 
-class SkuJob(Base):
-    __tablename__ = "sku_job"
+class SkuGenerationJob(Base):
+    __tablename__ = "sku_generation_job"
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     external_id: Mapped[UUID] = mapped_column(

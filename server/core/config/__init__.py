@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # Model IDs the generation pipeline passes to OpenRouter. The client never
     # hardcodes models — set these in .env. Swap openrouter_image_model among the
-    # known comparison IDs (see .env.example) to pick gemini / gpt / grok path.
+    # known comparison IDs (see .env.example) to pick gemini / gpt path.
     openrouter_prompt_model: str
     openrouter_text_model: str
     openrouter_image_model: str
@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # REGION is required from env / Secret Manager (same key everywhere).
     # Leave GCS_BUCKET unset to disable the GCS client.
     gcs_bucket: str | None = None
+    # Service account email used to SignBlob V4 signed URLs (not a user email).
+    # Local + prod: set explicitly. Callers (user ADC / VM SA) need Token Creator on it.
+    gcs_signer_service_account_email: str | None = None
     region: str
 
     @model_validator(mode="before")

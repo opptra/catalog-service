@@ -1,0 +1,642 @@
+import { useEffect, useState } from 'react'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import {
+  getJobStatus,
+  getSkuGenerationJobContent,
+  type JobExpectedAttribute,
+  type JobStatusResponse,
+  type SkuGenerationJobAttributeSlot,
+  type SkuGenerationJobContentResponse,
+} from '../api/jobs'
+import { useBrands } from '../brands/useBrands'
+import ContentImageGrid from '../components/batch-content/ContentImageGrid'
+import ImageRegenerateModal from '../components/batch-content/ImageRegenerateModal'
+import PipelineProgressBar from '../components/batch-content/PipelineProgressBar'
+import AppHeader from '../components/AppHeader'
+import type { ContentImage } from '../components/batch-content/types'
+
+const STATUS_POLL_MS = 4000
+const CONTENT_POLL_MS = 5000
+
+const PDP_IMAGE_NAMES = new Set(['HERO', 'INFOGRAPHIC', 'LIFESTYLE'])
+
+function isTerminalStatus(status: string | undefined): boolean {
+  return status === 'COMPLETED' || status === 'FAILED'
+}
+
+/** Prefer these labels; everything else is humanized from the enum name. */
+const ATTRIBUTE_DISPLAY_LABELS: Record<string, string> = {
+  A_PLUS: 'A+',
+  BULLET_POINTS: 'Bullet points',
+  DESCRIPTION: 'Description',
+  TITLE: 'Title',
+  HERO: 'Hero',
+  INFOGRAPHIC: 'Infographic',
+  LIFESTYLE: 'Lifestyle',
+}
+
+type ImageModalSource =
+  | { kind: 'pdp'; index: number }
+  | { kind: 'attribute'; attributeName: string; index: number }
+
+function formatAttributeLabel(name: string): string {
+  const known = ATTRIBUTE_DISPLAY_LABELS[name]
+  if (known) return known
+  const words = name.replaceAll('_', ' ').trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return name
+  return words
+    .map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(' ')
+}
+
+function RefreshIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M13.5 2.5v3.5h-3.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13.2 6A5.5 5.5 0 1 0 12.4 11.2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function ChevronLeftIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M10 3.5L5.5 8L10 12.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M6 3.5L10.5 8L6 12.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function slotsByName(
+  attributes: SkuGenerationJobAttributeSlot[],
+  name: string,
+): SkuGenerationJobAttributeSlot[] {
+  return attributes
+    .filter((item) => item.name === name)
+    .toSorted((a, b) => a.slot - b.slot)
+}
+
+function imageSlotsToGrid(
+  attributes: SkuGenerationJobAttributeSlot[],
+  names: Set<string>,
+): ContentImage[] {
+  return attributes
+    .filter((item) => item.data_type === 'IMAGE' && names.has(item.name))
+    .toSorted((a, b) => a.name.localeCompare(b.name) || a.slot - b.slot)
+    .map((slot) => ({
+      id: `${slot.name}-${slot.slot}`,
+      url: slot.value,
+      label: `${formatAttributeLabel(slot.name)} ${slot.slot}`,
+    }))
+}
+
+function parseBulletList(raw: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is string => typeof item === 'string')
+    }
+  } catch {
+    // fall through
+  }
+  return raw
+    .split(/\n|•/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function isAttributePending(
+  name: string,
+  tasks: Record<string, string> | undefined,
+  skuStatus: string | undefined,
+): boolean {
+  if (tasks?.[name] === 'PENDING') return true
+  return skuStatus === 'PENDING' && tasks?.[name] == null
+}
+
+function BatchContent() {
+  const { jobExternalId = '' } = useParams<{ jobExternalId: string }>()
+  const navigate = useNavigate()
+  const { selectedBrand: brand } = useBrands()
+
+  const [status, setStatus] = useState<JobStatusResponse | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const [statusFetching, setStatusFetching] = useState(false)
+  const [skuIndex, setSkuIndex] = useState(0)
+  const [content, setContent] = useState<SkuGenerationJobContentResponse | null>(null)
+  const [contentError, setContentError] = useState<string | null>(null)
+  const [contentLoading, setContentLoading] = useState(false)
+  const [expandedText, setExpandedText] = useState<Record<string, boolean>>({})
+  const [imageModal, setImageModal] = useState<ImageModalSource | null>(null)
+  const [regenPrompt, setRegenPrompt] = useState('')
+
+  useEffect(() => {
+    document.title = status
+      ? `Listing Studio · ${status.category_name ?? 'Batch'}`
+      : 'Listing Studio · Batch'
+  }, [status])
+
+  useEffect(() => {
+    if (!jobExternalId) return
+    let cancelled = false
+    let intervalId: number | undefined
+
+    async function loadStatus(): Promise<JobStatusResponse | null> {
+      setStatusFetching(true)
+      try {
+        const next = await getJobStatus(jobExternalId)
+        if (cancelled) return null
+        setStatus(next)
+        setStatusError(null)
+        return next
+      } catch (error) {
+        if (cancelled) return null
+        setStatusError(error instanceof Error ? error.message : 'Could not load job status.')
+        return null
+      } finally {
+        if (!cancelled) setStatusFetching(false)
+      }
+    }
+
+    void loadStatus().then((next) => {
+      if (cancelled || next == null || isTerminalStatus(next.status)) return
+      intervalId = window.setInterval(() => {
+        void loadStatus().then((polled) => {
+          if (cancelled || polled == null || !isTerminalStatus(polled.status)) return
+          if (intervalId != null) {
+            window.clearInterval(intervalId)
+            intervalId = undefined
+          }
+        })
+      }, STATUS_POLL_MS)
+    })
+
+    return () => {
+      cancelled = true
+      if (intervalId != null) window.clearInterval(intervalId)
+    }
+  }, [jobExternalId])
+
+  const skuJobs = status?.sku_generation_jobs ?? []
+  const safeSkuIndex = Math.min(skuIndex, Math.max(skuJobs.length - 1, 0))
+  const activeSkuJob = skuJobs[safeSkuIndex] ?? null
+  const activeSkuJobId = activeSkuJob?.external_id ?? null
+
+  useEffect(() => {
+    if (!activeSkuJobId) {
+      setContent(null)
+      setContentLoading(false)
+      return
+    }
+    const skuJobId = activeSkuJobId
+    // Parent status already says this SKU is done — one fetch, no poll.
+    const skuAlreadyDone = isTerminalStatus(activeSkuJob?.status)
+    let cancelled = false
+    let intervalId: number | undefined
+
+    async function loadContent(showLoading: boolean): Promise<boolean> {
+      if (showLoading) setContentLoading(true)
+      try {
+        const next = await getSkuGenerationJobContent(skuJobId)
+        if (cancelled) return false
+        setContent(next)
+        setContentError(null)
+        return (
+          next.status === 'PENDING' ||
+          Object.values(next.tasks ?? {}).some((task) => task === 'PENDING')
+        )
+      } catch (error) {
+        if (cancelled) return false
+        setContentError(error instanceof Error ? error.message : 'Could not load SKU content.')
+        return false
+      } finally {
+        if (!cancelled && showLoading) setContentLoading(false)
+      }
+    }
+
+    // Drop previous SKU content so next/prev always show shimmer first.
+    setContent(null)
+    setContentLoading(true)
+    void loadContent(true).then((stillPending) => {
+      if (cancelled || skuAlreadyDone || !stillPending) return
+      intervalId = window.setInterval(() => {
+        void loadContent(false).then((pending) => {
+          if (cancelled || pending) return
+          if (intervalId != null) {
+            window.clearInterval(intervalId)
+            intervalId = undefined
+          }
+        })
+      }, CONTENT_POLL_MS)
+    })
+
+    return () => {
+      cancelled = true
+      if (intervalId != null) window.clearInterval(intervalId)
+    }
+    // Only re-fetch when the selected SKU changes. Terminal status is read from
+    // the render that selected this SKU so completed jobs skip polling after one load.
+  }, [activeSkuJobId])
+
+  useEffect(() => {
+    if (!imageModal) return
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setImageModal(null)
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [imageModal])
+
+  if (!brand) {
+    return <Navigate to="/brands" replace />
+  }
+
+  if (!jobExternalId) {
+    return <Navigate to="/workspace" replace />
+  }
+
+  const attributes = content?.attributes ?? []
+  const expected = status?.expected_attributes ?? []
+  const tasks = content?.tasks ?? activeSkuJob?.tasks
+  const skuStatus = content?.status ?? activeSkuJob?.status
+  // While switching SKUs / waiting for the content response, keep shimmer up.
+  // Background polls keep the previous matching payload visible (no flash).
+  const contentReady =
+    content != null && activeSkuJobId != null && content.external_id === activeSkuJobId
+
+  const textAttributes = expected.filter((item) => item.data_type === 'TEXT')
+  const pdpExpected = expected.filter((item) => PDP_IMAGE_NAMES.has(item.name))
+  const otherImageAttributes = expected.filter(
+    (item) => item.data_type === 'IMAGE' && !PDP_IMAGE_NAMES.has(item.name),
+  )
+
+  const pdpImagesFromApi = contentReady
+    ? imageSlotsToGrid(attributes, PDP_IMAGE_NAMES)
+    : []
+  const expectedPdpCount = pdpExpected.reduce((sum, item) => sum + item.quantity, 0)
+  const pdpImages: ContentImage[] =
+    pdpImagesFromApi.length > 0
+      ? pdpImagesFromApi
+      : Array.from({ length: expectedPdpCount }, (_, index) => ({
+          id: `pdp-shimmer-${index}`,
+          url: null,
+          label: `Image ${index + 1}`,
+        }))
+
+  const otherImageGrids = otherImageAttributes.map((attr) => {
+    const fromApi = contentReady ? imageSlotsToGrid(attributes, new Set([attr.name])) : []
+    const images: ContentImage[] =
+      fromApi.length > 0
+        ? fromApi
+        : Array.from({ length: attr.quantity }, (_, index) => ({
+            id: `${attr.name}-shimmer-${index}`,
+            url: null,
+            label: `${formatAttributeLabel(attr.name)} ${index + 1}`,
+          }))
+    return { attribute: attr, images }
+  })
+
+  const otherImagesByName = new Map(
+    otherImageGrids.map((grid) => [grid.attribute.name, grid.images]),
+  )
+
+  const modalImages =
+    imageModal == null
+      ? []
+      : imageModal.kind === 'pdp'
+        ? pdpImages
+        : (otherImagesByName.get(imageModal.attributeName) ?? [])
+  const modalIndex = imageModal?.index ?? 0
+  const modalImage = modalImages[modalIndex] ?? null
+  const marketplaceName =
+    content?.marketplace_name ?? status?.marketplace_name ?? 'Marketplace'
+  const modalKindLabel =
+    imageModal == null
+      ? 'Image'
+      : imageModal.kind === 'pdp'
+        ? 'PDP'
+        : formatAttributeLabel(imageModal.attributeName)
+  const modalHeader = `SKU${safeSkuIndex + 1} · ${marketplaceName} · ${modalKindLabel} ${modalIndex + 1} of ${modalImages.length}`
+
+  const isFirstSku = safeSkuIndex <= 0
+  const isLastSku = skuJobs.length === 0 || safeSkuIndex >= skuJobs.length - 1
+
+  function goSku(next: number) {
+    if (skuJobs.length === 0 || next < 0 || next >= skuJobs.length) return
+    setSkuIndex(next)
+    setExpandedText({})
+    setImageModal(null)
+    setContent(null)
+    setContentLoading(true)
+    setContentError(null)
+  }
+
+  function openPdpImage(index: number) {
+    if (!pdpImages[index]?.url) return
+    setRegenPrompt('')
+    setImageModal({ kind: 'pdp', index })
+  }
+
+  function openAttributeImage(attributeName: string, index: number) {
+    const list = otherImagesByName.get(attributeName) ?? []
+    if (!list[index]?.url) return
+    setRegenPrompt('')
+    setImageModal({ kind: 'attribute', attributeName, index })
+  }
+
+  function shiftModal(delta: number) {
+    if (!imageModal) return
+    const next = imageModal.index + delta
+    if (next < 0 || next >= modalImages.length || !modalImages[next]?.url) return
+    if (imageModal.kind === 'pdp') {
+      setImageModal({ kind: 'pdp', index: next })
+      return
+    }
+    setImageModal({
+      kind: 'attribute',
+      attributeName: imageModal.attributeName,
+      index: next,
+    })
+  }
+
+  function renderTextSection(attr: JobExpectedAttribute) {
+    const slot = contentReady ? slotsByName(attributes, attr.name)[0] : undefined
+    const rawValue = slot?.value ?? null
+    const pending =
+      !contentReady || (isAttributePending(attr.name, tasks, skuStatus) && !rawValue)
+    const label = formatAttributeLabel(attr.name)
+    const isBullets = attr.name === 'BULLET_POINTS'
+    const bullets = isBullets && rawValue ? parseBulletList(rawValue) : []
+    const expanded = expandedText[attr.name] === true
+
+    return (
+      <section key={attr.attribute_external_id} className="content-section">
+        <h3 className="content-section__label">{label}</h3>
+        {pending ? (
+          <div
+            className={`content-shimmer ${isBullets ? 'content-shimmer--bullets' : attr.name === 'DESCRIPTION' ? 'content-shimmer--body' : 'content-shimmer--title'}`}
+            aria-hidden="true"
+          />
+        ) : isBullets ? (
+          <ul className="content-bullets">
+            {bullets.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        ) : (
+          <p
+            className={
+              attr.name === 'TITLE'
+                ? 'content-section__title-text'
+                : `content-section__body-text${expanded || attr.name !== 'DESCRIPTION' ? '' : ' content-section__body-text--clamp'}`
+            }
+          >
+            {rawValue ?? '—'}
+          </p>
+        )}
+        {!pending ? (
+          <div className="content-section__actions">
+            {attr.name === 'DESCRIPTION' && rawValue ? (
+              <button
+                type="button"
+                className="content-section__show-full"
+                onClick={() =>
+                  setExpandedText((current) => ({
+                    ...current,
+                    [attr.name]: !current[attr.name],
+                  }))
+                }
+              >
+                {expanded ? 'show less' : 'show full'}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="content-regen"
+              title="Regenerate (coming soon)"
+              onClick={() => undefined}
+            >
+              <RefreshIcon />
+              Regenerate
+            </button>
+          </div>
+        ) : null}
+      </section>
+    )
+  }
+
+  const titleText = status
+    ? `${status.category_name ?? 'Batch'} · ${new Date(status.started_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+    : 'Loading batch…'
+
+  return (
+    <div className="page-shell page-shell--fixed">
+      <AppHeader
+        brandName={brand.name}
+        showBatches
+        onBatchesClick={() => navigate('/workspace')}
+      />
+
+      <main className="batch-content">
+        <div className="batch-content__inner">
+          {status ? (
+            <PipelineProgressBar
+              startedAt={status.started_at}
+              updatedAt={status.updated_at}
+              jobStatus={status.status}
+              completedCount={status.completed_sku_count}
+              totalCount={status.sku_count}
+              isFetching={statusFetching}
+            />
+          ) : (
+            <div className="pipeline-progress pipeline-progress--loading">
+              <p className="pipeline-progress__timing">Loading pipeline status…</p>
+              <div className="pipeline-progress__track">
+                <div className="pipeline-progress__fill pipeline-progress__fill--indeterminate" />
+              </div>
+            </div>
+          )}
+
+          {statusError ? <p className="batch-content__error">{statusError}</p> : null}
+
+          <header className="batch-content__hero">
+            <div className="batch-content__hero-text">
+              <h1 className="batch-content__title">{titleText}</h1>
+              <p className="batch-content__meta">
+                <span>{status?.category_name ?? '—'}</span>
+                <span className="batch-content__dot">·</span>
+                <span>
+                  {status?.sku_count ?? 0} SKUs · {marketplaceName}
+                </span>
+              </p>
+            </div>
+          </header>
+
+          <nav className="batch-content__tabs" aria-label="Batch sections">
+            <span className="batch-content__tab batch-content__tab--active">Content</span>
+          </nav>
+
+          <div className="batch-content__marketplaces">
+            <div className="batch-content__mp-tabs">
+              <span className="batch-content__mp-tab batch-content__mp-tab--active">
+                {marketplaceName}
+              </span>
+            </div>
+          </div>
+
+          <div className="batch-content__sku-bar">
+            <div className="batch-content__sku-nav">
+              {!isFirstSku ? (
+                <button
+                  type="button"
+                  className="batch-content__sku-arrow"
+                  onClick={() => goSku(safeSkuIndex - 1)}
+                  aria-label="Previous SKU"
+                >
+                  <ChevronLeftIcon />
+                </button>
+              ) : (
+                <span className="batch-content__sku-arrow-spacer" aria-hidden="true" />
+              )}
+              <div className="batch-content__sku-label">
+                <span className="batch-content__sku-count">
+                  SKU {skuJobs.length === 0 ? 0 : safeSkuIndex + 1} of {skuJobs.length}
+                </span>
+                <span className="batch-content__sku-name">
+                  {content?.display_name ?? activeSkuJob?.display_name ?? activeSkuJob?.sku_id ?? '—'}
+                </span>
+              </div>
+              {!isLastSku ? (
+                <button
+                  type="button"
+                  className="batch-content__sku-arrow"
+                  onClick={() => goSku(safeSkuIndex + 1)}
+                  aria-label="Next SKU"
+                >
+                  <ChevronRightIcon />
+                </button>
+              ) : (
+                <span className="batch-content__sku-arrow-spacer" aria-hidden="true" />
+              )}
+            </div>
+          </div>
+
+          {contentError ? <p className="batch-content__error">{contentError}</p> : null}
+
+          <div className="batch-content__body">
+            {textAttributes.map((attr) => renderTextSection(attr))}
+
+            {pdpImages.length > 0 ? (
+              <ContentImageGrid
+                title={`PDP images · ${pdpImages.length}`}
+                hint="click an image to compare or regenerate"
+                images={pdpImages}
+                onSelect={openPdpImage}
+              />
+            ) : null}
+
+            {otherImageGrids.map(({ attribute, images }) =>
+              images.length > 0 ? (
+                <ContentImageGrid
+                  key={attribute.attribute_external_id}
+                  title={`${formatAttributeLabel(attribute.name)} · ${images.length}`}
+                  hint="click an image to compare or regenerate"
+                  images={images}
+                  onSelect={(index) => openAttributeImage(attribute.name, index)}
+                />
+              ) : null,
+            )}
+
+            <footer className="batch-content__footer">
+              <p className="batch-content__footer-count">
+                {contentLoading ? 'Refreshing SKU content…' : `${attributes.length} attribute slots`}
+              </p>
+              <div className="batch-content__footer-nav">
+                {!isFirstSku ? (
+                  <button
+                    type="button"
+                    className="btn-outline batch-content__footer-btn"
+                    onClick={() => goSku(safeSkuIndex - 1)}
+                  >
+                    ← prev SKU
+                  </button>
+                ) : null}
+                {!isLastSku ? (
+                  <button
+                    type="button"
+                    className="btn-outline batch-content__footer-btn"
+                    onClick={() => goSku(safeSkuIndex + 1)}
+                  >
+                    next SKU →
+                  </button>
+                ) : null}
+              </div>
+            </footer>
+          </div>
+        </div>
+      </main>
+
+      <ImageRegenerateModal
+        open={imageModal != null && modalImage?.url != null}
+        headerLabel={modalHeader}
+        imageUrl={modalImage?.url ?? null}
+        imageAlt={modalImage?.label ?? 'Image'}
+        canPrev={
+          imageModal != null &&
+          modalIndex > 0 &&
+          Boolean(modalImages[modalIndex - 1]?.url)
+        }
+        canNext={
+          imageModal != null &&
+          modalIndex < modalImages.length - 1 &&
+          Boolean(modalImages[modalIndex + 1]?.url)
+        }
+        prompt={regenPrompt}
+        onPromptChange={setRegenPrompt}
+        onClose={() => setImageModal(null)}
+        onPrev={() => shiftModal(-1)}
+        onNext={() => shiftModal(1)}
+        onRegenerate={() => undefined}
+      />
+
+      <span className="visually-hidden">
+        <Link to="/workspace">Back to workspace</Link>
+      </span>
+    </div>
+  )
+}
+
+export default BatchContent

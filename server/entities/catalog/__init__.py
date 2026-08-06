@@ -2,7 +2,7 @@
 
 Importing every entity here registers all tables (and their foreign keys) on
 ``Base.metadata``. Without this, a foreign key whose target table's module was
-never imported — e.g. ``sku_job.job_id`` -> ``job.id`` — fails to resolve at
+never imported — e.g. ``sku_generation_job.job_id`` -> ``job.id`` — fails to resolve at
 flush time with ``NoReferencedTableError``.
 """
 
@@ -11,10 +11,11 @@ from entities.catalog.base import Base
 from entities.catalog.brand import Brand
 from entities.catalog.category import Category
 from entities.catalog.category_closure import CategoryClosure
+from entities.catalog.category_marketplace import CategoryMarketplace
 from entities.catalog.job import Job
 from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.marketplace import Marketplace
-from entities.catalog.sku_job import SkuJob
+from entities.catalog.sku_generation_job import SkuGenerationJob
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from entities.catalog.sku_master import SkuMaster
 
@@ -24,10 +25,11 @@ __all__ = [
     "Brand",
     "Category",
     "CategoryClosure",
+    "CategoryMarketplace",
     "Job",
     "JobAttribute",
     "Marketplace",
-    "SkuJob",
+    "SkuGenerationJob",
     "SkuMarketplaceAttributeValue",
     "SkuMaster",
 ]

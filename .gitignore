@@ -3,3 +3,5 @@ server/output/
 server/input/
 .DS_Store
 node_modules/
+.tools/
+temp/

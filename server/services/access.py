@@ -1,15 +1,15 @@
 from sqlalchemy.orm import Session
 
-from dto.response.brand_access import BrandAccessResponse
+from dto.response.access import AccessibleBrandResponse
 from repositories.catalog import brand as catalog_brand_repository
 from repositories.user_service import user_access_grant as grant_repository
 
 
-def list_brand_access_for_user(
+def list_accessible_brands(
     user_session: Session,
     catalog_session: Session,
     user_id: int,
-) -> list[BrandAccessResponse]:
+) -> list[AccessibleBrandResponse]:
     grants = grant_repository.list_brand_access_for_user(user_session, user_id)
     if not grants:
         return []
@@ -21,13 +21,13 @@ def list_brand_access_for_user(
         brand.user_service_brand_id: brand for brand in catalog_brands
     }
 
-    result = []
+    result: list[AccessibleBrandResponse] = []
     for grant in grants:
         catalog_brand = catalog_brand_by_user_service_id.get(grant.external_id)
         if catalog_brand is None:
             continue
         result.append(
-            BrandAccessResponse(
+            AccessibleBrandResponse(
                 external_id=catalog_brand.external_id,
                 name=catalog_brand.name,
                 granted_at=grant.granted_at,
