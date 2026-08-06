@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import NewBatchMarketplaces from './pages/NewBatchMarketplaces'
 import NewBatchSubcategory from './pages/NewBatchSubcategory'
 import NewBatchUpload from './pages/NewBatchUpload'
+import NewBatchUploading from './pages/NewBatchUploading'
 import NewBatchValidation from './pages/NewBatchValidation'
 import Workspace from './pages/Workspace'
 
@@ -71,6 +72,14 @@ function App() {
         element={
           <RequireAuth>
             <NewBatchValidation />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/workspace/new/uploading"
+        element={
+          <RequireAuth>
+            <NewBatchUploading />
           </RequireAuth>
         }
       />

@@ -3,17 +3,19 @@ from core.exceptions.gallery import GalleryPlanError
 from core.exceptions.gcs import GcsError
 from core.exceptions.job import (
     AttributeNotFoundError,
+    FlatfileUploadIncompleteError,
+    FlatfileValidationError,
     InvalidJobAttributesError,
     JobNotFoundError,
     MarketplaceNotFoundError,
-    SkuJobExecutionFailedError,
+    SkuGenerationJobExecutionFailedError,
     SkuNotFoundError,
 )
 from core.exceptions.openrouter import OpenRouterError
-from core.exceptions.sku_job import (
+from core.exceptions.sku_generation_job import (
     CategoryIntelligenceMissingError,
     ProductNotFoundError,
-    SkuJobNotFoundError,
+    SkuGenerationJobNotFoundError,
 )
 from core.exceptions.users import (
     InvalidGoogleClaimsError,
@@ -25,6 +27,8 @@ __all__ = [
     "AttributeNotFoundError",
     "CategoryIntelligenceMissingError",
     "CategoryNotFoundError",
+    "FlatfileUploadIncompleteError",
+    "FlatfileValidationError",
     "GalleryPlanError",
     "GcsError",
     "InvalidGoogleClaimsError",
@@ -33,8 +37,8 @@ __all__ = [
     "MarketplaceNotFoundError",
     "OpenRouterError",
     "ProductNotFoundError",
-    "SkuJobExecutionFailedError",
-    "SkuJobNotFoundError",
+    "SkuGenerationJobExecutionFailedError",
+    "SkuGenerationJobNotFoundError",
     "SkuNotFoundError",
     "UserNotFoundError",
     "WorkflowsError",

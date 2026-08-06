@@ -20,13 +20,25 @@ class AttributeGroupLabel(StrEnum):
     IMAGE = "IMAGE"
 
 
+class JobType(StrEnum):
+    GENERATION = "GENERATION"
+    FLATFILE_UPLOAD = "FLATFILE_UPLOAD"
+
+
 class JobStatus(StrEnum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
 
-class SkuJobStatus(StrEnum):
+class FlatfileJobStatus(StrEnum):
+    UPLOADING = "UPLOADING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class SkuGenerationJobStatus(StrEnum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"

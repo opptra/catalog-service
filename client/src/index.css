@@ -55,6 +55,11 @@ a {
   background: var(--color-white);
 }
 
+.page-shell--fixed {
+  height: 100vh;
+  overflow: hidden;
+}
+
 /* —— Header —— */
 
 .app-header {
@@ -417,6 +422,12 @@ a {
   background: var(--color-white);
 }
 
+.batch-page__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .batch-page__top {
   padding: 20px 32px 24px;
   border-bottom: 1px solid var(--color-border);
@@ -758,6 +769,28 @@ a {
   justify-content: flex-start;
 }
 
+.batch-page__action-bar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 40px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-white);
+}
+
+.batch-page__action-bar .batch-page__footer,
+.batch-page__action-bar .batch-page__footer-actions {
+  margin-top: 0;
+  max-width: none;
+  width: 100%;
+}
+
+.batch-page__action-bar--start {
+  justify-content: flex-start;
+}
+
 .btn-outline {
   display: inline-flex;
   align-items: center;
@@ -838,6 +871,12 @@ a {
   justify-content: center;
   gap: 12px;
   padding: 20px;
+  cursor: pointer;
+}
+
+.upload-dropzone--active {
+  border-color: var(--color-orange);
+  background: rgba(232, 119, 34, 0.04);
 }
 
 .upload-dropzone img {
@@ -1051,6 +1090,168 @@ a {
 }
 
 /* —— Validation —— */
+
+.validation-progress-list {
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.validation-progress-list__item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.validation-progress-list__mark {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-faint);
+}
+
+.validation-progress-list__item--running .validation-progress-list__mark,
+.validation-progress-list__item--running .validation-progress-list__label {
+  color: var(--color-orange);
+}
+
+.validation-progress-list__dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 20px;
+}
+
+.validation-progress-list__dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: validation-dot-bounce 0.9s ease-in-out infinite;
+}
+
+.validation-progress-list__dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.validation-progress-list__dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes validation-dot-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.validation-progress-list__item--passed .validation-progress-list__mark {
+  color: #3f7a63;
+}
+
+.validation-progress-list__item--failed .validation-progress-list__mark,
+.validation-progress-list__item--failed .validation-progress-list__label {
+  color: #b42318;
+}
+
+.validation-progress-list__label {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-navy);
+}
+
+.validation-progress-list__detail {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.validation-sku-summary {
+  margin-top: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 16px;
+}
+
+.validation-sku-summary__label {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-navy);
+}
+
+.validation-sku-summary__toggle {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--color-orange);
+  cursor: pointer;
+}
+
+.validation-sku-summary__toggle:hover {
+  text-decoration: underline;
+}
+
+.validation-details .validation-groups {
+  margin-top: 24px;
+}
+
+.validation-sku-chips {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.validation-sku-chips__label {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.88px;
+  color: var(--color-text-muted);
+}
+
+.validation-sku-chips__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.validation-sku-chips__list code {
+  font-size: 12px;
+  padding: 4px 8px;
+  background: #f2f3f7;
+  border-radius: 4px;
+  color: var(--color-navy);
+}
+
+.validation-group__more {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
 
 .validation-groups {
   margin-top: 28px;

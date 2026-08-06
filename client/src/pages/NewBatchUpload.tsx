@@ -1,37 +1,91 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState, type DragEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import iconArrowRight from '../assets/icon-arrow-right.svg'
 import iconCsv from '../assets/icon-csv.svg'
 import iconLink from '../assets/icon-link.svg'
 import iconZip from '../assets/icon-zip.svg'
+import { useBatchUploadStore } from '../batch/batchUploadStore'
 import BatchShell from '../components/BatchShell'
-import {
-  getBatchFilesUploaded,
-  getBatchSubcategory,
-  setBatchFilesUploaded,
-} from '../data/batchDraft'
+import { getBatchSubcategory, setBatchFilesUploaded } from '../data/batchDraft'
+
+const PRODUCT_ACCEPT = '.csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+const IMAGES_ACCEPT = '.zip,application/zip,application/x-zip-compressed'
+
+function isProductFile(file: File): boolean {
+  const name = file.name.toLowerCase()
+  return name.endsWith('.csv') || name.endsWith('.xls') || name.endsWith('.xlsx')
+}
+
+function isImagesFile(file: File): boolean {
+  const name = file.name.toLowerCase()
+  return name.endsWith('.zip') || file.type.includes('zip')
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 function NewBatchUpload() {
   const navigate = useNavigate()
   const subcategory = getBatchSubcategory()
-  const [filesUploaded, setFilesUploaded] = useState(getBatchFilesUploaded)
+  const productInputId = useId()
+  const imagesInputId = useId()
+  const productInputRef = useRef<HTMLInputElement>(null)
+  const imagesInputRef = useRef<HTMLInputElement>(null)
+  const storedProduct = useBatchUploadStore((s) => s.productFile)
+  const storedImages = useBatchUploadStore((s) => s.imagesFile)
+  const setFiles = useBatchUploadStore((s) => s.setFiles)
+  const clearValidation = useBatchUploadStore((s) => s.clearValidation)
+
+  const [productFile, setProductFile] = useState<File | null>(storedProduct)
+  const [imagesFile, setImagesFile] = useState<File | null>(storedImages)
+  const [productDragging, setProductDragging] = useState(false)
+  const [imagesDragging, setImagesDragging] = useState(false)
+
+  const bothReady = productFile !== null && imagesFile !== null
 
   useEffect(() => {
     document.title = 'Listing Studio · Upload'
   }, [])
 
+  useEffect(() => {
+    setBatchFilesUploaded(bothReady)
+  }, [bothReady])
+
   if (!subcategory) {
     return <Navigate to="/workspace/new" replace />
   }
 
-  function markUploaded() {
-    setBatchFilesUploaded(true)
-    setFilesUploaded(true)
+  function takeProductFile(file: File | undefined) {
+    if (!file || !isProductFile(file)) return
+    clearValidation()
+    setProductFile(file)
   }
 
-  function clearUploaded() {
-    setBatchFilesUploaded(false)
-    setFilesUploaded(false)
+  function takeImagesFile(file: File | undefined) {
+    if (!file || !isImagesFile(file)) return
+    clearValidation()
+    setImagesFile(file)
+  }
+
+  function onProductDrop(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    setProductDragging(false)
+    takeProductFile(event.dataTransfer.files[0])
+  }
+
+  function onImagesDrop(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    setImagesDragging(false)
+    takeImagesFile(event.dataTransfer.files[0])
+  }
+
+  function startValidation() {
+    if (!productFile || !imagesFile) return
+    setFiles(productFile, imagesFile)
+    navigate('/workspace/new/validation')
   }
 
   return (
@@ -39,20 +93,68 @@ function NewBatchUpload() {
       title={`New batch · ${subcategory}`}
       stepIndex={1}
       stepLabel="step 2 of 4"
+      footer={
+        <div className="batch-page__footer-actions">
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => navigate('/workspace/new')}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            className={bothReady ? 'btn-primary' : 'btn-muted btn-muted--continue'}
+            disabled={!bothReady}
+            onClick={startValidation}
+          >
+            Validate
+            <img src={iconArrowRight} alt="" width={16} height={16} />
+          </button>
+        </div>
+      }
     >
-      <h2 className="batch-page__heading">Upload your product data</h2>
+      <h2 className="batch-page__heading">Add your product files</h2>
       <p className="batch-page__lede">
-        Two files, both mandatory. Every product row needs a matching image folder — that pairing is
-        what validation checks hardest. Once generation starts, these files are fixed for the batch.
+        Two files, both mandatory. Select them here first — next you will validate the pairing, then
+        upload into the batch. Every product row needs a matching image folder.
       </p>
 
       <div className="upload-grid">
-        <div className={`upload-card${filesUploaded ? ' upload-card--ready' : ''}`}>
+        <div className={`upload-card${productFile ? ' upload-card--ready' : ''}`}>
           <p className="upload-card__label">1 · Product data</p>
-          <button type="button" className="upload-dropzone" onClick={markUploaded}>
+          <input
+            ref={productInputRef}
+            id={productInputId}
+            type="file"
+            accept={PRODUCT_ACCEPT}
+            hidden
+            onChange={(event) => {
+              takeProductFile(event.target.files?.[0])
+              event.target.value = ''
+            }}
+          />
+          <button
+            type="button"
+            className={`upload-dropzone${productDragging ? ' upload-dropzone--active' : ''}`}
+            onClick={() => productInputRef.current?.click()}
+            onDragEnter={(event) => {
+              event.preventDefault()
+              setProductDragging(true)
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDragLeave={() => setProductDragging(false)}
+            onDrop={onProductDrop}
+          >
             <img src={iconCsv} alt="" width={28} height={28} />
             <p className="upload-dropzone__text">
-              Drop your file here or <span>browse</span>
+              {productFile ? (
+                <span>{productFile.name}</span>
+              ) : (
+                <>
+                  Drop your file here or <span>browse</span>
+                </>
+              )}
             </p>
           </button>
           <p className="upload-card__hint">
@@ -62,16 +164,45 @@ function NewBatchUpload() {
           </p>
         </div>
 
-        <div className={`upload-card${filesUploaded ? ' upload-card--ready' : ''}`}>
+        <div className={`upload-card${imagesFile ? ' upload-card--ready' : ''}`}>
           <p className="upload-card__label">2 · Images</p>
-          <button type="button" className="upload-dropzone" onClick={markUploaded}>
+          <input
+            ref={imagesInputRef}
+            id={imagesInputId}
+            type="file"
+            accept={IMAGES_ACCEPT}
+            hidden
+            onChange={(event) => {
+              takeImagesFile(event.target.files?.[0])
+              event.target.value = ''
+            }}
+          />
+          <button
+            type="button"
+            className={`upload-dropzone${imagesDragging ? ' upload-dropzone--active' : ''}`}
+            onClick={() => imagesInputRef.current?.click()}
+            onDragEnter={(event) => {
+              event.preventDefault()
+              setImagesDragging(true)
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDragLeave={() => setImagesDragging(false)}
+            onDrop={onImagesDrop}
+          >
             <img src={iconZip} alt="" width={28} height={28} />
             <p className="upload-dropzone__text">
-              Drop your ZIP here or <span>browse</span>
+              {imagesFile ? (
+                <span>{imagesFile.name}</span>
+              ) : (
+                <>
+                  Drop your ZIP here or <span>browse</span>
+                </>
+              )}
             </p>
           </button>
           <p className="upload-card__hint">
-            One folder per SKU, folder name = sku_id.
+            ZIP with a root folder (any name). Inside it: one folder per SKU, folder name =
+            sku_id.
             <br />
             Minimum one image per folder.
           </p>
@@ -111,7 +242,7 @@ function NewBatchUpload() {
           </div>
 
           <div>
-            <p className="expected-shape__file">images.zip</p>
+            <p className="expected-shape__file">images.zip → root → sku folders</p>
             <div className="mini-table">
               <div className="mini-table__head mini-table__head--single">
                 <span>folders</span>
@@ -133,48 +264,41 @@ function NewBatchUpload() {
         </div>
       </div>
 
-      {filesUploaded ? (
+      {productFile || imagesFile ? (
         <div className="uploaded-panel">
-          <p className="uploaded-panel__label">Uploaded</p>
+          <p className="uploaded-panel__label">Selected</p>
           <div className="uploaded-panel__list">
-            <div className="uploaded-panel__row">
-              <span className="uploaded-panel__name">products.csv</span>
-              <span className="uploaded-panel__status">uploaded</span>
-              <span className="uploaded-panel__meta">14 KB</span>
-              <button type="button" className="uploaded-panel__replace" onClick={clearUploaded}>
-                Replace
-              </button>
-            </div>
-            <div className="uploaded-panel__row">
-              <span className="uploaded-panel__name">images.zip</span>
-              <span className="uploaded-panel__status">uploaded</span>
-              <span className="uploaded-panel__meta">240 MB</span>
-              <button type="button" className="uploaded-panel__replace" onClick={clearUploaded}>
-                Replace
-              </button>
-            </div>
+            {productFile ? (
+              <div className="uploaded-panel__row">
+                <span className="uploaded-panel__name">{productFile.name}</span>
+                <span className="uploaded-panel__status">ready</span>
+                <span className="uploaded-panel__meta">{formatFileSize(productFile.size)}</span>
+                <button
+                  type="button"
+                  className="uploaded-panel__replace"
+                  onClick={() => productInputRef.current?.click()}
+                >
+                  Replace
+                </button>
+              </div>
+            ) : null}
+            {imagesFile ? (
+              <div className="uploaded-panel__row">
+                <span className="uploaded-panel__name">{imagesFile.name}</span>
+                <span className="uploaded-panel__status">ready</span>
+                <span className="uploaded-panel__meta">{formatFileSize(imagesFile.size)}</span>
+                <button
+                  type="button"
+                  className="uploaded-panel__replace"
+                  onClick={() => imagesInputRef.current?.click()}
+                >
+                  Replace
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
-
-      <div className="batch-page__footer-actions">
-        <button
-          type="button"
-          className="btn-outline"
-          onClick={() => navigate('/workspace/new')}
-        >
-          Back
-        </button>
-        <button
-          type="button"
-          className={filesUploaded ? 'btn-primary' : 'btn-muted btn-muted--continue'}
-          disabled={!filesUploaded}
-          onClick={() => navigate('/workspace/new/validation')}
-        >
-          Validate
-          <img src={iconArrowRight} alt="" width={16} height={16} />
-        </button>
-      </div>
     </BatchShell>
   )
 }

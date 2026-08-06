@@ -38,7 +38,14 @@ async def lifespan(app: FastAPI):
         if settings.openrouter_api_key
         else None
     )
-    app.state.gcs = GcsClient(settings.gcs_bucket) if settings.gcs_bucket else None
+    app.state.gcs = (
+        GcsClient(
+            settings.gcs_bucket,
+            signer_service_account_email=settings.gcs_signer_service_account_email,
+        )
+        if settings.gcs_bucket
+        else None
+    )
     gcp_project = _resolve_gcp_project()
     app.state.workflows = (
         WorkflowsClient(gcp_project, settings.region) if gcp_project else None

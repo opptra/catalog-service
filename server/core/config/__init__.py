@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # REGION is required from env / Secret Manager (same key everywhere).
     # Leave GCS_BUCKET unset to disable the GCS client.
     gcs_bucket: str | None = None
+    # Service account email used to SignBlob V4 signed URLs (not a user email).
+    # Local + prod: set explicitly. Callers (user ADC / VM SA) need Token Creator on it.
+    gcs_signer_service_account_email: str | None = None
     region: str
 
     @model_validator(mode="before")

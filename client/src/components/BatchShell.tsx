@@ -9,10 +9,18 @@ interface BatchShellProps {
   stepIndex: number
   stepLabel: string
   children: ReactNode
+  footer?: ReactNode
   bodyClassName?: string
 }
 
-function BatchShell({ title, stepIndex, stepLabel, children, bodyClassName }: BatchShellProps) {
+function BatchShell({
+  title,
+  stepIndex,
+  stepLabel,
+  children,
+  footer,
+  bodyClassName,
+}: BatchShellProps) {
   const navigate = useNavigate()
   const { selectedBrand: brand } = useBrands()
 
@@ -21,21 +29,24 @@ function BatchShell({ title, stepIndex, stepLabel, children, bodyClassName }: Ba
   }
 
   return (
-    <div className="page-shell">
+    <div className="page-shell page-shell--fixed">
       <AppHeader
         brandName={brand.name}
         showExecutionHistory
         onExecutionHistoryClick={() => navigate('/workspace/batch/summer-tees')}
       />
       <main className="batch-page">
-        <div className="batch-page__top">
-          <div className="batch-page__title-row">
-            <h1 className="batch-page__title">{title}</h1>
-            <p className="batch-page__step-count">{stepLabel}</p>
+        <div className="batch-page__scroll">
+          <div className="batch-page__top">
+            <div className="batch-page__title-row">
+              <h1 className="batch-page__title">{title}</h1>
+              <p className="batch-page__step-count">{stepLabel}</p>
+            </div>
+            <BatchStepper activeIndex={stepIndex} />
           </div>
-          <BatchStepper activeIndex={stepIndex} />
+          <div className={bodyClassName ?? 'batch-page__body batch-page__body--wide'}>{children}</div>
         </div>
-        <div className={bodyClassName ?? 'batch-page__body batch-page__body--wide'}>{children}</div>
+        {footer ? <div className="batch-page__action-bar">{footer}</div> : null}
       </main>
     </div>
   )

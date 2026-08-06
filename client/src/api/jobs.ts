@@ -11,7 +11,7 @@ export interface CreateJobRequest {
   attributes: CreateJobAttribute[]
 }
 
-export interface CreatedSkuJob {
+export interface CreatedSkuGenerationJob {
   sku_id: number
   external_id: string
 }
@@ -21,7 +21,7 @@ export interface CreateJobResponse {
   status: string
   marketplace_id: number
   sku_ids: number[]
-  sku_jobs: CreatedSkuJob[]
+  sku_generation_jobs: CreatedSkuGenerationJob[]
   attribute_ids: number[]
   workflow_execution: string | null
 }

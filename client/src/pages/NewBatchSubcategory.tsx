@@ -11,7 +11,8 @@ import iconChevronDown from '../assets/icon-chevron-down.svg'
 import iconDownload from '../assets/icon-download.svg'
 import iconTemplate from '../assets/icon-template.svg'
 import BatchShell from '../components/BatchShell'
-import { setBatchSubcategory } from '../data/batchDraft'
+import { useBatchUploadStore } from '../batch/batchUploadStore'
+import { clearBatchDraft, setBatchSubcategory } from '../data/batchDraft'
 import { downloadCategoryTemplate } from '../lib/downloadCategoryTemplate'
 
 function formatPathPrefix(path: LeafCategory['path']): string {
@@ -121,7 +122,43 @@ function NewBatchSubcategory() {
   }
 
   return (
-    <BatchShell title="New batch" stepIndex={0} stepLabel="step 1 of 4" bodyClassName="batch-page__body">
+    <BatchShell
+      title="New batch"
+      stepIndex={0}
+      stepLabel="step 1 of 4"
+      bodyClassName="batch-page__body"
+      footer={
+        <div className="batch-page__footer-actions">
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => {
+              clearBatchDraft()
+              useBatchUploadStore.getState().clear()
+              navigate('/workspace')
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={hasSelection ? 'btn-primary' : 'btn-muted btn-muted--continue'}
+            disabled={!hasSelection || !selected}
+            onClick={() => {
+              if (!selected) return
+              setBatchSubcategory({
+                external_id: selected.external_id,
+                name: selected.name,
+              })
+              navigate('/workspace/new/upload')
+            }}
+          >
+            Continue
+            <img src={iconArrowRight} alt="" width={16} height={16} />
+          </button>
+        </div>
+      }
+    >
       <h2 className="batch-page__heading">What are you generating for?</h2>
       <p className="batch-page__lede">
         The subcategory decides which CSV template your product data must match.
@@ -241,25 +278,6 @@ function NewBatchSubcategory() {
           </button>
           {downloadError ? <p className="batch-template-card__error">{downloadError}</p> : null}
         </div>
-      </div>
-
-      <div className="batch-page__footer">
-        <button
-          type="button"
-          className={hasSelection ? 'btn-primary' : 'btn-muted btn-muted--continue'}
-          disabled={!hasSelection || !selected}
-          onClick={() => {
-            if (!selected) return
-            setBatchSubcategory({
-              external_id: selected.external_id,
-              name: selected.name,
-            })
-            navigate('/workspace/new/upload')
-          }}
-        >
-          Continue
-          <img src={iconArrowRight} alt="" width={16} height={16} />
-        </button>
       </div>
     </BatchShell>
   )

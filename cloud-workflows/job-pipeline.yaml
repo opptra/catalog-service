@@ -1,9 +1,9 @@
-# Catalog job pipeline — sequential SKU-job execution, then mark the parent job COMPLETED.
+# Catalog job pipeline — sequential SKU generation job execution, then mark the parent job COMPLETED.
 #
 # Triggered by POST /api/jobs after DB rows are created. Argument shape:
 #   {
 #     "job_external_id": "<uuid>",
-#     "sku_job_external_ids": ["<uuid>", ...]
+#     "sku_generation_job_external_ids": ["<uuid>", ...]
 #   }
 #
 # Machine auth is loaded from Secret Manager secret `catalog-service-cloud-secret`:
@@ -20,7 +20,7 @@ main:
         assign:
           - api_base_url: "https://studio.opptra.com"
           - job_external_id: ${args.job_external_id}
-          - sku_job_external_ids: ${args.sku_job_external_ids}
+          - sku_generation_job_external_ids: ${args.sku_generation_job_external_ids}
           - cloud_secret_id: "catalog-service-cloud-secret"
 
     - fetch_cloud_secret:
@@ -37,17 +37,17 @@ main:
           - client_id: ${cloud_credentials.client_id}
           - client_token: ${cloud_credentials.client_token}
 
-    - execute_sku_jobs:
+    - execute_sku_generation_jobs:
         parallel:
           concurrency_limit: 3
           for:
-            value: sku_job_external_id
-            in: ${sku_job_external_ids}
+            value: sku_generation_job_external_id
+            in: ${sku_generation_job_external_ids}
             steps:
-              - call_execute_sku_job:
+              - call_execute_sku_generation_job:
                   call: http.post
                   args:
-                    url: ${api_base_url + "/api/jobs/sku/" + string(sku_job_external_id) + "/execute/internal"}
+                    url: ${api_base_url + "/api/jobs/sku-generation/" + string(sku_generation_job_external_id) + "/execute/internal"}
                     headers:
                       Content-Type: "application/json"
                       client-id: ${client_id}

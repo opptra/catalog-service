@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
-class SkuJobAttributeValueResponse(BaseModel):
+class SkuGenerationJobAttributeValueResponse(BaseModel):
     external_id: UUID
     attribute_id: int
     name: str
@@ -13,8 +13,8 @@ class SkuJobAttributeValueResponse(BaseModel):
     value: str
 
 
-class SkuJobExecutionResponse(BaseModel):
+class SkuGenerationJobExecutionResponse(BaseModel):
     external_id: UUID
     status: str
     tasks: dict[str, Any]
-    attributes: list[SkuJobAttributeValueResponse]
+    attributes: list[SkuGenerationJobAttributeValueResponse]

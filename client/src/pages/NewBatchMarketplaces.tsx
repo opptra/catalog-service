@@ -104,6 +104,20 @@ function NewBatchMarketplaces() {
       title={`New batch · ${subcategory} · ${SKU_COUNT} SKUs`}
       stepIndex={2}
       stepLabel="step 3 of 4"
+      footer={
+        <div className="batch-page__footer-actions">
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => navigate('/workspace/new/validation')}
+          >
+            Back
+          </button>
+          <button type="button" className="btn-primary" disabled={selectedMarketplaceCount === 0}>
+            Generate
+          </button>
+        </div>
+      }
     >
       <h2 className="batch-page__heading">Where are these listings going?</h2>
       <p className="batch-page__lede">
@@ -175,19 +189,6 @@ function NewBatchMarketplaces() {
             SKUs are workable while the rest are still queued.
           </p>
         </div>
-      </div>
-
-      <div className="batch-page__footer-actions">
-        <button
-          type="button"
-          className="btn-outline"
-          onClick={() => navigate('/workspace/new/validation')}
-        >
-          Back
-        </button>
-        <button type="button" className="btn-primary" disabled={selectedMarketplaceCount === 0}>
-          Generate
-        </button>
       </div>
     </BatchShell>
   )
