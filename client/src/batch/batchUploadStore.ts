@@ -35,7 +35,7 @@ interface BatchUploadState {
   setResult: (result: BatchValidationResult | null) => void
   clearValidation: () => void
   /** Start the flatfile upload if idle/error. Safe to call twice (Strict Mode). */
-  startUpload: (categoryExternalId: string) => Promise<void>
+  startUpload: (brandExternalId: string, categoryExternalId: string) => Promise<void>
   resetUpload: () => void
   clear: () => void
 }
@@ -85,11 +85,11 @@ export const useBatchUploadStore = create<BatchUploadState>((set, get) => ({
       uploadError: null,
     }),
 
-  startUpload: async (categoryExternalId) => {
+  startUpload: async (brandExternalId, categoryExternalId) => {
     const { productFile, imagesFile, result, uploadPhase } = get()
     if (uploadPhase === 'uploading' || uploadPhase === 'done') return
     if (!productFile || !imagesFile || !result || result.skuImages.length <= 0) return
-    if (!categoryExternalId) return
+    if (!brandExternalId || !categoryExternalId) return
 
     set({
       uploadPhase: 'uploading',
@@ -99,6 +99,7 @@ export const useBatchUploadStore = create<BatchUploadState>((set, get) => ({
 
     try {
       await runFlatfileUpload({
+        brandExternalId,
         categoryExternalId,
         productFile,
         imagesFile,

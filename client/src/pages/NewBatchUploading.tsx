@@ -6,6 +6,7 @@ import {
   useBatchUploadStore,
   type UploadStatusStep,
 } from '../batch/batchUploadStore'
+import { useBrands } from '../brands/useBrands'
 import BatchShell from '../components/BatchShell'
 import { getBatchSubcategory, getBatchSubcategorySelection } from '../data/batchDraft'
 
@@ -46,6 +47,7 @@ function StatusList({ steps }: { steps: UploadStatusStep[] }) {
 
 function NewBatchUploading() {
   const navigate = useNavigate()
+  const { selectedBrand } = useBrands()
   const subcategory = getBatchSubcategory()
   const selection = getBatchSubcategorySelection()
   const productFile = useBatchUploadStore((s) => s.productFile)
@@ -65,10 +67,22 @@ function NewBatchUploading() {
   }, [uploadPhase])
 
   useEffect(() => {
+    if (!selectedBrand?.id) return
     if (!productFile || !imagesFile || !result || result.skuImages.length <= 0) return
     if (!selection?.external_id) return
-    void startUpload(selection.external_id)
-  }, [productFile, imagesFile, result, selection?.external_id, startUpload])
+    void startUpload(selectedBrand.id, selection.external_id)
+  }, [
+    selectedBrand?.id,
+    productFile,
+    imagesFile,
+    result,
+    selection?.external_id,
+    startUpload,
+  ])
+
+  if (!selectedBrand?.id) {
+    return <Navigate to="/brands" replace />
+  }
 
   if (!subcategory || !selection?.external_id) {
     return <Navigate to="/workspace/new" replace />
@@ -113,7 +127,7 @@ function NewBatchUploading() {
         className="btn-primary"
         onClick={() => {
           resetUpload()
-          void startUpload(selection.external_id)
+          void startUpload(selectedBrand.id, selection.external_id)
         }}
       >
         Try again

@@ -26,6 +26,7 @@ class JobStatusResponse(BaseModel):
     status: str
     started_at: datetime
     updated_at: datetime
+    brand_external_id: UUID | None = None
     marketplace_external_id: UUID | None = None
     marketplace_name: str | None = None
     category_external_id: UUID | None = None
@@ -45,6 +46,7 @@ class JobListItemResponse(BaseModel):
     status: str
     started_at: datetime
     updated_at: datetime
+    brand_external_id: UUID | None = None
     marketplace_name: str | None = None
     category_name: str | None = None
     sku_count: int

@@ -223,6 +223,7 @@ def create_job(
         session,
         Job(
             created_by=created_by,
+            brand_id=brand.external_id,
             job_type=JobType.GENERATION.value,
             marketplace_id=marketplace.id,
             category_id=None,
@@ -256,7 +257,6 @@ def create_job(
         _JOB_PIPELINE_WORKFLOW,
         {
             "job_external_id": str(job.external_id),
-            "brand_external_id": str(brand.external_id),
             "sku_generation_job_external_ids": [
                 str(sku_generation_job.external_id) for sku_generation_job in sku_generation_jobs
             ],
@@ -300,8 +300,6 @@ def execute_sku_generation_job(
     client: OpenRouterClient,
     gcs: GcsClient,
     external_id: UUID,
-    *,
-    brand_external_id: UUID,
 ) -> dict[str, Any]:
     """Run generation for incomplete SKU generation job tasks; upload images and persist."""
     sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
@@ -322,10 +320,12 @@ def execute_sku_generation_job(
         raise JobNotFoundError(f"job_id={sku_generation_job.job_id}")
     if job.marketplace_id is None:
         raise JobNotFoundError(f"job {job.external_id} is missing marketplace_id")
+    if job.brand_id is None:
+        raise BrandNotFoundError(f"job {job.external_id} is missing brand_id")
 
-    brand = brand_repo.get_by_external_id(session, brand_external_id)
+    brand = brand_repo.get_by_external_id(session, job.brand_id)
     if brand is None:
-        raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
+        raise BrandNotFoundError(f"brand_external_id={job.brand_id}")
 
     sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
     if sku is None or sku.deleted_at is not None:
@@ -579,12 +579,17 @@ def create_flatfile_job(
     gcs: GcsClient,
     *,
     created_by: UUID,
+    brand_external_id: UUID,
     category_external_id: UUID,
     template_filename: str,
     template_content_type: str,
     images: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Create a FLATFILE_UPLOAD job and return signed PUT/DELETE URLs."""
+    brand = brand_repo.get_by_external_id(session, brand_external_id)
+    if brand is None:
+        raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
+
     category = category_repo.get_by_external_id(session, category_external_id)
     if category is None:
         raise CategoryNotFoundError(f"Category not found: {category_external_id}")
@@ -615,6 +620,7 @@ def create_flatfile_job(
         session,
         Job(
             created_by=created_by,
+            brand_id=brand.external_id,
             job_type=JobType.FLATFILE_UPLOAD.value,
             marketplace_id=None,
             category_id=category.id,
@@ -824,16 +830,19 @@ def list_jobs(
     created_by: UUID,
     brand_external_id: UUID,
 ) -> dict[str, Any]:
-    """List generation jobs for the current user (newest first) with SKU progress counts.
+    """List generation jobs for the current user in a brand (newest first) with SKU counts.
 
-    ``brand_external_id`` must resolve to a known brand (workspace context). Jobs are not
-    yet stored with a brand FK, so the list is scoped by ``created_by``.
+    Jobs are filtered by ``job.brand_id`` (stores ``brand.external_id``).
     """
     brand = brand_repo.get_by_external_id(session, brand_external_id)
     if brand is None:
         raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
 
-    jobs = list(job_repo.list_generation_by_created_by(session, created_by))
+    jobs = list(
+        job_repo.list_generation_by_created_by_and_brand(
+            session, created_by, brand.external_id
+        )
+    )
     if not jobs:
         return {"items": []}
 
@@ -883,6 +892,7 @@ def list_jobs(
                 "status": job.status,
                 "started_at": job.created_at,
                 "updated_at": job.updated_at,
+                "brand_external_id": job.brand_id,
                 "marketplace_name": marketplace.name if marketplace else None,
                 "category_name": category.name if category else None,
                 "sku_count": counts["total"],
@@ -966,6 +976,7 @@ def get_job_status(
         "status": job.status,
         "started_at": job.created_at,
         "updated_at": job.updated_at,
+        "brand_external_id": job.brand_id,
         "marketplace_external_id": marketplace.external_id if marketplace else None,
         "marketplace_name": marketplace.name if marketplace else None,
         "category_external_id": category.external_id if category else None,

@@ -25,7 +25,6 @@ from core.exceptions import (
 from dto.request.job import (
     CreateFlatfileJobRequest,
     CreateJobRequest,
-    ExecuteSkuGenerationJobRequest,
 )
 from dto.response.job import (
     CompleteFlatfileJobResponse,
@@ -159,11 +158,14 @@ def create_flatfile_job(
             catalog_session,
             gcs,
             created_by=user.external_id,
+            brand_external_id=body.brand_external_id,
             category_external_id=body.category_external_id,
             template_filename=body.template_filename,
             template_content_type=body.template_content_type,
             images=[item.model_dump() for item in body.images],
         )
+    except BrandNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except CategoryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except FlatfileValidationError as exc:
@@ -204,7 +206,6 @@ def complete_flatfile_job(
 @internal_api
 def execute_sku_generation_job(
     external_id: UUID,
-    body: ExecuteSkuGenerationJobRequest,
     catalog_session: CatalogSessionDep,
     openrouter: OpenRouterDep,
     gcs: GcsDep,
@@ -215,7 +216,6 @@ def execute_sku_generation_job(
             openrouter,
             gcs,
             external_id,
-            brand_external_id=body.brand_external_id,
         )
     except SkuGenerationJobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

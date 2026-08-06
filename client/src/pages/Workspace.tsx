@@ -179,6 +179,7 @@ function Workspace() {
   useEffect(() => {
     if (!brandId) return
 
+    const selectedBrandId = brandId
     let cancelled = false
     let pollId: number | undefined
     let inFlight = false
@@ -194,7 +195,7 @@ function Workspace() {
         setRefreshing(true)
       }
       try {
-        const response = await listJobs(brandId)
+        const response = await listJobs(selectedBrandId)
         if (cancelled) return
         setItems(response.items)
         if (options.showLoading) setError(null)

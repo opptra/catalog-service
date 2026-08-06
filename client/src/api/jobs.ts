@@ -53,6 +53,7 @@ export interface JobStatusResponse {
   status: string
   started_at: string
   updated_at: string
+  brand_external_id: string | null
   marketplace_external_id: string | null
   marketplace_name: string | null
   category_external_id: string | null
@@ -70,6 +71,7 @@ export interface JobListItem {
   status: string
   started_at: string
   updated_at: string
+  brand_external_id: string | null
   marketplace_name: string | null
   category_name: string | null
   sku_count: number
