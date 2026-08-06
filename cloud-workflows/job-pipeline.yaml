@@ -46,10 +46,12 @@ main:
             value: sku_generation_job_external_id
             in: ${sku_generation_job_external_ids}
             steps:
+              # Per-SKU execute: 10 minutes (must stay ≤ LB + nginx proxy timeouts).
               - call_execute_sku_generation_job:
                   call: http.post
                   args:
                     url: ${api_base_url + "/api/jobs/sku/" + string(sku_generation_job_external_id) + "/execute/internal"}
+                    timeout: 600
                     headers:
                       Content-Type: "application/json"
                       client-id: ${client_id}
@@ -58,10 +60,12 @@ main:
                       brand_external_id: ${brand_external_id}
                   result: execute_result
 
+    # Parent complete is fast; keep under the same 10-minute stack ceiling.
     - complete_job:
         call: http.post
         args:
           url: ${api_base_url + "/api/jobs/" + string(job_external_id) + "/complete/internal"}
+          timeout: 600
           headers:
             Content-Type: "application/json"
             client-id: ${client_id}
