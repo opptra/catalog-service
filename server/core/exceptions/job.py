@@ -1,3 +1,7 @@
+class BrandNotFoundError(Exception):
+    pass
+
+
 class MarketplaceNotFoundError(Exception):
     pass
 

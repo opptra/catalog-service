@@ -6,6 +6,8 @@ from core.auth import SecureAPIRouter, internal_api
 from core.deps import CatalogSessionDep, CurrentUserDep, GcsDep, OpenRouterDep, WorkflowsDep
 from core.exceptions import (
     AttributeNotFoundError,
+    BrandDnaMissingError,
+    BrandNotFoundError,
     CategoryIntelligenceMissingError,
     CategoryNotFoundError,
     FlatfileUploadIncompleteError,
@@ -20,7 +22,11 @@ from core.exceptions import (
     SkuNotFoundError,
     WorkflowsError,
 )
-from dto.request.job import CreateFlatfileJobRequest, CreateJobRequest
+from dto.request.job import (
+    CreateFlatfileJobRequest,
+    CreateJobRequest,
+    ExecuteSkuGenerationJobRequest,
+)
 from dto.response.job import (
     CompleteFlatfileJobResponse,
     CompleteJobResponse,
@@ -31,7 +37,7 @@ from dto.response.sku_generation_job import SkuGenerationJobExecutionResponse
 from services import job as job_service
 
 # All job kinds live here. Kind-specific routes use a sub-prefix
-# (e.g. /jobs/sku-generation/..., /jobs/flatfile/...).
+# (e.g. /jobs/sku/..., /jobs/flatfile/...).
 router = SecureAPIRouter(prefix="/jobs", tags=["jobs"])
 
 
@@ -49,9 +55,14 @@ def create_job(
             workflows,
             created_by=user.external_id,
             sku_ids=body.sku_ids,
-            marketplace_id=body.marketplace_id,
-            attributes=[(item.attribute_id, item.quantity) for item in body.attributes],
+            brand_external_id=body.brand_external_id,
+            marketplace_external_id=body.marketplace_external_id,
+            attributes=[
+                (item.attribute_external_id, item.quantity) for item in body.attributes
+            ],
         )
+    except BrandNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except MarketplaceNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except SkuNotFoundError as exc:
@@ -117,19 +128,24 @@ def complete_flatfile_job(
 
 
 @router.post(
-    "/sku-generation/{external_id}/execute",
+    "/sku/{external_id}/execute",
     response_model=SkuGenerationJobExecutionResponse,
 )
 @internal_api
 def execute_sku_generation_job(
     external_id: UUID,
+    body: ExecuteSkuGenerationJobRequest,
     catalog_session: CatalogSessionDep,
     openrouter: OpenRouterDep,
     gcs: GcsDep,
 ) -> SkuGenerationJobExecutionResponse:
     try:
         summary = job_service.execute_sku_generation_job(
-            catalog_session, openrouter, gcs, external_id
+            catalog_session,
+            openrouter,
+            gcs,
+            external_id,
+            brand_external_id=body.brand_external_id,
         )
     except SkuGenerationJobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -137,7 +153,11 @@ def execute_sku_generation_job(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ProductNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BrandNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except CategoryIntelligenceMissingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except BrandDnaMissingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except GcsError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

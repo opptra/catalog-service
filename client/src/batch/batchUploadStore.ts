@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { BatchValidationResult, ValidationStep } from '../lib/validateBatchFiles'
+import { useMarketplaceSelectionStore } from './marketplaceSelectionStore'
 import { runFlatfileUpload } from './runFlatfileUpload'
 
 export type UploadPhase = 'idle' | 'uploading' | 'done' | 'error'
@@ -120,7 +121,8 @@ export const useBatchUploadStore = create<BatchUploadState>((set, get) => ({
       uploadError: null,
     }),
 
-  clear: () =>
+  clear: () => {
+    useMarketplaceSelectionStore.getState().clear()
     set({
       productFile: null,
       imagesFile: null,
@@ -130,7 +132,8 @@ export const useBatchUploadStore = create<BatchUploadState>((set, get) => ({
       uploadPhase: 'idle',
       uploadSteps: INITIAL_UPLOAD_STEPS,
       uploadError: null,
-    }),
+    })
+  },
 }))
 
 export { INITIAL_UPLOAD_STEPS }

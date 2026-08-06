@@ -3,6 +3,7 @@
 # Triggered by POST /api/jobs after DB rows are created. Argument shape:
 #   {
 #     "job_external_id": "<uuid>",
+#     "brand_external_id": "<uuid>",
 #     "sku_generation_job_external_ids": ["<uuid>", ...]
 #   }
 #
@@ -20,6 +21,7 @@ main:
         assign:
           - api_base_url: "https://studio.opptra.com"
           - job_external_id: ${args.job_external_id}
+          - brand_external_id: ${args.brand_external_id}
           - sku_generation_job_external_ids: ${args.sku_generation_job_external_ids}
           - cloud_secret_id: "catalog-service-cloud-secret"
 
@@ -47,11 +49,13 @@ main:
               - call_execute_sku_generation_job:
                   call: http.post
                   args:
-                    url: ${api_base_url + "/api/jobs/sku-generation/" + string(sku_generation_job_external_id) + "/execute/internal"}
+                    url: ${api_base_url + "/api/jobs/sku/" + string(sku_generation_job_external_id) + "/execute/internal"}
                     headers:
                       Content-Type: "application/json"
                       client-id: ${client_id}
                       client-token: ${client_token}
+                    body:
+                      brand_external_id: ${brand_external_id}
                   result: execute_result
 
     - complete_job:

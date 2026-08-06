@@ -11,7 +11,7 @@ from core.clients.google_auth import GoogleAuthClient
 from core.clients.openrouter import OpenRouterClient
 from core.clients.workflows import WorkflowsClient
 from core.config import settings
-from routers import auth, categories, health, job, users
+from routers import access, auth, catalog, health, job, users
 
 
 def _resolve_gcp_project() -> str | None:
@@ -77,4 +77,5 @@ app.include_router(health.router, prefix=API_PREFIX)
 app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(job.router, prefix=API_PREFIX)
-app.include_router(categories.router, prefix=API_PREFIX)
+app.include_router(catalog.router, prefix=API_PREFIX)
+app.include_router(access.router, prefix=API_PREFIX)

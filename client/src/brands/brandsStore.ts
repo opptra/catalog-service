@@ -1,6 +1,6 @@
 import { create } from 'zustand'
+import { listAccessibleBrands, type AccessibleBrand } from '../api/access'
 import type { User } from '../api/auth'
-import { getUserBrands, type BrandAccess } from '../api/users'
 import { useAuthStore } from '../auth/authStore'
 import {
   clearSelectedBrand as clearStoredBrand,
@@ -10,7 +10,7 @@ import {
 } from '../data/brands'
 
 interface BrandsState {
-  brands: BrandAccess[]
+  brands: AccessibleBrand[]
   loading: boolean
   loadFailed: boolean
   selectedBrand: Brand | null
@@ -59,7 +59,7 @@ export const useBrandsStore = create<BrandsState>((set, get) => ({
     set({ loading: true, loadFailed: false })
 
     try {
-      const data = await getUserBrands(user.external_id)
+      const data = await listAccessibleBrands()
       if (requestId !== brandsRequestId) return
 
       const current = getSelectedBrand()

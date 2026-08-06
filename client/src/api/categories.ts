@@ -32,13 +32,15 @@ export interface CategoryTemplate {
 export const LEAF_CATEGORY_PAGE_SIZE = 10
 
 export async function listLeafCategories(offset = 0): Promise<LeafCategoryPage> {
-  const { data } = await api.get<LeafCategoryPage>('/categories/leaves', {
+  const { data } = await api.get<LeafCategoryPage>('/catalog/categories/leaves', {
     params: { offset, limit: LEAF_CATEGORY_PAGE_SIZE },
   })
   return data
 }
 
 export async function getCategoryTemplate(externalId: string): Promise<CategoryTemplate> {
-  const { data } = await api.get<CategoryTemplate>(`/categories/${externalId}/template`)
+  const { data } = await api.get<CategoryTemplate>(
+    `/catalog/categories/${externalId}/template`,
+  )
   return data
 }

@@ -4,14 +4,19 @@ from pydantic import BaseModel, Field
 
 
 class CreateJobAttribute(BaseModel):
-    attribute_id: int = Field(gt=0)
+    attribute_external_id: UUID
     quantity: int = Field(default=1, ge=1)
 
 
 class CreateJobRequest(BaseModel):
-    sku_ids: list[int] = Field(min_length=1)
-    marketplace_id: int = Field(gt=0)
+    sku_ids: list[str] = Field(min_length=1)
+    brand_external_id: UUID
+    marketplace_external_id: UUID
     attributes: list[CreateJobAttribute] = Field(min_length=1)
+
+
+class ExecuteSkuGenerationJobRequest(BaseModel):
+    brand_external_id: UUID
 
 
 class FlatfileImageFile(BaseModel):

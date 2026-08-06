@@ -11,6 +11,7 @@ from entities.catalog.base import Base
 from entities.catalog.brand import Brand
 from entities.catalog.category import Category
 from entities.catalog.category_closure import CategoryClosure
+from entities.catalog.category_marketplace import CategoryMarketplace
 from entities.catalog.job import Job
 from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.marketplace import Marketplace
@@ -24,6 +25,7 @@ __all__ = [
     "Brand",
     "Category",
     "CategoryClosure",
+    "CategoryMarketplace",
     "Job",
     "JobAttribute",
     "Marketplace",

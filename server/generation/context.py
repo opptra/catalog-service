@@ -1,9 +1,10 @@
 """Shared value object carrying everything a generation step reasons over.
 
-The three inputs play distinct roles: ``product`` is the authoritative source of facts,
-``category_intelligence`` is guidance on how to optimize the listing, and ``brand_dna`` is
-voice/guardrails. ``product_image_urls`` are reference images (remote or ``data:`` URLs) that
-anchor generated images to the real product.
+The three inputs play distinct roles: ``product`` (``sku_master.attributes``) is the
+authoritative source of facts, ``category_intelligence`` (from ``category_marketplace``)
+is guidance on how to optimize the listing, and ``brand_dna`` (from ``brand.brand_dna``)
+is voice/guardrails. ``product_image_urls`` are signed GCS HTTPS URLs for the SKU's
+source photos under ``products/{sku_id}/assets/images/``.
 """
 
 from dataclasses import dataclass, field

@@ -3,8 +3,12 @@ class SkuGenerationJobNotFoundError(Exception):
 
 
 class ProductNotFoundError(Exception):
-    """No product in the input data matches the sku_generation_job's sku_id."""
+    """No usable live SKU / attributes for generation."""
+
+
+class BrandDnaMissingError(Exception):
+    """Brand DNA is missing or empty on the brand row."""
 
 
 class CategoryIntelligenceMissingError(Exception):
-    """The category intelligence input file is missing or empty."""
+    """No usable category intelligence for this marketplace × category pair."""

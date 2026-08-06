@@ -24,5 +24,19 @@ def get_by_external_id(session: Session, external_id: UUID) -> AttributeMaster |
     return session.scalar(select(AttributeMaster).where(AttributeMaster.external_id == external_id))
 
 
+def list_by_external_ids(
+    session: Session, external_ids: Sequence[UUID]
+) -> Sequence[AttributeMaster]:
+    if not external_ids:
+        return []
+    return session.scalars(
+        select(AttributeMaster).where(AttributeMaster.external_id.in_(list(external_ids)))
+    ).all()
+
+
 def get_by_name(session: Session, name: AttributeName) -> AttributeMaster | None:
     return session.scalar(select(AttributeMaster).where(AttributeMaster.name == name))
+
+
+def list_all(session: Session) -> Sequence[AttributeMaster]:
+    return session.scalars(select(AttributeMaster).order_by(AttributeMaster.id.asc())).all()

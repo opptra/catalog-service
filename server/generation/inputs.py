@@ -1,78 +1,122 @@
-"""Load the three local generation inputs and resolve the product for a SKU.
+"""Assemble generation context from catalog DB + GCS product images.
 
-The database holds only metadata/status; the product content the pipeline generates from lives
-in these files under ``server/input``. Product reference images are resolved to portable
-``data:`` URLs so the image model can anchor to the real product.
+Product facts come from ``sku_master.attributes`` (all keys, as-is). Brand DNA and
+category intelligence come from ``brand`` / ``category_marketplace``. Reference photos
+are listed under ``products/{sku_id}/assets/images/`` in GCS and exposed as signed GET URLs
+for the model.
 """
 
-from pathlib import Path
+from __future__ import annotations
+
 from typing import Any
 
-from core.exceptions import CategoryIntelligenceMissingError, ProductNotFoundError
+from sqlalchemy.orm import Session
+
+from core.clients.gcs import GcsClient
+from core.exceptions import (
+    BrandDnaMissingError,
+    BrandNotFoundError,
+    CategoryIntelligenceMissingError,
+    GcsError,
+    ProductNotFoundError,
+)
+from entities.catalog.sku_master import SkuMaster
 from generation.context import GenerationContext
-from utils import files
-from utils import images as image_utils
+from repositories.catalog import brand as brand_repo
+from repositories.catalog import category_marketplace as category_marketplace_repo
+from utils import flatfile as flatfile_utils
 
-# server/generation/inputs.py -> parents[1] == server/
-_INPUT_DIR = Path(__file__).resolve().parents[1] / "input"
-_BRAND_DNA_FILE = _INPUT_DIR / "brand-dna.txt"
-_CATEGORY_INTELLIGENCE_FILE = _INPUT_DIR / "category-intelligence.json"
-_PRODUCT_DATA_FILE = _INPUT_DIR / "productdata.json"
-
-_SKU_PREFIX_KEYS = ("product_key", "sku", "article_code")
+# Signed GET URLs must outlive the OpenRouter round-trip for this execute call.
+_REFERENCE_IMAGE_URL_TTL_SECONDS = 3600
 
 
-def load_context(sku_id: int) -> GenerationContext:
-    """Assemble the generation context (product facts + category intelligence + brand DNA)."""
-    product = _find_product(sku_id)
-    brand_dna = files.read_text(_BRAND_DNA_FILE)
+def load_context(
+    session: Session,
+    gcs: GcsClient,
+    *,
+    sku: SkuMaster,
+    brand_id: int,
+    marketplace_id: int,
+) -> GenerationContext:
+    """Assemble generation context for a brand × SKU × marketplace."""
+    if sku.deleted_at is not None:
+        raise ProductNotFoundError(f"No live SKU for id={sku.id}")
+
+    product = _product_from_sku(sku)
+    business_sku_id = str(product["sku_id"])
+
     return GenerationContext(
         product=product,
-        category_intelligence=_load_category_intelligence(),
-        brand_dna=brand_dna,
-        product_image_urls=_product_reference_images(product),
+        category_intelligence=_load_category_intelligence(
+            session,
+            marketplace_id=marketplace_id,
+            category_id=sku.category_id,
+        ),
+        brand_dna=_load_brand_dna(session, brand_id),
+        product_image_urls=_product_reference_image_urls(gcs, business_sku_id),
     )
 
 
-def _load_category_intelligence() -> dict[str, Any]:
-    if not _CATEGORY_INTELLIGENCE_FILE.exists():
+def _product_from_sku(sku: SkuMaster) -> dict[str, Any]:
+    """Return every attribute on the SKU as the product payload (no field filtering)."""
+    attributes = dict(sku.attributes or {})
+    business_sku_id = str(attributes.get("sku_id") or "").strip()
+    if not business_sku_id:
+        raise ProductNotFoundError(f"SKU id={sku.id} is missing attributes.sku_id")
+    return attributes
+
+
+def _load_brand_dna(session: Session, brand_id: int) -> str:
+    brand = brand_repo.get_by_id(session, brand_id)
+    if brand is None:
+        raise BrandNotFoundError(f"brand_id={brand_id}")
+    dna = (brand.brand_dna or "").strip()
+    if not dna:
+        raise BrandDnaMissingError(f"brand_id={brand_id} has empty brand_dna")
+    return dna
+
+
+def _load_category_intelligence(
+    session: Session,
+    *,
+    marketplace_id: int,
+    category_id: int,
+) -> dict[str, Any]:
+    row = category_marketplace_repo.get_by_marketplace_and_category(
+        session,
+        marketplace_id,
+        category_id,
+    )
+    if row is None:
         raise CategoryIntelligenceMissingError(
-            f"Category intelligence file not found: {_CATEGORY_INTELLIGENCE_FILE}"
+            f"No category_marketplace row for marketplace_id={marketplace_id} "
+            f"category_id={category_id}"
         )
-    if not files.read_text(_CATEGORY_INTELLIGENCE_FILE).strip():
+    intelligence = row.category_intelligence
+    if not isinstance(intelligence, dict) or not intelligence:
         raise CategoryIntelligenceMissingError(
-            f"Category intelligence file is empty: {_CATEGORY_INTELLIGENCE_FILE}"
+            f"category_marketplace id={row.id} has empty category_intelligence"
         )
-    return files.read_json(_CATEGORY_INTELLIGENCE_FILE)
+    return intelligence
 
 
-def _find_product(sku_id: int) -> dict[str, Any]:
-    """Match the integer ``sku_id`` to a product by the digits after the ``COR-`` prefix."""
-    data = files.read_json(_PRODUCT_DATA_FILE)
-    for product in data.get("products", []):
-        for key in _SKU_PREFIX_KEYS:
-            raw = product.get(key)
-            if isinstance(raw, str):
-                _, _, suffix = raw.partition("-")
-                if suffix.isdigit() and int(suffix) == sku_id:
-                    return product
-    raise ProductNotFoundError(f"No product matches sku_id={sku_id} in the input product data")
-
-
-def _product_reference_images(product: dict[str, Any]) -> list[str]:
-    """Resolve every source image (an ordered array, not a fixed 1-2 keys) to data URLs.
-
-    ``source_assets.images`` is the full set of real listing photos (main + every angle/closeup),
-    in listing order — every one of them is passed to the model as a reference, not just the
-    primary shot, so product fidelity doesn't rest on a single photo.
-    """
-    assets = product.get("source_assets") or {}
-    images = assets.get("images")
-    if not isinstance(images, list):
+def _product_reference_image_urls(gcs: GcsClient, business_sku_id: str) -> list[str]:
+    """List GCS product images and return time-limited HTTPS GET URLs for the model."""
+    prefix = flatfile_utils.product_image_prefix(business_sku_id)
+    try:
+        object_names = gcs.list_object_names(prefix)
+    except GcsError:
         return []
-    references: list[str] = []
-    for entry in images:
-        url = entry.get("url") if isinstance(entry, dict) else entry
-        if isinstance(url, str) and url.strip():
-            references.append(image_utils.to_data_url(url) or url)
-    return references
+
+    urls: list[str] = []
+    for object_name in sorted(object_names):
+        try:
+            urls.append(
+                gcs.signed_url(
+                    object_name,
+                    expiration_seconds=_REFERENCE_IMAGE_URL_TTL_SECONDS,
+                )
+            )
+        except GcsError:
+            continue
+    return urls

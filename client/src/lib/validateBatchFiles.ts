@@ -430,7 +430,11 @@ export async function validateBatchFiles(options: {
       if (!field.mandatory) continue
       if (normalizeHeader(field.name) === SKU_HEADER) continue
       const col = findHeaderIndex(table.headers, field.name)
-      if (col < 0) continue
+      if (col < 0) {
+        // Column absent from the file — this SKU cannot satisfy the requirement.
+        rowProblems.add(index)
+        continue
+      }
       if (!(row[col] ?? '').trim()) {
         issues.push({
           group: 'CSV',

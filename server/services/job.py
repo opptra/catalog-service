@@ -21,12 +21,14 @@ from core.clients.workflows import WorkflowsClient
 from core.config import settings
 from core.exceptions import (
     AttributeNotFoundError,
+    BrandNotFoundError,
     CategoryNotFoundError,
     FlatfileUploadIncompleteError,
     FlatfileValidationError,
     InvalidJobAttributesError,
     JobNotFoundError,
     MarketplaceNotFoundError,
+    ProductNotFoundError,
     SkuGenerationJobExecutionFailedError,
     SkuGenerationJobNotFoundError,
     SkuNotFoundError,
@@ -49,6 +51,7 @@ from entities.catalog.sku_master import SkuMaster
 from generation import gallery, images, inputs, text
 from generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
+from repositories.catalog import brand as brand_repo
 from repositories.catalog import category as category_repo
 from repositories.catalog import job as job_repo
 from repositories.catalog import job_attribute as job_attribute_repo
@@ -157,46 +160,62 @@ def create_job(
     workflows: WorkflowsClient,
     *,
     created_by: UUID,
-    sku_ids: Sequence[int],
-    marketplace_id: int,
-    attributes: Sequence[tuple[int, int]],
+    sku_ids: Sequence[str],
+    brand_external_id: UUID,
+    marketplace_external_id: UUID,
+    attributes: Sequence[tuple[UUID, int]],
 ) -> dict[str, Any]:
     """Create a job + job_attribute rows + one sku_generation_job per SKU, then start the pipeline.
 
-    ``attributes`` is ``(attribute_id, quantity)`` pairs. Quantity must be 1 when the
+    ``sku_ids`` are business string ids (``sku_master.attributes.sku_id``).
+    ``attributes`` is ``(attribute_external_id, quantity)`` pairs. Quantity must be 1 when the
     attribute does not allow quantity. Returns identifiers the UI needs to track the job.
     """
-    if marketplace_repo.get_by_id(session, marketplace_id) is None:
-        raise MarketplaceNotFoundError(f"marketplace_id={marketplace_id}")
+    brand = brand_repo.get_by_external_id(session, brand_external_id)
+    if brand is None:
+        raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
+
+    marketplace = marketplace_repo.get_by_external_id(session, marketplace_external_id)
+    if marketplace is None:
+        raise MarketplaceNotFoundError(f"marketplace_external_id={marketplace_external_id}")
 
     if not sku_ids:
         raise SkuNotFoundError("sku_ids must not be empty")
     if len(sku_ids) != len(set(sku_ids)):
         raise InvalidJobAttributesError("Duplicate sku_id in sku_ids")
-    if any(sku_id <= 0 for sku_id in sku_ids):
-        raise InvalidJobAttributesError("sku_ids must contain positive integers")
+    if any(not sku_id.strip() for sku_id in sku_ids):
+        raise InvalidJobAttributesError("sku_ids must not contain blank values")
 
-    found_sku_ids = {sku.id for sku in sku_master_repo.list_by_ids(session, sku_ids)}
-    missing_skus = [sku_id for sku_id in sku_ids if sku_id not in found_sku_ids]
+    found_skus = list(sku_master_repo.list_live_by_attribute_sku_ids(session, sku_ids))
+    sku_by_business_id = {
+        str(sku.attributes.get("sku_id")): sku
+        for sku in found_skus
+        if sku.attributes.get("sku_id") is not None
+    }
+    missing_skus = [sku_id for sku_id in sku_ids if sku_id not in sku_by_business_id]
     if missing_skus:
         raise SkuNotFoundError(f"Unknown or deleted sku_id(s): {missing_skus}")
 
-    attribute_ids = [attribute_id for attribute_id, _quantity in attributes]
-    if len(attribute_ids) != len(set(attribute_ids)):
-        raise InvalidJobAttributesError("Duplicate attribute_id in attributes")
+    attribute_external_ids = [external_id for external_id, _quantity in attributes]
+    if len(attribute_external_ids) != len(set(attribute_external_ids)):
+        raise InvalidJobAttributesError("Duplicate attribute_external_id in attributes")
 
-    masters = list(attribute_master_repo.list_by_ids(session, attribute_ids))
-    by_id = {master.id: master for master in masters}
-    missing = [attribute_id for attribute_id in attribute_ids if attribute_id not in by_id]
+    masters = list(attribute_master_repo.list_by_external_ids(session, attribute_external_ids))
+    by_external_id = {master.external_id: master for master in masters}
+    missing = [
+        str(external_id)
+        for external_id in attribute_external_ids
+        if external_id not in by_external_id
+    ]
     if missing:
-        raise AttributeNotFoundError(f"Unknown attribute_id(s): {missing}")
+        raise AttributeNotFoundError(f"Unknown attribute_external_id(s): {missing}")
 
     resolved: list[tuple[AttributeMaster, int]] = []
-    for attribute_id, quantity in attributes:
-        master = by_id[attribute_id]
+    for external_id, quantity in attributes:
+        master = by_external_id[external_id]
         if not master.allows_quantity and quantity != 1:
             raise InvalidJobAttributesError(
-                f"attribute_id={attribute_id} ({master.name.value}) does not allow quantity>1"
+                f"attribute_external_id={external_id} ({master.name.value}) does not allow quantity>1"
             )
         resolved.append((master, quantity))
 
@@ -205,7 +224,7 @@ def create_job(
         Job(
             created_by=created_by,
             job_type=JobType.GENERATION.value,
-            marketplace_id=marketplace_id,
+            marketplace_id=marketplace.id,
             category_id=None,
             status=JobStatus.PENDING.value,
         ),
@@ -225,7 +244,7 @@ def create_job(
         [
             SkuGenerationJob(
                 job_id=job.id,
-                sku_id=sku_id,
+                sku_id=sku_by_business_id[sku_id].id,
                 status=SkuGenerationJobStatus.PENDING.value,
                 tasks=dict(tasks),
             )
@@ -237,25 +256,30 @@ def create_job(
         _JOB_PIPELINE_WORKFLOW,
         {
             "job_external_id": str(job.external_id),
+            "brand_external_id": str(brand.external_id),
             "sku_generation_job_external_ids": [
                 str(sku_generation_job.external_id) for sku_generation_job in sku_generation_jobs
             ],
         },
     )
 
+    pk_to_business_sku_id = {
+        sku_by_business_id[sku_id].id: sku_id for sku_id in sku_ids
+    }
+
     return {
         "external_id": job.external_id,
         "status": job.status,
-        "marketplace_id": marketplace_id,
+        "marketplace_external_id": marketplace.external_id,
         "sku_ids": list(sku_ids),
         "sku_generation_jobs": [
             {
-                "sku_id": sku_generation_job.sku_id,
+                "sku_id": pk_to_business_sku_id[sku_generation_job.sku_id],
                 "external_id": sku_generation_job.external_id,
             }
             for sku_generation_job in sku_generation_jobs
         ],
-        "attribute_ids": attribute_ids,
+        "attribute_external_ids": attribute_external_ids,
         "workflow_execution": execution.name,
     }
 
@@ -276,6 +300,8 @@ def execute_sku_generation_job(
     client: OpenRouterClient,
     gcs: GcsClient,
     external_id: UUID,
+    *,
+    brand_external_id: UUID,
 ) -> dict[str, Any]:
     """Run generation for incomplete SKU generation job tasks; upload images and persist."""
     sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
@@ -297,8 +323,22 @@ def execute_sku_generation_job(
     if job.marketplace_id is None:
         raise JobNotFoundError(f"job {job.external_id} is missing marketplace_id")
 
+    brand = brand_repo.get_by_external_id(session, brand_external_id)
+    if brand is None:
+        raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
+
+    sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
+    if sku is None or sku.deleted_at is not None:
+        raise ProductNotFoundError(f"No live SKU for id={sku_generation_job.sku_id}")
+
     text_attrs, image_attrs, quantities = _selected_attributes(session, sku_generation_job.job_id)
-    ctx = inputs.load_context(sku_generation_job.sku_id)
+    ctx = inputs.load_context(
+        session,
+        gcs,
+        sku=sku,
+        brand_id=brand.id,
+        marketplace_id=job.marketplace_id,
+    )
     render_fn = images.resolve_image_model(settings.openrouter_image_model)
 
     # Pre-created task map — never seeded or extended with new attribute keys here.

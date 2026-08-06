@@ -1,28 +1,29 @@
 import api from './axios'
 
 export interface CreateJobAttribute {
-  attribute_id: number
+  attribute_external_id: string
   quantity?: number
 }
 
 export interface CreateJobRequest {
-  sku_ids: number[]
-  marketplace_id: number
+  sku_ids: string[]
+  brand_external_id: string
+  marketplace_external_id: string
   attributes: CreateJobAttribute[]
 }
 
 export interface CreatedSkuGenerationJob {
-  sku_id: number
+  sku_id: string
   external_id: string
 }
 
 export interface CreateJobResponse {
   external_id: string
   status: string
-  marketplace_id: number
-  sku_ids: number[]
+  marketplace_external_id: string
+  sku_ids: string[]
   sku_generation_jobs: CreatedSkuGenerationJob[]
-  attribute_ids: number[]
+  attribute_external_ids: string[]
   workflow_execution: string | null
 }
 
