@@ -25,12 +25,19 @@ def upsert_google_user(session: Session, claims: dict[str, Any]) -> User:
 
     user = user_repository.get_by_google_sub(session, google_sub)
     if user is None:
-        user = user_repository.get_by_email(session, email)
+        user = user_repository.get_by_email(session, email.strip().lower())
         if user is not None:
             user.google_sub = google_sub
+            if name:
+                user.name = name
             user = user_repository.save(session, user)
         else:
-            user = user_repository.create(session, name=name, email=email, google_sub=google_sub)
+            user = user_repository.create(
+                session,
+                name=name,
+                email=email.strip().lower(),
+                google_sub=google_sub,
+            )
 
     return user
 

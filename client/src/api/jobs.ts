@@ -65,6 +65,25 @@ export interface JobStatusResponse {
   sku_generation_jobs: JobSkuGenerationStatusItem[]
 }
 
+export interface JobListItem {
+  external_id: string
+  status: string
+  started_at: string
+  updated_at: string
+  marketplace_name: string | null
+  category_name: string | null
+  sku_count: number
+  completed_sku_count: number
+  failed_sku_count: number
+  pending_sku_count: number
+}
+
+export interface JobListResponse {
+  items: JobListItem[]
+}
+
+const listJobsInflight = new Map<string, Promise<JobListResponse>>()
+
 export interface SkuGenerationJobAttributeSlot {
   attribute_external_id: string
   name: string
@@ -88,6 +107,27 @@ export interface SkuGenerationJobContentResponse {
   marketplace_external_id: string | null
   marketplace_name: string | null
   attributes: SkuGenerationJobAttributeSlot[]
+}
+
+export async function listJobs(brandExternalId: string): Promise<JobListResponse> {
+  const existing = listJobsInflight.get(brandExternalId)
+  if (existing) {
+    return existing
+  }
+
+  const request = api
+    .get<JobListResponse>('/jobs', {
+      params: { brand_external_id: brandExternalId },
+    })
+    .then(({ data }) => data)
+    .finally(() => {
+      if (listJobsInflight.get(brandExternalId) === request) {
+        listJobsInflight.delete(brandExternalId)
+      }
+    })
+
+  listJobsInflight.set(brandExternalId, request)
+  return request
 }
 
 export async function createJob(body: CreateJobRequest): Promise<CreateJobResponse> {

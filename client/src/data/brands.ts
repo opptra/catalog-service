@@ -8,8 +8,23 @@ export const STATIC_LAST_BATCH_LABEL = 'last batch · 2h ago'
 
 const SELECTED_BRAND_KEY = 'listingStudio.selectedBrand'
 
+function readRawSelectedBrand(): string | null {
+  const fromLocal = localStorage.getItem(SELECTED_BRAND_KEY)
+  if (fromLocal) return fromLocal
+
+  // Migrate older session-scoped selection so new tabs keep the same brand.
+  const fromSession = sessionStorage.getItem(SELECTED_BRAND_KEY)
+  if (fromSession) {
+    localStorage.setItem(SELECTED_BRAND_KEY, fromSession)
+    sessionStorage.removeItem(SELECTED_BRAND_KEY)
+    return fromSession
+  }
+
+  return null
+}
+
 export function getSelectedBrand(): Brand | null {
-  const raw = sessionStorage.getItem(SELECTED_BRAND_KEY)
+  const raw = readRawSelectedBrand()
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw) as unknown
@@ -24,7 +39,7 @@ export function getSelectedBrand(): Brand | null {
       return { id: (parsed as Brand).id, name: (parsed as Brand).name }
     }
   } catch {
-    // Ignore corrupt session values.
+    // Ignore corrupt stored values.
   }
   return null
 }
@@ -34,9 +49,11 @@ export function getSelectedBrandId(): string | null {
 }
 
 export function setSelectedBrand(brand: Brand): void {
-  sessionStorage.setItem(SELECTED_BRAND_KEY, JSON.stringify(brand))
+  localStorage.setItem(SELECTED_BRAND_KEY, JSON.stringify(brand))
+  sessionStorage.removeItem(SELECTED_BRAND_KEY)
 }
 
 export function clearSelectedBrand(): void {
+  localStorage.removeItem(SELECTED_BRAND_KEY)
   sessionStorage.removeItem(SELECTED_BRAND_KEY)
 }

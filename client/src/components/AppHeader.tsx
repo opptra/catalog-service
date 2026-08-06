@@ -6,26 +6,10 @@ import { useBrands } from '../brands/useBrands'
 
 interface AppHeaderProps {
   brandName?: string
+  /** Back to the brand execution list. Omit on the list page itself. */
   showExecutionHistory?: boolean
-  onExecutionHistoryClick?: () => void
-  showNewBatch?: boolean
-  onNewBatchClick?: () => void
-  showBatches?: boolean
-  onBatchesClick?: () => void
-  batchesBadgeCount?: number
-}
-
-function PlusIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <path
-        d="M7 2.75V11.25M2.75 7H11.25"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
+  /** Hide on the user management page itself. */
+  showUserManagement?: boolean
 }
 
 function ChevronDownIcon() {
@@ -45,12 +29,7 @@ function ChevronDownIcon() {
 function AppHeader({
   brandName,
   showExecutionHistory = false,
-  onExecutionHistoryClick,
-  showNewBatch = false,
-  onNewBatchClick,
-  showBatches = false,
-  onBatchesClick,
-  batchesBadgeCount,
+  showUserManagement = true,
 }: AppHeaderProps) {
   const { user, signOut } = useAuth()
   const { brands, loading, loadFailed, selectedBrand, selectBrand } = useBrands()
@@ -149,29 +128,23 @@ function AppHeader({
               ) : null}
             </div>
 
-            {showNewBatch ? (
-              <button type="button" className="app-header__cta" onClick={onNewBatchClick}>
-                <PlusIcon />
-                New batch
-              </button>
-            ) : null}
-
-            {showBatches ? (
-              <button type="button" className="app-header__pill" onClick={onBatchesClick}>
-                Batches
-                {batchesBadgeCount != null && batchesBadgeCount > 0 ? (
-                  <span className="app-header__badge">{batchesBadgeCount}</span>
-                ) : null}
-              </button>
-            ) : null}
-
             {showExecutionHistory ? (
               <button
                 type="button"
                 className="app-header__pill"
-                onClick={onExecutionHistoryClick}
+                onClick={() => navigate('/workspace')}
               >
                 Execution history
+              </button>
+            ) : null}
+
+            {showUserManagement ? (
+              <button
+                type="button"
+                className="app-header__pill"
+                onClick={() => navigate('/workspace/users')}
+              >
+                User management
               </button>
             ) : null}
           </div>

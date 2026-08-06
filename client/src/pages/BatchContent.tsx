@@ -156,7 +156,7 @@ function BatchContent() {
   const [skuIndex, setSkuIndex] = useState(0)
   const [content, setContent] = useState<SkuGenerationJobContentResponse | null>(null)
   const [contentError, setContentError] = useState<string | null>(null)
-  const [contentLoading, setContentLoading] = useState(false)
+  const [, setContentLoading] = useState(false)
   const [expandedText, setExpandedText] = useState<Record<string, boolean>>({})
   const [imageModal, setImageModal] = useState<ImageModalSource | null>(null)
   const [regenPrompt, setRegenPrompt] = useState('')
@@ -464,11 +464,7 @@ function BatchContent() {
 
   return (
     <div className="page-shell page-shell--fixed">
-      <AppHeader
-        brandName={brand.name}
-        showBatches
-        onBatchesClick={() => navigate('/workspace')}
-      />
+      <AppHeader brandName={brand.name} showExecutionHistory />
 
       <main className="batch-content">
         <div className="batch-content__inner">
@@ -518,39 +514,13 @@ function BatchContent() {
           </div>
 
           <div className="batch-content__sku-bar">
-            <div className="batch-content__sku-nav">
-              {!isFirstSku ? (
-                <button
-                  type="button"
-                  className="batch-content__sku-arrow"
-                  onClick={() => goSku(safeSkuIndex - 1)}
-                  aria-label="Previous SKU"
-                >
-                  <ChevronLeftIcon />
-                </button>
-              ) : (
-                <span className="batch-content__sku-arrow-spacer" aria-hidden="true" />
-              )}
-              <div className="batch-content__sku-label">
-                <span className="batch-content__sku-count">
-                  SKU {skuJobs.length === 0 ? 0 : safeSkuIndex + 1} of {skuJobs.length}
-                </span>
-                <span className="batch-content__sku-name">
-                  {content?.display_name ?? activeSkuJob?.display_name ?? activeSkuJob?.sku_id ?? '—'}
-                </span>
-              </div>
-              {!isLastSku ? (
-                <button
-                  type="button"
-                  className="batch-content__sku-arrow"
-                  onClick={() => goSku(safeSkuIndex + 1)}
-                  aria-label="Next SKU"
-                >
-                  <ChevronRightIcon />
-                </button>
-              ) : (
-                <span className="batch-content__sku-arrow-spacer" aria-hidden="true" />
-              )}
+            <div className="batch-content__sku-label">
+              <span className="batch-content__sku-count">
+                SKU {skuJobs.length === 0 ? 0 : safeSkuIndex + 1} of {skuJobs.length}
+              </span>
+              <span className="batch-content__sku-name">
+                {content?.display_name ?? activeSkuJob?.display_name ?? activeSkuJob?.sku_id ?? '—'}
+              </span>
             </div>
           </div>
 
@@ -579,35 +549,44 @@ function BatchContent() {
                 />
               ) : null,
             )}
-
-            <footer className="batch-content__footer">
-              <p className="batch-content__footer-count">
-                {contentLoading ? 'Refreshing SKU content…' : `${attributes.length} attribute slots`}
-              </p>
-              <div className="batch-content__footer-nav">
-                {!isFirstSku ? (
-                  <button
-                    type="button"
-                    className="btn-outline batch-content__footer-btn"
-                    onClick={() => goSku(safeSkuIndex - 1)}
-                  >
-                    ← prev SKU
-                  </button>
-                ) : null}
-                {!isLastSku ? (
-                  <button
-                    type="button"
-                    className="btn-outline batch-content__footer-btn"
-                    onClick={() => goSku(safeSkuIndex + 1)}
-                  >
-                    next SKU →
-                  </button>
-                ) : null}
-              </div>
-            </footer>
           </div>
         </div>
       </main>
+
+      <footer className="batch-content__sku-dock">
+        <div className="batch-content__sku-dock-inner">
+          <div className="batch-content__sku-dock-copy">
+            <span className="batch-content__sku-dock-count">
+              SKU {skuJobs.length === 0 ? 0 : safeSkuIndex + 1} of {skuJobs.length}
+            </span>
+            <span className="batch-content__sku-dock-name">
+              {content?.display_name ?? activeSkuJob?.display_name ?? activeSkuJob?.sku_id ?? '—'}
+            </span>
+          </div>
+          <div className="batch-content__sku-dock-nav">
+            <button
+              type="button"
+              className="btn-outline batch-content__sku-dock-btn"
+              onClick={() => goSku(safeSkuIndex - 1)}
+              disabled={isFirstSku}
+              aria-disabled={isFirstSku}
+            >
+              <ChevronLeftIcon />
+              Previous
+            </button>
+            <button
+              type="button"
+              className="btn-outline batch-content__sku-dock-btn"
+              onClick={() => goSku(safeSkuIndex + 1)}
+              disabled={isLastSku}
+              aria-disabled={isLastSku}
+            >
+              Next
+              <ChevronRightIcon />
+            </button>
+          </div>
+        </div>
+      </footer>
 
       <ImageRegenerateModal
         open={imageModal != null && modalImage?.url != null}

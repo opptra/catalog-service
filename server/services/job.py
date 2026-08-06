@@ -818,6 +818,83 @@ def _display_name(sku: SkuMaster | None, business_sku_id: str) -> str | None:
     return business_sku_id or None
 
 
+def list_jobs(
+    session: Session,
+    *,
+    created_by: UUID,
+    brand_external_id: UUID,
+) -> dict[str, Any]:
+    """List generation jobs for the current user (newest first) with SKU progress counts.
+
+    ``brand_external_id`` must resolve to a known brand (workspace context). Jobs are not
+    yet stored with a brand FK, so the list is scoped by ``created_by``.
+    """
+    brand = brand_repo.get_by_external_id(session, brand_external_id)
+    if brand is None:
+        raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
+
+    jobs = list(job_repo.list_generation_by_created_by(session, created_by))
+    if not jobs:
+        return {"items": []}
+
+    sku_jobs = list(sku_generation_job_repo.list_by_job_ids(session, [job.id for job in jobs]))
+    counts_by_job: dict[int, dict[str, int]] = {
+        job.id: {"total": 0, "completed": 0, "failed": 0, "pending": 0} for job in jobs
+    }
+    for sj in sku_jobs:
+        bucket = counts_by_job.get(sj.job_id)
+        if bucket is None:
+            continue
+        bucket["total"] += 1
+        if sj.status == SkuGenerationJobStatus.COMPLETED.value:
+            bucket["completed"] += 1
+        elif sj.status == SkuGenerationJobStatus.FAILED.value:
+            bucket["failed"] += 1
+        else:
+            bucket["pending"] += 1
+
+    marketplace_ids = {job.marketplace_id for job in jobs if job.marketplace_id is not None}
+    marketplaces = {}
+    for marketplace_id in marketplace_ids:
+        marketplace = marketplace_repo.get_by_id(session, marketplace_id)
+        if marketplace is not None:
+            marketplaces[marketplace.id] = marketplace
+
+    category_ids = [job.category_id for job in jobs if job.category_id is not None]
+    categories = {
+        category.id: category
+        for category in (
+            list(category_repo.list_by_ids(session, list(set(category_ids))))
+            if category_ids
+            else []
+        )
+    }
+
+    items: list[dict[str, Any]] = []
+    for job in jobs:
+        counts = counts_by_job[job.id]
+        marketplace = (
+            marketplaces.get(job.marketplace_id) if job.marketplace_id is not None else None
+        )
+        category = categories.get(job.category_id) if job.category_id is not None else None
+        items.append(
+            {
+                "external_id": job.external_id,
+                "status": job.status,
+                "started_at": job.created_at,
+                "updated_at": job.updated_at,
+                "marketplace_name": marketplace.name if marketplace else None,
+                "category_name": category.name if category else None,
+                "sku_count": counts["total"],
+                "completed_sku_count": counts["completed"],
+                "failed_sku_count": counts["failed"],
+                "pending_sku_count": counts["pending"],
+            }
+        )
+
+    return {"items": items}
+
+
 def get_job_status(
     session: Session,
     external_id: UUID,

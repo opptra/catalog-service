@@ -38,6 +38,25 @@ class JobStatusResponse(BaseModel):
     sku_generation_jobs: list[JobSkuGenerationStatusItem]
 
 
+class JobListItemResponse(BaseModel):
+    """Summary row for the brand execution history list."""
+
+    external_id: UUID
+    status: str
+    started_at: datetime
+    updated_at: datetime
+    marketplace_name: str | None = None
+    category_name: str | None = None
+    sku_count: int
+    completed_sku_count: int
+    failed_sku_count: int
+    pending_sku_count: int
+
+
+class JobListResponse(BaseModel):
+    items: list[JobListItemResponse]
+
+
 class SkuGenerationJobAttributeSlotResponse(BaseModel):
     attribute_external_id: UUID
     name: str

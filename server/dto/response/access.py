@@ -10,3 +10,20 @@ class AccessibleBrandResponse(BaseModel):
     external_id: UUID
     name: str
     granted_at: datetime
+
+
+class BrandUserResponse(BaseModel):
+    external_id: UUID
+    name: str
+    email: str
+    granted_at: datetime
+    has_signed_in: bool
+
+
+class InviteBrandUserResponse(BaseModel):
+    external_id: UUID
+    name: str
+    email: str
+    granted_at: datetime
+    has_signed_in: bool
+    created: bool
