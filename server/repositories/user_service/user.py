@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from entities.user_service.user import User
@@ -20,10 +20,18 @@ def get_by_google_sub(session: Session, google_sub: str) -> User | None:
 
 
 def get_by_email(session: Session, email: str) -> User | None:
-    return session.scalar(select(User).where(User.email == email))
+    return session.scalar(
+        select(User).where(func.lower(User.email) == email.strip().lower())
+    )
 
 
-def create(session: Session, *, name: str, email: str, google_sub: str) -> User:
+def create(
+    session: Session,
+    *,
+    name: str,
+    email: str,
+    google_sub: str | None = None,
+) -> User:
     return base.save(session, User(name=name, email=email, google_sub=google_sub))
 
 

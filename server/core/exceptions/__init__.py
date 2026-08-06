@@ -20,17 +20,25 @@ from core.exceptions.sku_generation_job import (
     SkuGenerationJobNotFoundError,
 )
 from core.exceptions.users import (
+    ApplicationNotFoundError,
+    BrandAccessDeniedError,
+    EmailDomainNotAllowedError,
     InvalidGoogleClaimsError,
+    RoleNotFoundError,
     UserNotFoundError,
+    UserServiceBrandNotFoundError,
 )
 from core.exceptions.workflows import WorkflowsError
 
 __all__ = [
+    "ApplicationNotFoundError",
     "AttributeNotFoundError",
+    "BrandAccessDeniedError",
     "BrandDnaMissingError",
     "BrandNotFoundError",
     "CategoryIntelligenceMissingError",
     "CategoryNotFoundError",
+    "EmailDomainNotAllowedError",
     "FlatfileUploadIncompleteError",
     "FlatfileValidationError",
     "GalleryPlanError",
@@ -41,9 +49,11 @@ __all__ = [
     "MarketplaceNotFoundError",
     "OpenRouterError",
     "ProductNotFoundError",
+    "RoleNotFoundError",
     "SkuGenerationJobExecutionFailedError",
     "SkuGenerationJobNotFoundError",
     "SkuNotFoundError",
     "UserNotFoundError",
+    "UserServiceBrandNotFoundError",
     "WorkflowsError",
 ]

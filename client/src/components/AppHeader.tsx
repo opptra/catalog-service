@@ -8,6 +8,8 @@ interface AppHeaderProps {
   brandName?: string
   /** Back to the brand execution list. Omit on the list page itself. */
   showExecutionHistory?: boolean
+  /** Hide on the user management page itself. */
+  showUserManagement?: boolean
 }
 
 function ChevronDownIcon() {
@@ -24,7 +26,11 @@ function ChevronDownIcon() {
   )
 }
 
-function AppHeader({ brandName, showExecutionHistory = false }: AppHeaderProps) {
+function AppHeader({
+  brandName,
+  showExecutionHistory = false,
+  showUserManagement = true,
+}: AppHeaderProps) {
   const { user, signOut } = useAuth()
   const { brands, loading, loadFailed, selectedBrand, selectBrand } = useBrands()
   const navigate = useNavigate()
@@ -129,6 +135,16 @@ function AppHeader({ brandName, showExecutionHistory = false }: AppHeaderProps) 
                 onClick={() => navigate('/workspace')}
               >
                 Execution history
+              </button>
+            ) : null}
+
+            {showUserManagement ? (
+              <button
+                type="button"
+                className="app-header__pill"
+                onClick={() => navigate('/workspace/users')}
+              >
+                User management
               </button>
             ) : null}
           </div>

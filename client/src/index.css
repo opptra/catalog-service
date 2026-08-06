@@ -726,6 +726,186 @@ a {
   }
 }
 
+/* —— User management —— */
+
+.user-management-page {
+  flex: 1;
+  padding: 28px 32px 48px;
+  overflow-y: auto;
+}
+
+.user-management-page__inner {
+  width: min(720px, 100%);
+  margin: 0 auto;
+}
+
+.user-management-page__header {
+  margin-bottom: 28px;
+}
+
+.user-management-page__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.8px;
+  color: var(--color-navy);
+}
+
+.user-management-page__subtitle {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.user-management-invite {
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: #fafafa;
+  margin-bottom: 28px;
+}
+
+.user-management-invite__label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-navy);
+}
+
+.user-management-invite__row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.user-management-invite__input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-white);
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-navy);
+}
+
+.user-management-invite__input:focus {
+  outline: 2px solid rgba(255, 88, 0, 0.25);
+  border-color: var(--color-orange);
+}
+
+.user-management-invite__submit {
+  height: 40px;
+  padding-inline: 18px;
+  white-space: nowrap;
+}
+
+.user-management-invite__error,
+.user-management-invite__success,
+.user-management-list__status,
+.user-management-list__error {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.user-management-invite__error,
+.user-management-list__error {
+  color: #b42318;
+}
+
+.user-management-invite__success {
+  color: #1f7a3f;
+}
+
+.user-management-list__title {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a8a8a;
+}
+
+.user-management-list__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.user-management-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-white);
+}
+
+.user-management-card__name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-navy);
+}
+
+.user-management-card__email {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.user-management-card__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.user-management-card__badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.user-management-card__badge--active {
+  color: #1f7a3f;
+}
+
+.user-management-card__granted {
+  font-size: 11px;
+  color: #9a9a9a;
+}
+
+@media (max-width: 720px) {
+  .user-management-page {
+    padding: 20px 16px 40px;
+  }
+
+  .user-management-invite__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .user-management-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .user-management-card__meta {
+    align-items: flex-start;
+  }
+}
+
 /* —— New batch (step 1) —— */
 
 .batch-page {

@@ -11,6 +11,7 @@ import NewBatchUpload from './pages/NewBatchUpload'
 import NewBatchUploading from './pages/NewBatchUploading'
 import NewBatchValidation from './pages/NewBatchValidation'
 import Workspace from './pages/Workspace'
+import UserManagement from './pages/UserManagement'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -48,6 +49,14 @@ function App() {
         element={
           <RequireAuth>
             <Workspace />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/workspace/users"
+        element={
+          <RequireAuth>
+            <UserManagement />
           </RequireAuth>
         }
       />
