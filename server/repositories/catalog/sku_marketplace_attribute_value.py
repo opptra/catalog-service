@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
@@ -43,6 +44,25 @@ def get_latest_by_slot(
         .order_by(SkuMarketplaceAttributeValue.version.desc())
         .limit(1)
     )
+
+
+def list_latest_by_sku_generation_job_id(
+    session: Session, sku_generation_job_id: int
+) -> Sequence[SkuMarketplaceAttributeValue]:
+    """Latest version per (attribute_id, slot) for one SKU generation job."""
+    return session.scalars(
+        select(SkuMarketplaceAttributeValue)
+        .where(SkuMarketplaceAttributeValue.sku_generation_job_id == sku_generation_job_id)
+        .distinct(
+            SkuMarketplaceAttributeValue.attribute_id,
+            SkuMarketplaceAttributeValue.slot,
+        )
+        .order_by(
+            SkuMarketplaceAttributeValue.attribute_id.asc(),
+            SkuMarketplaceAttributeValue.slot.asc(),
+            SkuMarketplaceAttributeValue.version.desc(),
+        )
+    ).all()
 
 
 def save(session: Session, row: SkuMarketplaceAttributeValue) -> SkuMarketplaceAttributeValue:

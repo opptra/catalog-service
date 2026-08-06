@@ -1,6 +1,7 @@
 """Google Cloud Storage client — one shared instance for the app lifetime."""
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -13,6 +14,9 @@ from google.cloud import storage
 from google.cloud.exceptions import GoogleCloudError
 
 from core.exceptions import GcsError
+
+# Reuse signed GET URLs across polls until this much TTL remains.
+_SIGNED_URL_CACHE_REFRESH_BUFFER_SECONDS = 300
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +52,8 @@ class GcsClient:
         )
         self._client = storage.Client(project=project) if project else storage.Client()
         self._bucket = self._client.bucket(bucket)
+        # (object_name, method, expiration_seconds) -> (url, expires_at_epoch)
+        self._signed_url_cache: dict[tuple[str, str, int], tuple[str, float]] = {}
 
     def upload_bytes(
         self,
@@ -128,6 +134,28 @@ class GcsClient:
         """Time-limited HTTPS GET URL for a private object."""
         return self._signed_url(object_name, method="GET", expiration_seconds=expiration_seconds)
 
+    def object_name_from_gs_uri(self, gs_uri: str) -> str | None:
+        """Extract object key from ``gs://bucket/key``. Returns None if invalid."""
+        prefix = f"gs://{self._bucket_name}/"
+        if gs_uri.startswith(prefix):
+            object_name = gs_uri[len(prefix) :]
+            return object_name or None
+        if not gs_uri.startswith("gs://"):
+            return None
+        without_scheme = gs_uri[5:]
+        slash = without_scheme.find("/")
+        if slash < 0:
+            return None
+        object_name = without_scheme[slash + 1 :]
+        return object_name or None
+
+    def signed_url_for_gs_uri(self, gs_uri: str, *, expiration_seconds: int = 3600) -> str:
+        """Sign a stored ``gs://`` value for browser GET access."""
+        object_name = self.object_name_from_gs_uri(gs_uri)
+        if object_name is None:
+            raise GcsError(f"Invalid GCS URI for signing: {gs_uri!r}")
+        return self.signed_url(object_name, expiration_seconds=expiration_seconds)
+
     def signed_upload_url(
         self,
         object_name: str,
@@ -163,6 +191,17 @@ class GcsClient:
             raise ValueError("object_name is required")
         if expiration_seconds <= 0:
             raise ValueError("expiration_seconds must be positive")
+
+        # Cache GET signatures only (poll-heavy content APIs). PUT/DELETE stay uncached.
+        cache_key: tuple[str, str, int] | None = None
+        if method == "GET" and content_type is None:
+            cache_key = (object_name, method, expiration_seconds)
+            cached = self._signed_url_cache.get(cache_key)
+            if cached is not None:
+                url, expires_at = cached
+                if expires_at - time.time() > _SIGNED_URL_CACHE_REFRESH_BUFFER_SECONDS:
+                    return url
+
         signer_email = self._resolve_signer_email()
         credentials, _ = google.auth.default()
         auth_request = google.auth.transport.requests.Request()
@@ -181,9 +220,13 @@ class GcsClient:
         if content_type is not None:
             kwargs["content_type"] = content_type
         try:
-            return blob.generate_signed_url(**kwargs)
+            url = blob.generate_signed_url(**kwargs)
         except (AttributeError, GoogleCloudError, ValueError, TypeError) as exc:
             raise GcsError(f"GCS signed {method} URL failed for {object_name!r}: {exc}") from exc
+
+        if cache_key is not None:
+            self._signed_url_cache[cache_key] = (url, time.time() + expiration_seconds)
+        return url
 
     def _resolve_signer_email(self) -> str:
         if self._signer_service_account_email:

@@ -33,12 +33,59 @@ from dto.response.job import (
     CreateFlatfileJobResponse,
     CreateJobResponse,
 )
+from dto.response.job_status import JobStatusResponse, SkuGenerationJobContentResponse
 from dto.response.sku_generation_job import SkuGenerationJobExecutionResponse
 from services import job as job_service
 
 # All job kinds live here. Kind-specific routes use a sub-prefix
 # (e.g. /jobs/sku/..., /jobs/flatfile/...).
+# Static path segments (/sku/..., /flatfile/...) must be registered before
+# parameterized /{external_id}/... routes.
 router = SecureAPIRouter(prefix="/jobs", tags=["jobs"])
+
+
+@router.get("/sku/{external_id}", response_model=SkuGenerationJobContentResponse)
+def get_sku_generation_job_content(
+    external_id: UUID,
+    user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+    gcs: GcsDep,
+) -> SkuGenerationJobContentResponse:
+    """Attribute slots for one SKU generation job (IMAGE values as signed URLs)."""
+    try:
+        content = job_service.get_sku_generation_job_content(
+            catalog_session,
+            gcs,
+            external_id,
+            created_by=user.external_id,
+        )
+    except SkuGenerationJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GcsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return SkuGenerationJobContentResponse.model_validate(content)
+
+
+@router.get("/{external_id}/status", response_model=JobStatusResponse)
+def get_job_status(
+    external_id: UUID,
+    user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+) -> JobStatusResponse:
+    """Poll overall generation progress for a job (no content payloads)."""
+    try:
+        status = job_service.get_job_status(
+            catalog_session,
+            external_id,
+            created_by=user.external_id,
+        )
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return JobStatusResponse.model_validate(status)
 
 
 @router.post("", response_model=CreateJobResponse)

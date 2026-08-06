@@ -2,9 +2,9 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import RequireAuth from './components/RequireAuth'
 import { useAuth } from './auth/useAuth'
 import { useBrands } from './brands/useBrands'
-import BatchUploadReceipt from './pages/BatchUploadReceipt'
 import BrandSelect from './pages/BrandSelect'
 import Login from './pages/Login'
+import BatchContent from './pages/BatchContent'
 import NewBatchMarketplaces from './pages/NewBatchMarketplaces'
 import NewBatchSubcategory from './pages/NewBatchSubcategory'
 import NewBatchUpload from './pages/NewBatchUpload'
@@ -92,10 +92,10 @@ function App() {
         }
       />
       <Route
-        path="/workspace/batch/summer-tees"
+        path="/batches/preview/:jobExternalId"
         element={
           <RequireAuth>
-            <BatchUploadReceipt />
+            <BatchContent />
           </RequireAuth>
         }
       />

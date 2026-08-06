@@ -34,7 +34,7 @@ function Workspace() {
         brandName={brand.name}
         showExecutionHistory
         onExecutionHistoryClick={() => {
-          navigate('/workspace/batch/summer-tees')
+          // Execution history / pipeline UI — not wired yet.
         }}
       />
       <main className="workspace-page">

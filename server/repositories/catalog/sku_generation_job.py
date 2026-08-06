@@ -18,6 +18,14 @@ def get_by_external_id(session: Session, external_id: UUID) -> SkuGenerationJob 
     )
 
 
+def list_by_job_id(session: Session, job_id: int) -> Sequence[SkuGenerationJob]:
+    return session.scalars(
+        select(SkuGenerationJob)
+        .where(SkuGenerationJob.job_id == job_id)
+        .order_by(SkuGenerationJob.id.asc())
+    ).all()
+
+
 def save(session: Session, sku_generation_job: SkuGenerationJob) -> SkuGenerationJob:
     return base.save(session, sku_generation_job)
 

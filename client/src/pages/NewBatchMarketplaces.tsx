@@ -10,6 +10,18 @@ import { useBrands } from '../brands/useBrands'
 import BatchShell from '../components/BatchShell'
 import { getBatchSubcategory } from '../data/batchDraft'
 
+/** Default image slot counts sent on job create. */
+const IMAGE_QUANTITIES: Record<string, number> = {
+  HERO: 1,
+  INFOGRAPHIC: 2,
+  LIFESTYLE: 3,
+  A_PLUS: 3,
+}
+
+function quantityForAttribute(name: string): number {
+  return IMAGE_QUANTITIES[name] ?? 1
+}
+
 function NewBatchMarketplaces() {
   const navigate = useNavigate()
   const subcategory = getBatchSubcategory()
@@ -92,7 +104,7 @@ function NewBatchMarketplaces() {
       for (const item of group.items) {
         byExternalId.set(item.external_id, {
           attribute_external_id: item.external_id,
-          quantity: 1,
+          quantity: quantityForAttribute(item.name),
         })
       }
     }
@@ -106,22 +118,31 @@ function NewBatchMarketplaces() {
     setSubmitting(true)
     setSubmitError(null)
     try {
-      const requests = marketplaces.flatMap((marketplace) => {
-        const groupIds = selected[marketplace.external_id]
-        if (groupIds == null || groupIds.size === 0) return []
-        const jobAttributes = attributesForGroups(groupIds)
-        if (jobAttributes.length === 0) return []
-        return [
-          createJob({
-            sku_ids: skuIds,
-            brand_external_id: selectedBrand.id,
-            marketplace_external_id: marketplace.external_id,
-            attributes: jobAttributes,
-          }),
-        ]
+      // One run = one marketplace job (first selected).
+      const marketplace = marketplaces.find((item) => {
+        const groupIds = selected[item.external_id]
+        return groupIds != null && groupIds.size > 0
       })
-      await Promise.all(requests)
-      navigate('/workspace/batch/summer-tees')
+      if (!marketplace) {
+        setSubmitError('Select a marketplace to generate.')
+        return
+      }
+
+      const groupIds = selected[marketplace.external_id] ?? new Set<string>()
+      const jobAttributes = attributesForGroups(groupIds)
+      if (jobAttributes.length === 0) {
+        setSubmitError('Select at least one content type to generate.')
+        return
+      }
+
+      const response = await createJob({
+        sku_ids: skuIds,
+        brand_external_id: selectedBrand.id,
+        marketplace_external_id: marketplace.external_id,
+        attributes: jobAttributes,
+      })
+
+      navigate(`/batches/preview/${response.external_id}`)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Could not start generation.')
     } finally {

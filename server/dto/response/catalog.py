@@ -9,6 +9,7 @@ class MarketplaceSelectionAttributeItemResponse(BaseModel):
     """Concrete attribute under a selection group (used when creating a generation job)."""
 
     external_id: UUID
+    name: str
     allows_quantity: bool
 
 

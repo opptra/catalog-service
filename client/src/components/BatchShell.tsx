@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import { useBrands } from '../brands/useBrands'
 import AppHeader from './AppHeader'
 import BatchStepper from './BatchStepper'
@@ -21,7 +21,6 @@ function BatchShell({
   footer,
   bodyClassName,
 }: BatchShellProps) {
-  const navigate = useNavigate()
   const { selectedBrand: brand } = useBrands()
 
   if (!brand) {
@@ -33,7 +32,9 @@ function BatchShell({
       <AppHeader
         brandName={brand.name}
         showExecutionHistory
-        onExecutionHistoryClick={() => navigate('/workspace/batch/summer-tees')}
+        onExecutionHistoryClick={() => {
+          // Execution history / pipeline UI — not wired yet.
+        }}
       />
       <main className="batch-page">
         <div className="batch-page__scroll">

@@ -44,6 +44,7 @@ def get_marketplace_selection(session: Session) -> MarketplaceSelectionResponse:
                 items=[
                     MarketplaceSelectionAttributeItemResponse(
                         external_id=item.external_id,
+                        name=item.name,
                         allows_quantity=item.allows_quantity,
                     )
                     for item in group.attributes

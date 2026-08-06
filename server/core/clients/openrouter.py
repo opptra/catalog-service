@@ -37,7 +37,8 @@ class OpenRouterClient:
         base_url: str,
         *,
         timeout: float = 60.0,
-        image_timeout: float = 120.0,
+        # High-quality GPT Image can take several minutes with references.
+        image_timeout: float = 600.0,
     ) -> None:
         if not api_key:
             raise ValueError("OpenRouter api_key is required")
@@ -213,28 +214,14 @@ class OpenRouterClient:
 
         Different endpoint and request shape than ``generate_gemini_image`` (chat + modalities).
         ``references`` go under ``input_references`` with no per-reference text labels — any role
-        context must live in ``prompt``. One attempt, no retry.
+        context must live in ``prompt``. Always requests ``quality=auto``. One attempt, no retry.
         """
         return self._generate_via_images_api(
-            prompt, model=model, references=references, aspect_ratio=aspect_ratio
-        )
-
-    def generate_grok_image(
-        self,
-        prompt: str,
-        *,
-        model: str,
-        references: list[ReferenceImage] | None = None,
-        aspect_ratio: str = "1:1",
-    ) -> GeneratedImage:
-        """Generate an image via OpenRouter's dedicated Images API (POST /images) for Grok Imagine.
-
-        Same Images API as ``generate_gpt_image``, exposed separately so call sites stay explicit
-        about which provider path they intend. ``references`` go under ``input_references`` with
-        no per-reference text labels. One attempt, no retry.
-        """
-        return self._generate_via_images_api(
-            prompt, model=model, references=references, aspect_ratio=aspect_ratio
+            prompt,
+            model=model,
+            references=references,
+            aspect_ratio=aspect_ratio,
+            quality="auto",
         )
 
     def _generate_via_images_api(
@@ -244,11 +231,14 @@ class OpenRouterClient:
         model: str,
         references: list[ReferenceImage] | None,
         aspect_ratio: str,
+        quality: str | None = None,
     ) -> GeneratedImage:
         if not model:
             raise ValueError("model is required")
 
         body: dict[str, Any] = {"model": model, "prompt": prompt, "aspect_ratio": aspect_ratio}
+        if quality is not None:
+            body["quality"] = quality
         if references:
             body["input_references"] = [
                 {"type": "image_url", "image_url": {"url": ref.url}} for ref in references

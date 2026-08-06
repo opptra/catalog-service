@@ -18,24 +18,6 @@ _PRODUCT_LABEL = (
 # ratio — NOT an AI-chosen one — snapped to the nearest supported ratio by value (w/h).
 _GEMINI_ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
 _GPT_ASPECT_RATIOS = ("1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9")
-_GROK_ASPECT_RATIOS = (
-    "1:1",
-    "3:4",
-    "4:3",
-    "9:16",
-    "16:9",
-    "2:3",
-    "3:2",
-    "9:19.5",
-    "19.5:9",
-    "9:20",
-    "20:9",
-    "1:2",
-    "2:1",
-)
-# OpenRouter capability: Grok Imagine accepts at most 3 input_references (GPT accepts 16).
-# Sending more makes every Grok call 400 — keep the first N in listing order (MAIN first).
-_GROK_MAX_REFERENCES = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,34 +81,10 @@ def render_gpt(
     )
 
 
-def render_grok(
-    client: OpenRouterClient,
-    ctx: GenerationContext,
-    image_prompt: str,
-    _name: AttributeName,
-    _slot: int,
-    aspect_ratio: str | None = None,
-) -> ImageGeneration:
-    """Render the same planned prompt via Grok Imagine (dedicated Images API)."""
-    refs = _references(ctx)[:_GROK_MAX_REFERENCES] or None
-    image = client.generate_grok_image(
-        image_prompt,
-        model=settings.openrouter_image_model,
-        references=refs,
-        aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GROK_ASPECT_RATIOS),
-    )
-    return ImageGeneration(
-        content=image.content,
-        content_type=image.content_type,
-        prompt=image_prompt,
-    )
-
-
-# Known comparison models → which render path to use.
+# Known image models → which render path to use.
 IMAGE_MODELS: dict[str, RenderFn] = {
     "google/gemini-3-pro-image": render,
     "openai/gpt-image-2": render_gpt,
-    "x-ai/grok-imagine-image-quality": render_grok,
 }
 
 

@@ -795,3 +795,196 @@ def _apply_flatfile_rows_to_sku_master(
 
     sku_master_repo.save_all(session, to_save)
     return applied
+
+
+_SIGNED_URL_TTL_SECONDS = 3600
+
+
+def _business_sku_id(sku: SkuMaster | None, fallback: str = "") -> str:
+    if sku is None:
+        return fallback
+    raw = (sku.attributes or {}).get("sku_id")
+    return str(raw) if raw else fallback
+
+
+def _display_name(sku: SkuMaster | None, business_sku_id: str) -> str | None:
+    if sku is None:
+        return business_sku_id or None
+    attrs = sku.attributes or {}
+    for key in ("title", "name", "product_name"):
+        value = attrs.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return business_sku_id or None
+
+
+def get_job_status(
+    session: Session,
+    external_id: UUID,
+    *,
+    created_by: UUID,
+) -> dict[str, Any]:
+    """Lightweight pipeline status for polling — no attribute values or signed URLs."""
+    job = job_repo.get_by_external_id(session, external_id)
+    if job is None or job.created_by != created_by:
+        raise JobNotFoundError(f"Job not found: {external_id}")
+    if job.job_type != JobType.GENERATION.value:
+        raise JobNotFoundError(f"Generation job not found: {external_id}")
+
+    sku_jobs = list(sku_generation_job_repo.list_by_job_id(session, job.id))
+    job_attributes = list(job_attribute_repo.list_by_job_id(session, job.id))
+    attribute_ids = [ja.attribute_id for ja in job_attributes]
+    masters = {
+        master.id: master for master in attribute_master_repo.list_by_ids(session, attribute_ids)
+    }
+
+    sku_rows = sku_master_repo.list_by_ids(session, [sj.sku_id for sj in sku_jobs])
+    sku_by_id = {sku.id: sku for sku in sku_rows}
+
+    marketplace = (
+        marketplace_repo.get_by_id(session, job.marketplace_id)
+        if job.marketplace_id is not None
+        else None
+    )
+    category = (
+        category_repo.get_by_id(session, job.category_id) if job.category_id is not None else None
+    )
+
+    completed = sum(1 for sj in sku_jobs if sj.status == SkuGenerationJobStatus.COMPLETED.value)
+    failed = sum(1 for sj in sku_jobs if sj.status == SkuGenerationJobStatus.FAILED.value)
+    pending = sum(1 for sj in sku_jobs if sj.status == SkuGenerationJobStatus.PENDING.value)
+
+    expected_attributes: list[dict[str, Any]] = []
+    for ja in job_attributes:
+        master = masters.get(ja.attribute_id)
+        if master is None:
+            continue
+        group = master.group_label.value if master.group_label is not None else None
+        expected_attributes.append(
+            {
+                "attribute_external_id": master.external_id,
+                "name": master.name.value,
+                "data_type": master.data_type.value,
+                "quantity": ja.quantity,
+                "group_label": group,
+            }
+        )
+
+    sku_generation_jobs: list[dict[str, Any]] = []
+    for sj in sku_jobs:
+        sku = sku_by_id.get(sj.sku_id)
+        business_id = _business_sku_id(sku, fallback=str(sj.sku_id))
+        sku_generation_jobs.append(
+            {
+                "external_id": sj.external_id,
+                "sku_id": business_id,
+                "display_name": _display_name(sku, business_id),
+                "status": sj.status,
+                "tasks": dict(sj.tasks or {}),
+            }
+        )
+
+    return {
+        "external_id": job.external_id,
+        "status": job.status,
+        "started_at": job.created_at,
+        "updated_at": job.updated_at,
+        "marketplace_external_id": marketplace.external_id if marketplace else None,
+        "marketplace_name": marketplace.name if marketplace else None,
+        "category_external_id": category.external_id if category else None,
+        "category_name": category.name if category else None,
+        "sku_count": len(sku_jobs),
+        "completed_sku_count": completed,
+        "failed_sku_count": failed,
+        "pending_sku_count": pending,
+        "expected_attributes": expected_attributes,
+        "sku_generation_jobs": sku_generation_jobs,
+    }
+
+
+def get_sku_generation_job_content(
+    session: Session,
+    gcs: GcsClient,
+    external_id: UUID,
+    *,
+    created_by: UUID,
+) -> dict[str, Any]:
+    """Attribute slots for one SKU generation job. IMAGE values are signed GCS URLs."""
+    sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
+    if sku_generation_job is None:
+        raise SkuGenerationJobNotFoundError(f"SKU generation job not found: {external_id}")
+
+    job = job_repo.get_by_id(session, sku_generation_job.job_id)
+    if job is None or job.created_by != created_by:
+        raise JobNotFoundError(f"Job not found for SKU generation job: {external_id}")
+
+    job_attributes = list(job_attribute_repo.list_by_job_id(session, job.id))
+    attribute_ids = [ja.attribute_id for ja in job_attributes]
+    masters = {
+        master.id: master for master in attribute_master_repo.list_by_ids(session, attribute_ids)
+    }
+    quantity_by_attribute_id = {ja.attribute_id: ja.quantity for ja in job_attributes}
+
+    value_rows = attribute_value_repo.list_latest_by_sku_generation_job_id(
+        session, sku_generation_job.id
+    )
+    values_by_key = {(row.attribute_id, row.slot): row for row in value_rows}
+
+    sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
+    business_id = _business_sku_id(sku, fallback=str(sku_generation_job.sku_id))
+    marketplace = (
+        marketplace_repo.get_by_id(session, job.marketplace_id)
+        if job.marketplace_id is not None
+        else None
+    )
+
+    tasks = dict(sku_generation_job.tasks or {})
+    attributes: list[dict[str, Any]] = []
+
+    for ja in job_attributes:
+        master = masters.get(ja.attribute_id)
+        if master is None:
+            continue
+        quantity = quantity_by_attribute_id.get(ja.attribute_id, ja.quantity)
+        task_status = str(tasks.get(master.name.value, TaskStatus.PENDING.value))
+        for slot in range(1, quantity + 1):
+            row = values_by_key.get((master.id, slot))
+            value: str | None = None
+            value_is_signed_url = False
+            if row is not None and row.value:
+                if master.data_type == AttributeDataType.IMAGE and row.value.startswith("gs://"):
+                    value = gcs.signed_url_for_gs_uri(
+                        row.value, expiration_seconds=_SIGNED_URL_TTL_SECONDS
+                    )
+                    value_is_signed_url = True
+                else:
+                    value = row.value
+
+            attributes.append(
+                {
+                    "attribute_external_id": master.external_id,
+                    "name": master.name.value,
+                    "data_type": master.data_type.value,
+                    "slot": slot,
+                    "quantity": quantity,
+                    "task_status": task_status,
+                    "value_external_id": row.external_id if row is not None else None,
+                    "version": row.version if row is not None else None,
+                    "value": value,
+                    "value_is_signed_url": value_is_signed_url,
+                }
+            )
+
+    attributes.sort(key=lambda item: (item["name"], item["slot"]))
+
+    return {
+        "external_id": sku_generation_job.external_id,
+        "job_external_id": job.external_id,
+        "sku_id": business_id,
+        "display_name": _display_name(sku, business_id),
+        "status": sku_generation_job.status,
+        "tasks": tasks,
+        "marketplace_external_id": marketplace.external_id if marketplace else None,
+        "marketplace_name": marketplace.name if marketplace else None,
+        "attributes": attributes,
+    }

@@ -7,6 +7,7 @@ export interface MarketplaceSelectionMarketplace {
 
 export interface MarketplaceSelectionAttributeItem {
   external_id: string
+  name: string
   allows_quantity: boolean
 }
 
