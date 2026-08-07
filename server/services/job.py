@@ -827,22 +827,17 @@ def _display_name(sku: SkuMaster | None, business_sku_id: str) -> str | None:
 def list_jobs(
     session: Session,
     *,
-    created_by: UUID,
     brand_external_id: UUID,
 ) -> dict[str, Any]:
-    """List generation jobs for the current user in a brand (newest first) with SKU counts.
+    """List all generation jobs for a brand (newest first) with SKU counts.
 
-    Jobs are filtered by ``job.brand_id`` (stores ``brand.external_id``).
+    Scoped by ``job.brand_id`` (stores ``brand.external_id``), not by creator.
     """
     brand = brand_repo.get_by_external_id(session, brand_external_id)
     if brand is None:
         raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
 
-    jobs = list(
-        job_repo.list_generation_by_created_by_and_brand(
-            session, created_by, brand.external_id
-        )
-    )
+    jobs = list(job_repo.list_generation_by_brand(session, brand.external_id))
     if not jobs:
         return {"items": []}
 
@@ -908,12 +903,10 @@ def list_jobs(
 def get_job_status(
     session: Session,
     external_id: UUID,
-    *,
-    created_by: UUID,
 ) -> dict[str, Any]:
     """Lightweight pipeline status for polling — no attribute values or signed URLs."""
     job = job_repo.get_by_external_id(session, external_id)
-    if job is None or job.created_by != created_by:
+    if job is None:
         raise JobNotFoundError(f"Job not found: {external_id}")
     if job.job_type != JobType.GENERATION.value:
         raise JobNotFoundError(f"Generation job not found: {external_id}")
@@ -994,8 +987,6 @@ def get_sku_generation_job_content(
     session: Session,
     gcs: GcsClient,
     external_id: UUID,
-    *,
-    created_by: UUID,
 ) -> dict[str, Any]:
     """Attribute slots for one SKU generation job. IMAGE values are signed GCS URLs."""
     sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
@@ -1003,7 +994,7 @@ def get_sku_generation_job_content(
         raise SkuGenerationJobNotFoundError(f"SKU generation job not found: {external_id}")
 
     job = job_repo.get_by_id(session, sku_generation_job.job_id)
-    if job is None or job.created_by != created_by:
+    if job is None:
         raise JobNotFoundError(f"Job not found for SKU generation job: {external_id}")
 
     job_attributes = list(job_attribute_repo.list_by_job_id(session, job.id))
