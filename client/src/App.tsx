@@ -36,78 +36,21 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route
-        path="/brands"
-        element={
-          <RequireAuth>
-            <BrandSelect />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace"
-        element={
-          <RequireAuth>
-            <Workspace />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/users"
-        element={
-          <RequireAuth>
-            <UserManagement />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new"
-        element={
-          <RequireAuth>
-            <NewBatchSubcategory />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new/upload"
-        element={
-          <RequireAuth>
-            <NewBatchUpload />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new/validation"
-        element={
-          <RequireAuth>
-            <NewBatchValidation />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new/uploading"
-        element={
-          <RequireAuth>
-            <NewBatchUploading />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new/marketplaces"
-        element={
-          <RequireAuth>
-            <NewBatchMarketplaces />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/batches/preview/:jobExternalId"
-        element={
-          <RequireAuth>
-            <BatchContent />
-          </RequireAuth>
-        }
-      />
+
+      {/* Everything nested here is authenticated. Adding a page means adding a
+          route inside this block — there is no per-page auth wiring to forget. */}
+      <Route element={<RequireAuth />}>
+        <Route path="/brands" element={<BrandSelect />} />
+        <Route path="/workspace" element={<Workspace />} />
+        <Route path="/workspace/users" element={<UserManagement />} />
+        <Route path="/workspace/new" element={<NewBatchSubcategory />} />
+        <Route path="/workspace/new/upload" element={<NewBatchUpload />} />
+        <Route path="/workspace/new/validation" element={<NewBatchValidation />} />
+        <Route path="/workspace/new/uploading" element={<NewBatchUploading />} />
+        <Route path="/workspace/new/marketplaces" element={<NewBatchMarketplaces />} />
+        <Route path="/batches/preview/:jobExternalId" element={<BatchContent />} />
+      </Route>
+
       <Route path="*" element={<RootRedirect />} />
     </Routes>
   )
