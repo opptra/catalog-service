@@ -49,14 +49,15 @@ router = SecureAPIRouter(prefix="/jobs", tags=["jobs"])
 
 @router.get("", response_model=JobListResponse)
 def list_jobs(
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
     catalog_session: CatalogSessionDep,
     brand_external_id: UUID = Query(...),
 ) -> JobListResponse:
-    """Brand-level execution history (all creators in the brand workspace)."""
+    """Execution history for the current user in a brand workspace."""
     try:
         listed = job_service.list_jobs(
             catalog_session,
+            created_by=user.external_id,
             brand_external_id=brand_external_id,
         )
     except BrandNotFoundError as exc:
@@ -68,7 +69,7 @@ def list_jobs(
 @router.get("/sku/{external_id}", response_model=SkuGenerationJobContentResponse)
 def get_sku_generation_job_content(
     external_id: UUID,
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
     catalog_session: CatalogSessionDep,
     gcs: GcsDep,
 ) -> SkuGenerationJobContentResponse:
@@ -78,6 +79,7 @@ def get_sku_generation_job_content(
             catalog_session,
             gcs,
             external_id,
+            created_by=user.external_id,
         )
     except SkuGenerationJobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -92,7 +94,7 @@ def get_sku_generation_job_content(
 @router.get("/{external_id}/status", response_model=JobStatusResponse)
 def get_job_status(
     external_id: UUID,
-    _user: CurrentUserDep,
+    user: CurrentUserDep,
     catalog_session: CatalogSessionDep,
 ) -> JobStatusResponse:
     """Poll overall generation progress for a job (no content payloads)."""
@@ -100,6 +102,7 @@ def get_job_status(
         status = job_service.get_job_status(
             catalog_session,
             external_id,
+            created_by=user.external_id,
         )
     except JobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
