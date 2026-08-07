@@ -13,7 +13,8 @@
 # and sent as headers `client-id` / `client-token` on every catalog API call.
 #
 # Workflow SA needs roles/secretmanager.secretAccessor on that secret.
-# Any non-2xx from execute fails this workflow (no continue-on-error).
+# Execute is retried once on transient HTTP failures (including 500 — our API
+# surfaces OpenRouter/provider blips that way). Still no continue-on-error across SKUs.
 
 main:
   params: [args]
@@ -47,16 +48,26 @@ main:
             in: ${sku_generation_job_external_ids}
             steps:
               # Per-SKU execute: 10 minutes (must stay ≤ LB + nginx proxy timeouts).
+              # One retry covers transient provider/LB failures; execute re-runs
+              # only PENDING/FAILED tasks so a retry is safe.
               - call_execute_sku_generation_job:
-                  call: http.post
-                  args:
-                    url: ${api_base_url + "/api/jobs/sku/" + string(sku_generation_job_external_id) + "/execute/internal"}
-                    timeout: 600
-                    headers:
-                      Content-Type: "application/json"
-                      client-id: ${client_id}
-                      client-token: ${client_token}
-                  result: execute_result
+                  try:
+                    call: http.post
+                    args:
+                      url: ${api_base_url + "/api/jobs/sku/" + string(sku_generation_job_external_id) + "/execute/internal"}
+                      timeout: 600
+                      headers:
+                        Content-Type: "application/json"
+                        client-id: ${client_id}
+                        client-token: ${client_token}
+                    result: execute_result
+                  retry:
+                    predicate: ${retry_execute_http_error}
+                    max_retries: 1
+                    backoff:
+                      initial_delay: 30
+                      max_delay: 30
+                      multiplier: 1.0
 
     # Parent complete is fast; keep under the same 10-minute stack ceiling.
     - complete_job:
@@ -74,3 +85,25 @@ main:
         return:
           job_external_id: ${job_external_id}
           status: ${complete_result.body.status}
+
+# Retry transient HTTP failures from execute. Include 500: the catalog API maps
+# provider/image failures (e.g. OpenRouter 503) to HTTP 500 with FAILED tasks,
+# and a second execute attempt re-runs only those incomplete tasks.
+retry_execute_http_error:
+  params: [e]
+  steps:
+    - decide:
+        switch:
+          - condition: ${e.code == 429}
+            return: true
+          - condition: ${e.code == 500}
+            return: true
+          - condition: ${e.code == 502}
+            return: true
+          - condition: ${e.code == 503}
+            return: true
+          - condition: ${e.code == 504}
+            return: true
+        next: no_retry
+    - no_retry:
+        return: false
