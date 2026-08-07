@@ -1,19 +1,13 @@
 import { useEffect } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import opptraLogo from '../assets/opptra-logo.png'
 import GoogleSignInButton from '../components/GoogleSignInButton'
 import { useAuth } from '../auth/useAuth'
 import { useBrands } from '../brands/useBrands'
 
-/** Set by RequireAuth when it redirects an unauthenticated visitor here. */
-interface LoginLocationState {
-  from?: { pathname?: string }
-}
-
 function Login() {
   const { user, loading } = useAuth()
   const { selectedBrand } = useBrands()
-  const location = useLocation()
 
   useEffect(() => {
     document.title = 'Listing Studio · Sign in'
@@ -28,12 +22,7 @@ function Login() {
   }
 
   if (user) {
-    // Return the user to the page they were on when the session lapsed, but
-    // only once a brand is selected — the inner pages need that context.
-    const from = (location.state as LoginLocationState | null)?.from?.pathname
-    const fallback = selectedBrand ? '/workspace' : '/brands'
-    const destination = selectedBrand && from && from !== '/login' ? from : fallback
-    return <Navigate to={destination} replace />
+    return <Navigate to={selectedBrand ? '/workspace' : '/brands'} replace />
   }
 
   return (
