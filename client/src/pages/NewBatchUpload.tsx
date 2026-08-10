@@ -202,7 +202,7 @@ function NewBatchUpload() {
           </button>
           <p className="upload-card__hint">
             ZIP with a root folder (any name). Inside it: one folder per SKU, folder name =
-            sku_id.
+            SKU value.
             <br />
             Minimum one image per folder.
           </p>
@@ -216,7 +216,7 @@ function NewBatchUpload() {
             <p className="expected-shape__file">products.csv</p>
             <div className="mini-table">
               <div className="mini-table__head">
-                <span>sku_id</span>
+                <span>SKU</span>
                 <span>name</span>
                 <span>…</span>
               </div>

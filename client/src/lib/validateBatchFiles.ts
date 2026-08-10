@@ -49,7 +49,7 @@ export interface BatchValidationResult {
 
 export type ValidationProgressHandler = (steps: ValidationStep[]) => void
 
-const SKU_HEADER = 'sku_id'
+const SKU_HEADER = 'SKU'
 
 const STEP_DEFS: Array<{ id: ValidationStepId; label: string }> = [
   { id: 'read_product', label: 'Reading product file' },
@@ -60,7 +60,7 @@ const STEP_DEFS: Array<{ id: ValidationStepId; label: string }> = [
   },
   {
     id: 'sku_mapping',
-    label: 'Matching every sku_id to a folder with at least one image',
+    label: 'Matching every SKU to a folder with at least one image',
   },
   { id: 'summary', label: 'Summarizing overall status' },
 ]
@@ -78,10 +78,6 @@ function setStep(
   return steps.map((step) =>
     step.id === id ? { ...step, status, detail: detail ?? step.detail } : step,
   )
-}
-
-function normalizeHeader(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, '_')
 }
 
 function cellText(value: unknown): string {
@@ -219,10 +215,10 @@ interface FolderImages {
 /**
  * Expected ZIP shape:
  *   <batch-root>/
- *     <sku_id>/          ← folder name matches template sku_id string exactly
+ *     <SKU>/             ← folder name matches the SKU column value exactly
  *       image.jpg
  *
- * Fallback: multiple top-level folders → each is a sku_id folder (no batch wrapper).
+ * Fallback: multiple top-level folders → each is a SKU folder (no batch wrapper).
  */
 async function readZipFolders(file: File): Promise<Map<string, FolderImages>> {
   const JSZip = (await import('jszip')).default
@@ -261,7 +257,7 @@ async function readZipFolders(file: File): Promise<Map<string, FolderImages>> {
       continue
     }
 
-    // File or nested path under the SKU folder: root/sku_id/...
+    // File or nested path under the SKU folder: root/<SKU>/...
     if (relative.length < 2) continue
 
     const fileName = relative[relative.length - 1]
@@ -278,8 +274,7 @@ async function readZipFolders(file: File): Promise<Map<string, FolderImages>> {
 }
 
 function findHeaderIndex(headers: string[], name: string): number {
-  const target = normalizeHeader(name)
-  return headers.findIndex((h) => normalizeHeader(h) === target)
+  return headers.findIndex((h) => h === name)
 }
 
 function tick(): Promise<void> {
@@ -322,14 +317,14 @@ export async function validateBatchFiles(options: {
     issues.push({
       group: 'FILES',
       key: 'CSV columns',
-      message: 'sku_id column is missing',
+      message: 'SKU column is missing',
       ok: false,
     })
   } else {
     issues.push({
       group: 'FILES',
       key: 'CSV columns',
-      message: 'sku_id column present',
+      message: 'SKU column present',
       ok: true,
     })
   }
@@ -363,7 +358,7 @@ export async function validateBatchFiles(options: {
       message:
         uniqueRequired.length > 1
           ? `all ${uniqueRequired.length} mandatory columns present`
-          : 'sku_id column present',
+          : 'SKU column present',
       ok: true,
     })
     report(setStep(steps, 'mandatory_columns', 'passed'))
@@ -417,7 +412,7 @@ export async function validateBatchFiles(options: {
       issues.push({
         group: 'CSV',
         key: `row ${rowNumber}`,
-        message: 'sku_id is empty',
+        message: 'SKU is empty',
         ok: false,
       })
       rowProblems.add(index)
@@ -428,7 +423,7 @@ export async function validateBatchFiles(options: {
 
     for (const field of mandatoryFields) {
       if (!field.mandatory) continue
-      if (normalizeHeader(field.name) === SKU_HEADER) continue
+      if (field.name === SKU_HEADER) continue
       const col = findHeaderIndex(table.headers, field.name)
       if (col < 0) {
         // Column absent from the file — this SKU cannot satisfy the requirement.
@@ -451,8 +446,8 @@ export async function validateBatchFiles(options: {
     if (count > 1) {
       issues.push({
         group: 'CSV',
-        key: `sku_id`,
-        message: `duplicate sku_id “${sku}”`,
+        key: `SKU`,
+        message: `duplicate SKU “${sku}”`,
         ok: false,
       })
       table.rows.forEach((row, index) => {

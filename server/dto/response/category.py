@@ -32,3 +32,17 @@ class CategoryTemplateResponse(BaseModel):
     external_id: UUID
     name: str
     fields: list[CategoryTemplateField]
+
+
+class ImportedCategoryNode(BaseModel):
+    external_id: UUID
+    name: str
+    created: bool = Field(description="True when this node was inserted on this request.")
+
+
+class ImportCategoryPathResponse(BaseModel):
+    path: list[ImportedCategoryNode] = Field(
+        description="Resolved root-to-leaf path after import (or no-op reuse).",
+    )
+    created_count: int
+    reused_count: int

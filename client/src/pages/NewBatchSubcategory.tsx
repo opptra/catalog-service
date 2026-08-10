@@ -105,10 +105,19 @@ function NewBatchSubcategory() {
 
   async function handleDownloadTemplate() {
     if (!selected || downloading) return
+    // Prefer the leaf node from the path so a mismatched list payload cannot
+    // silently download another category's template.
+    const leafExternalId = selected.path.at(-1)?.external_id ?? selected.external_id
+    const leafName = selected.path.at(-1)?.name ?? selected.name
     setDownloading(true)
     setDownloadError(null)
     try {
-      const template = await getCategoryTemplate(selected.external_id)
+      const template = await getCategoryTemplate(leafExternalId)
+      if (template.external_id !== leafExternalId) {
+        throw new Error(
+          `Template mismatch: selected ${leafName} (${leafExternalId}), got ${template.name}`,
+        )
+      }
       await downloadCategoryTemplate(template)
     } catch {
       setDownloadError('Could not download the template. Please try again.')
@@ -274,7 +283,7 @@ function NewBatchSubcategory() {
               ? 'select a subcategory first'
               : downloading
                 ? 'Preparing template…'
-                : 'Download template'}
+                : `Download “${selected?.name ?? 'subcategory'}” template`}
           </button>
           {downloadError ? <p className="batch-template-card__error">{downloadError}</p> : null}
         </div>

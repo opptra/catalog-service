@@ -40,15 +40,15 @@ def product_image_object_key(sku_id: str, filename: str) -> str:
 
 
 def safe_sku_id(sku_id: str) -> str:
-    """sku_id is a string attribute (folder name), not sku_master.id."""
+    """Business SKU string (folder name), not sku_master.id."""
     text = sku_id.strip()
     if not text:
-        raise FlatfileValidationError("sku_id is required")
+        raise FlatfileValidationError("SKU is required")
     if "/" in text or "\\" in text or text in {".", ".."}:
-        raise FlatfileValidationError(f"Invalid sku_id: {sku_id!r}")
+        raise FlatfileValidationError(f"Invalid SKU: {sku_id!r}")
     name = PurePosixPath(text).name
     if name != text:
-        raise FlatfileValidationError(f"Invalid sku_id: {sku_id!r}")
+        raise FlatfileValidationError(f"Invalid SKU: {sku_id!r}")
     return name
 
 
@@ -81,25 +81,21 @@ def cell_str(value: Any) -> str:
     return str(value).strip()
 
 
-def normalize_header(name: str) -> str:
-    return name.strip().lower().replace(" ", "_")
-
-
-def header_has(headers: list[str], name: str) -> bool:
-    target = normalize_header(name)
-    return any(normalize_header(header) == target for header in headers if header)
+def _is_legend_row(values: list[str]) -> bool:
+    """True when every non-empty cell is Mandatory/Optional (template styling row)."""
+    non_empty = [value for value in values if value]
+    if not non_empty:
+        return False
+    return all(value.lower() in {"mandatory", "optional"} for value in non_empty)
 
 
 def row_get(row: dict[str, str], name: str) -> str:
-    target = normalize_header(name)
-    for key, value in row.items():
-        if normalize_header(key) == target:
-            return value
-    return ""
+    """Return the cell for an exact header key — keys are never rewritten."""
+    return row.get(name, "")
 
 
 def parse_template_rows(data: bytes, *, filename: str) -> tuple[list[str], list[dict[str, str]]]:
-    """Parse template into headers + string-valued attribute rows (including sku_id)."""
+    """Parse template into headers + string-valued attribute rows (keys kept as written)."""
     lower = filename.lower()
     if lower.endswith(".csv"):
         text = data.decode("utf-8-sig")
@@ -108,14 +104,20 @@ def parse_template_rows(data: bytes, *, filename: str) -> tuple[list[str], list[
             raise FlatfileValidationError("Template CSV has no header row")
         headers = [str(name).strip() for name in reader.fieldnames if name is not None]
         rows: list[dict[str, str]] = []
+        first_data = True
         for raw in reader:
             row = {
                 str(key).strip(): cell_str(value)
                 for key, value in raw.items()
                 if key is not None and str(key).strip()
             }
-            if any(row.values()):
-                rows.append(row)
+            if not any(row.values()):
+                continue
+            if first_data and _is_legend_row(list(row.values())):
+                first_data = False
+                continue
+            first_data = False
+            rows.append(row)
         return headers, rows
 
     if lower.endswith(".xlsx") or lower.endswith(".xls"):
@@ -130,14 +132,20 @@ def parse_template_rows(data: bytes, *, filename: str) -> tuple[list[str], list[
         if not any(headers):
             raise FlatfileValidationError("Template spreadsheet has no header row")
         rows = []
+        first_data = True
         for values in iterator:
             row = {
                 headers[index]: cell_str(values[index] if index < len(values) else None)
                 for index in range(len(headers))
                 if headers[index]
             }
-            if any(row.values()):
-                rows.append(row)
+            if not any(row.values()):
+                continue
+            if first_data and _is_legend_row(list(row.values())):
+                first_data = False
+                continue
+            first_data = False
+            rows.append(row)
         return headers, rows
 
     raise FlatfileValidationError(f"Unsupported template type: {filename}")
@@ -148,16 +156,16 @@ def validate_mandatory_fields(
     rows: list[dict[str, str]],
     mandatory_names: list[str],
 ) -> None:
-    """Require sku_id + category mandatory columns present, with a value on every row."""
-    required_columns = ["sku_id", *mandatory_names]
+    """Require exact ``SKU`` + category mandatory columns, with a value on every row."""
+    header_set = set(headers)
+    required_columns = ["SKU", *mandatory_names]
     seen: set[str] = set()
     unique_missing: list[str] = []
     for name in required_columns:
-        key = normalize_header(name)
-        if key in seen:
+        if name in seen:
             continue
-        seen.add(key)
-        if not header_has(headers, name):
+        seen.add(name)
+        if name not in header_set:
             unique_missing.append(name)
     if unique_missing:
         raise FlatfileValidationError(
@@ -169,12 +177,14 @@ def validate_mandatory_fields(
 
     errors: list[str] = []
     for index, row in enumerate(rows, start=1):
-        sku_raw = row_get(row, "sku_id")
+        sku_raw = row_get(row, "SKU")
         sku_label = sku_raw or f"row {index}"
         if not sku_raw:
-            errors.append(f"{sku_label}: missing sku_id value")
+            errors.append(f"{sku_label}: missing SKU value")
             continue
         for name in mandatory_names:
+            if name == "SKU":
+                continue
             if not row_get(row, name):
                 errors.append(f"{sku_label}: missing mandatory “{name}”")
     if errors:
@@ -191,6 +201,7 @@ def build_sku_attributes(
 ) -> dict[str, str]:
     """Build flat string key/value attributes from the template row only.
 
+    Keys are kept exactly as in the spreadsheet — no case/space/punctuation rewrites.
     Images live in GCS under a predictable path — they are not stored in attributes.
     Existing non-string values (e.g. nested JSON) are dropped on merge.
     """
@@ -203,5 +214,6 @@ def build_sku_attributes(
         if not key:
             continue
         attributes[key] = cell_str(value)
-    attributes["sku_id"] = sku_id
+    # Ensure the validated SKU cell is present under the exact key "SKU".
+    attributes["SKU"] = sku_id
     return attributes

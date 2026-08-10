@@ -43,7 +43,7 @@ def load_context(
         raise ProductNotFoundError(f"No live SKU for id={sku.id}")
 
     product = _product_from_sku(sku)
-    business_sku_id = str(product["sku_id"])
+    business_sku_id = str(product["SKU"])
 
     return GenerationContext(
         product=product,
@@ -60,9 +60,9 @@ def load_context(
 def _product_from_sku(sku: SkuMaster) -> dict[str, Any]:
     """Return every attribute on the SKU as the product payload (no field filtering)."""
     attributes = dict(sku.attributes or {})
-    business_sku_id = str(attributes.get("sku_id") or "").strip()
+    business_sku_id = str(attributes.get("SKU") or "").strip()
     if not business_sku_id:
-        raise ProductNotFoundError(f"SKU id={sku.id} is missing attributes.sku_id")
+        raise ProductNotFoundError(f"SKU id={sku.id} is missing attributes.SKU")
     return attributes
 
 

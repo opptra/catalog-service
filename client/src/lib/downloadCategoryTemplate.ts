@@ -26,7 +26,13 @@ export async function downloadCategoryTemplate(template: CategoryTemplate): Prom
     sheet.getCell('A1').value = 'No fields configured for this subcategory yet.'
     sheet.getColumn(1).width = 48
   } else {
-    template.fields.forEach((field, index) => {
+    // Mandatory columns first (stable within each group) so the sheet is easier to fill.
+    const orderedFields = [
+      ...template.fields.filter((field) => field.mandatory),
+      ...template.fields.filter((field) => !field.mandatory),
+    ]
+
+    orderedFields.forEach((field, index) => {
       const column = index + 1
       const header = sheet.getCell(1, column)
       const legend = sheet.getCell(2, column)

@@ -5,11 +5,20 @@ from uuid import UUID
 
 from fastapi import HTTPException, Query
 
-from core.auth import SecureAPIRouter
+from core.auth import SecureAPIRouter, internal_api
 from core.deps import CatalogSessionDep, CurrentUserDep
-from core.exceptions import CategoryNotFoundError
+from core.exceptions import (
+    AmbiguousCategoryError,
+    CategoryNotFoundError,
+    InvalidCategoryPathError,
+)
+from dto.request.category import ImportCategoryPathRequest
 from dto.response.catalog import MarketplaceSelectionResponse
-from dto.response.category import CategoryTemplateResponse, LeafCategoryPageResponse
+from dto.response.category import (
+    CategoryTemplateResponse,
+    ImportCategoryPathResponse,
+    LeafCategoryPageResponse,
+)
 from services import catalog as catalog_service
 from services.catalog import DEFAULT_LEAF_PAGE_SIZE
 
@@ -28,6 +37,24 @@ def list_leaf_categories(
         offset=offset,
         limit=limit,
     )
+
+
+@router.post("/categories/import", response_model=ImportCategoryPathResponse)
+@internal_api
+def import_category_path(
+    body: ImportCategoryPathRequest,
+    catalog_session: CatalogSessionDep,
+) -> ImportCategoryPathResponse:
+    """Import a root-first category path, reusing existing nodes when possible.
+
+    Idempotent: repeating the same path creates no new rows.
+    """
+    try:
+        return catalog_service.import_category_path(catalog_session, body.categories)
+    except InvalidCategoryPathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AmbiguousCategoryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/categories/{external_id}/template", response_model=CategoryTemplateResponse)

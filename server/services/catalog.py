@@ -9,7 +9,11 @@ from dto.response.catalog import (
     MarketplaceSelectionAttributeResponse,
     MarketplaceSelectionResponse,
 )
-from dto.response.category import CategoryTemplateResponse, LeafCategoryPageResponse
+from dto.response.category import (
+    CategoryTemplateResponse,
+    ImportCategoryPathResponse,
+    LeafCategoryPageResponse,
+)
 from services import attribute as attribute_service
 from services import category as category_service
 from services import marketplace as marketplace_service
@@ -29,6 +33,10 @@ def list_leaf_categories(
 
 def get_category_template(session: Session, external_id: UUID) -> CategoryTemplateResponse:
     return category_service.get_category_template(session, external_id)
+
+
+def import_category_path(session: Session, names: list[str]) -> ImportCategoryPathResponse:
+    return category_service.import_category_path(session, names)
 
 
 def get_marketplace_selection(session: Session) -> MarketplaceSelectionResponse:

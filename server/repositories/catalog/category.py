@@ -2,10 +2,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import exists, select, text
 from sqlalchemy.orm import Session
 
 from entities.catalog.category import Category
+from entities.catalog.category_closure import CategoryClosure
+from repositories import base
 
 # Fetch one extra leaf so callers can detect has_more without a COUNT(*).
 _LEAF_PAGE_SQL = text(
@@ -62,6 +64,38 @@ def list_by_ids(session: Session, category_ids: Sequence[int]) -> Sequence[Categ
     if not category_ids:
         return []
     return session.scalars(select(Category).where(Category.id.in_(category_ids))).all()
+
+
+def list_roots_by_name(session: Session, name: str) -> Sequence[Category]:
+    """Categories with the given name that have no parent (depth-1 ancestor)."""
+    has_parent = exists().where(
+        CategoryClosure.descendant_id == Category.id,
+        CategoryClosure.depth == 1,
+    )
+    return session.scalars(
+        select(Category).where(Category.name == name, ~has_parent).order_by(Category.id.asc())
+    ).all()
+
+
+def list_children_by_name(session: Session, parent_id: int, name: str) -> Sequence[Category]:
+    """Direct children of ``parent_id`` with the given name."""
+    return session.scalars(
+        select(Category)
+        .join(
+            CategoryClosure,
+            CategoryClosure.descendant_id == Category.id,
+        )
+        .where(
+            CategoryClosure.ancestor_id == parent_id,
+            CategoryClosure.depth == 1,
+            Category.name == name,
+        )
+        .order_by(Category.id.asc())
+    ).all()
+
+
+def save(session: Session, category: Category) -> Category:
+    return base.save(session, category)
 
 
 def list_leaf_categories_with_paths(
