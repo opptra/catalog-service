@@ -531,7 +531,7 @@ function BatchContent() {
             {pdpImages.length > 0 ? (
               <ContentImageGrid
                 title={`PDP images · ${pdpImages.length}`}
-                hint="click an image to compare or regenerate"
+                hint="click image to view or regenerate"
                 images={pdpImages}
                 onSelect={openPdpImage}
               />
@@ -542,7 +542,7 @@ function BatchContent() {
                 <ContentImageGrid
                   key={attribute.attribute_external_id}
                   title={`${formatAttributeLabel(attribute.name)} · ${images.length}`}
-                  hint="click an image to compare or regenerate"
+                  hint="click image to view or regenerate"
                   images={images}
                   onSelect={(index) => openAttributeImage(attribute.name, index)}
                 />
