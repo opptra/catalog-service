@@ -12,11 +12,11 @@ def get_by_id(session: Session, sku_id: int) -> SkuMaster | None:
 
 
 def get_live_by_attribute_sku_id(session: Session, sku_id: str) -> SkuMaster | None:
-    """Look up a live SKU by the string ``attributes.sku_id`` value (not the table PK)."""
+    """Look up a live SKU by the string ``attributes.SKU`` value (not the table PK)."""
     return session.scalar(
         select(SkuMaster).where(
             SkuMaster.deleted_at.is_(None),
-            SkuMaster.attributes["sku_id"].astext == sku_id,
+            SkuMaster.attributes["SKU"].astext == sku_id,
         )
     )
 
@@ -24,13 +24,13 @@ def get_live_by_attribute_sku_id(session: Session, sku_id: str) -> SkuMaster | N
 def list_live_by_attribute_sku_ids(
     session: Session, sku_ids: Sequence[str]
 ) -> Sequence[SkuMaster]:
-    """Return live SKUs whose ``attributes.sku_id`` is in ``sku_ids``."""
+    """Return live SKUs whose ``attributes.SKU`` is in ``sku_ids``."""
     if not sku_ids:
         return []
     return session.scalars(
         select(SkuMaster).where(
             SkuMaster.deleted_at.is_(None),
-            SkuMaster.attributes["sku_id"].astext.in_(list(sku_ids)),
+            SkuMaster.attributes["SKU"].astext.in_(list(sku_ids)),
         )
     ).all()
 

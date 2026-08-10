@@ -217,7 +217,7 @@ function NewBatchValidation() {
         <>
           <h2 className="batch-page__heading">Validating…</h2>
           <p className="batch-page__lede">
-            Checking the flat file against the subcategory template and matching every sku_id to an
+            Checking the flat file against the subcategory template and matching every SKU to an
             images folder inside the ZIP root.
           </p>
           <StepList
@@ -238,7 +238,7 @@ function NewBatchValidation() {
                     },
                     {
                       id: 'sku_mapping',
-                      label: 'Matching every sku_id to a folder with at least one image',
+                      label: 'Matching every SKU to a folder with at least one image',
                       status: 'pending',
                     },
                     { id: 'summary', label: 'Summarizing overall status', status: 'pending' },

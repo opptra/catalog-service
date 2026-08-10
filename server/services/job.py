@@ -167,7 +167,7 @@ def create_job(
 ) -> dict[str, Any]:
     """Create a job + job_attribute rows + one sku_generation_job per SKU, then start the pipeline.
 
-    ``sku_ids`` are business string ids (``sku_master.attributes.sku_id``).
+    ``sku_ids`` are business string ids (``sku_master.attributes.SKU``).
     ``attributes`` is ``(attribute_external_id, quantity)`` pairs. Quantity must be 1 when the
     attribute does not allow quantity. Returns identifiers the UI needs to track the job.
     """
@@ -188,9 +188,9 @@ def create_job(
 
     found_skus = list(sku_master_repo.list_live_by_attribute_sku_ids(session, sku_ids))
     sku_by_business_id = {
-        str(sku.attributes.get("sku_id")): sku
+        str(sku.attributes.get("SKU")): sku
         for sku in found_skus
-        if sku.attributes.get("sku_id") is not None
+        if sku.attributes.get("SKU") is not None
     }
     missing_skus = [sku_id for sku_id in sku_ids if sku_id not in sku_by_business_id]
     if missing_skus:
@@ -777,13 +777,13 @@ def _apply_flatfile_rows_to_sku_master(
     *,
     category_id: int,
 ) -> list[str]:
-    """Upsert by string attributes.sku_id: update if found, else insert (one save_all)."""
+    """Upsert by string attributes.SKU: update if found, else insert (one save_all)."""
     to_save: list[SkuMaster] = []
     applied: list[str] = []
     for row in rows:
-        sku_id = flatfile_utils.row_get(row, "sku_id")
+        sku_id = flatfile_utils.row_get(row, "SKU")
         if not sku_id:
-            raise FlatfileValidationError("Missing sku_id value")
+            raise FlatfileValidationError("Missing SKU value")
 
         sku = sku_master_repo.get_live_by_attribute_sku_id(session, sku_id)
         attributes = flatfile_utils.build_sku_attributes(
@@ -809,7 +809,7 @@ _SIGNED_URL_TTL_SECONDS = 3600
 def _business_sku_id(sku: SkuMaster | None, fallback: str = "") -> str:
     if sku is None:
         return fallback
-    raw = (sku.attributes or {}).get("sku_id")
+    raw = (sku.attributes or {}).get("SKU")
     return str(raw) if raw else fallback
 
 

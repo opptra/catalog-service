@@ -1,4 +1,8 @@
-from core.exceptions.category import CategoryNotFoundError
+from core.exceptions.category import (
+    AmbiguousCategoryError,
+    CategoryNotFoundError,
+    InvalidCategoryPathError,
+)
 from core.exceptions.gallery import GalleryPlanError
 from core.exceptions.gcs import GcsError
 from core.exceptions.job import (
@@ -31,6 +35,7 @@ from core.exceptions.users import (
 from core.exceptions.workflows import WorkflowsError
 
 __all__ = [
+    "AmbiguousCategoryError",
     "ApplicationNotFoundError",
     "AttributeNotFoundError",
     "BrandAccessDeniedError",
@@ -38,6 +43,7 @@ __all__ = [
     "BrandNotFoundError",
     "CategoryIntelligenceMissingError",
     "CategoryNotFoundError",
+    "InvalidCategoryPathError",
     "EmailDomainNotAllowedError",
     "FlatfileUploadIncompleteError",
     "FlatfileValidationError",

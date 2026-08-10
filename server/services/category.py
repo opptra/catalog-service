@@ -2,19 +2,105 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from core.exceptions import CategoryNotFoundError
+from core.exceptions import AmbiguousCategoryError, CategoryNotFoundError, InvalidCategoryPathError
 from dto.response.category import (
     CategoryPathNode,
     CategoryTemplateField,
     CategoryTemplateResponse,
+    ImportCategoryPathResponse,
+    ImportedCategoryNode,
     LeafCategoryPageResponse,
     LeafCategoryResponse,
 )
 from entities.catalog.attribute_master import AttributeMaster
+from entities.catalog.category import Category
+from entities.catalog.category_closure import CategoryClosure
 from repositories.catalog import attribute_master as attribute_master_repository
 from repositories.catalog import category as category_repository
+from repositories.catalog import category_closure as category_closure_repository
 
 DEFAULT_LEAF_PAGE_SIZE = 10
+
+
+def import_category_path(session: Session, names: list[str]) -> ImportCategoryPathResponse:
+    """Walk a root-first name path, reusing existing nodes and creating only gaps.
+
+    Idempotent: a second call with the same path creates nothing and returns the
+    same external ids. Matching is by exact name under the same parent (roots
+    have no parent). Ambiguous duplicates under one parent raise.
+    """
+    if not names:
+        raise InvalidCategoryPathError("Category path must contain at least one name")
+
+    path: list[ImportedCategoryNode] = []
+    parent: Category | None = None
+    created_count = 0
+
+    for name in names:
+        existing = _resolve_existing(session, parent=parent, name=name)
+        if existing is not None:
+            path.append(
+                ImportedCategoryNode(
+                    external_id=existing.external_id,
+                    name=existing.name,
+                    created=False,
+                )
+            )
+            parent = existing
+            continue
+
+        created = _create_under_parent(session, parent=parent, name=name)
+        created_count += 1
+        path.append(
+            ImportedCategoryNode(
+                external_id=created.external_id,
+                name=created.name,
+                created=True,
+            )
+        )
+        parent = created
+
+    return ImportCategoryPathResponse(
+        path=path,
+        created_count=created_count,
+        reused_count=len(path) - created_count,
+    )
+
+
+def _resolve_existing(session: Session, *, parent: Category | None, name: str) -> Category | None:
+    matches = (
+        list(category_repository.list_roots_by_name(session, name))
+        if parent is None
+        else list(category_repository.list_children_by_name(session, parent.id, name))
+    )
+    if len(matches) > 1:
+        scope = "root" if parent is None else f"parent external_id={parent.external_id}"
+        raise AmbiguousCategoryError(
+            f"Multiple categories named {name!r} under {scope}; cannot import safely"
+        )
+    return matches[0] if matches else None
+
+
+def _create_under_parent(session: Session, *, parent: Category | None, name: str) -> Category:
+    category = category_repository.save(session, Category(name=name))
+    closure_rows: list[CategoryClosure] = [
+        CategoryClosure(
+            ancestor_id=category.id,
+            descendant_id=category.id,
+            depth=0,
+        )
+    ]
+    if parent is not None:
+        for ancestor_row in category_closure_repository.list_ancestor_rows(session, parent.id):
+            closure_rows.append(
+                CategoryClosure(
+                    ancestor_id=ancestor_row.ancestor_id,
+                    descendant_id=category.id,
+                    depth=ancestor_row.depth + 1,
+                )
+            )
+    category_closure_repository.save_all(session, closure_rows)
+    return category
 
 
 def list_leaf_categories(
