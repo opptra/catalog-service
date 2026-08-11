@@ -6,6 +6,7 @@ uploads images to GCS, and persists attribute values.
 ``create_flatfile_job`` / ``complete_flatfile_job`` handle signed-URL flatfile uploads.
 """
 
+import ast
 import json
 import logging
 from collections.abc import Callable, Sequence
@@ -34,6 +35,7 @@ from core.exceptions import (
     ProductNotFoundError,
     SkuGenerationJobExecutionFailedError,
     SkuGenerationJobNotFoundError,
+    SkuGenerationJobRetryConflictError,
     SkuNotFoundError,
 )
 from entities.catalog.attribute_enums import (
@@ -51,7 +53,7 @@ from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.sku_generation_job import SkuGenerationJob
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from entities.catalog.sku_master import SkuMaster
-from generation import gallery, images, inputs, regenerate, text
+from generation import gallery, images, inputs, regenerate, text, tools
 from generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
 from repositories.catalog import brand as brand_repo
@@ -226,6 +228,20 @@ def create_job(
             )
         resolved.append((master, quantity))
 
+    # KEY_FEATURES is derived from the job's own DESCRIPTION + BULLET_POINTS output,
+    # so those must be generated in the same job.
+    selected_names = {AttributeName(master.name) for master, _quantity in resolved}
+    if AttributeName.KEY_FEATURES in selected_names:
+        missing_sources = [
+            source.value
+            for source in (AttributeName.BULLET_POINTS, AttributeName.DESCRIPTION)
+            if source not in selected_names
+        ]
+        if missing_sources:
+            raise InvalidJobAttributesError(
+                f"KEY_FEATURES requires {', '.join(missing_sources)} in the same job"
+            )
+
     job = job_repo.save(
         session,
         Job(
@@ -388,6 +404,51 @@ def execute_sku_generation_job(
     return summary
 
 
+def retry_sku_generation_job(
+    session: Session,
+    client: OpenRouterClient,
+    gcs: GcsClient,
+    external_id: UUID,
+) -> dict[str, Any]:
+    """User-triggered retry: re-run only FAILED tasks of a FAILED SKU job.
+
+    Only a FAILED job is retryable: while the Cloud Workflow is still executing
+    the job is PENDING, and retrying then would run two generations against the
+    same task map (duplicate renders, conflicting version bumps, last-writer-wins
+    task states). Flipping to PENDING immediately also rejects a second
+    concurrent retry of the same job.
+
+    The Cloud Workflow that would normally mark the parent job COMPLETED has
+    already finished by the time a user retries, so when this retry completes
+    the last incomplete sibling, the parent is marked COMPLETED here.
+    """
+    sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
+    if sku_generation_job is None:
+        raise SkuGenerationJobNotFoundError(str(external_id))
+    if sku_generation_job.status != SkuGenerationJobStatus.FAILED.value:
+        raise SkuGenerationJobRetryConflictError(
+            f"sku_generation_job {external_id} is {sku_generation_job.status}, "
+            "only FAILED jobs can be retried"
+        )
+    sku_generation_job.status = SkuGenerationJobStatus.PENDING.value
+    sku_generation_job_repo.save(session, sku_generation_job)
+
+    summary = execute_sku_generation_job(session, client, gcs, external_id)
+
+    sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
+    if sku_generation_job is not None:
+        job = job_repo.get_by_id(session, sku_generation_job.job_id)
+        if job is not None and job.status != JobStatus.COMPLETED.value:
+            siblings = sku_generation_job_repo.list_by_job_id(session, job.id)
+            if all(
+                sibling.status == SkuGenerationJobStatus.COMPLETED.value
+                for sibling in siblings
+            ):
+                job.status = JobStatus.COMPLETED.value
+                job_repo.save(session, job)
+    return summary
+
+
 def _selected_attributes(
     session: Session, job_id: int
 ) -> tuple[list[AttributeMaster], list[AttributeMaster], dict[int, int]]:
@@ -400,6 +461,13 @@ def _selected_attributes(
     return text_attrs, image_attrs, quantities
 
 
+def _serialize_text_value(name: AttributeName, raw: Any) -> str:
+    """Storage form of a generated text value: JSON array for list attributes, str otherwise."""
+    if name in tools.LIST_TEXT_ATTRIBUTES:
+        return json.dumps(raw if isinstance(raw, list) else [], ensure_ascii=False)
+    return "" if raw is None else str(raw)
+
+
 def _run_text(
     session: Session,
     sku_generation_job: SkuGenerationJob,
@@ -409,7 +477,11 @@ def _run_text(
     text_attrs: list[AttributeMaster],
     tasks: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Generate incomplete text attributes one-by-one; persist value and task status per attr."""
+    """Generate incomplete text attributes; persist value and task status per attr.
+
+    Two stages: every attribute except KEY_FEATURES generates independently first;
+    KEY_FEATURES then derives from the completed DESCRIPTION + BULLET_POINTS copy.
+    """
     pending = [
         attribute
         for attribute in text_attrs
@@ -418,14 +490,27 @@ def _run_text(
     if not pending:
         return []
 
+    stage_one = [
+        attribute
+        for attribute in pending
+        if AttributeName(attribute.name) != AttributeName.KEY_FEATURES
+    ]
+    key_features_attrs = [
+        attribute
+        for attribute in pending
+        if AttributeName(attribute.name) == AttributeName.KEY_FEATURES
+    ]
+
     session_id = str(sku_generation_job.external_id)
     persisted: list[dict[str, Any]] = []
-    for attribute in pending:
+    raw_values: dict[str, Any] = {}
+
+    for attribute in stage_one:
         name = AttributeName(attribute.name)
         try:
             generation = text.generate_attribute(client, ctx, name, session_id=session_id)
             raw = generation.values.get(name.value)
-            value = "" if raw is None else str(raw)
+            raw_values[name.value] = raw
             persisted.append(
                 _persist_attribute_value(
                     session,
@@ -434,15 +519,111 @@ def _run_text(
                     attribute_id=attribute.id,
                     name=name.value,
                     slot=1,
-                    value=value,
+                    value=_serialize_text_value(name, raw),
                     prompt=generation.prompt,
                 )
             )
             tasks[name.value] = TaskStatus.COMPLETED
         except Exception:  # noqa: BLE001 — mark failed, continue other attrs / images
+            logger.exception(
+                "Text generation failed for %s (sku_generation_job=%s)",
+                name.value,
+                sku_generation_job.external_id,
+            )
             tasks[name.value] = TaskStatus.FAILED
         _persist_tasks(session, sku_generation_job, tasks)
+
+    for attribute in key_features_attrs:
+        name = AttributeName.KEY_FEATURES
+        try:
+            description, bullet_points = _key_features_inputs(
+                session, sku_generation_job, text_attrs, tasks, raw_values
+            )
+            generation = text.generate_key_features(
+                client,
+                ctx,
+                description=description,
+                bullet_points=bullet_points,
+                session_id=session_id,
+            )
+            raw = generation.values.get(name.value)
+            persisted.append(
+                _persist_attribute_value(
+                    session,
+                    sku_generation_job=sku_generation_job,
+                    marketplace_id=marketplace_id,
+                    attribute_id=attribute.id,
+                    name=name.value,
+                    slot=1,
+                    value=_serialize_text_value(name, raw),
+                    prompt=generation.prompt,
+                )
+            )
+            tasks[name.value] = TaskStatus.COMPLETED
+        except Exception:  # noqa: BLE001 — mark failed, continue images
+            logger.exception(
+                "KEY_FEATURES generation failed (sku_generation_job=%s)",
+                sku_generation_job.external_id,
+            )
+            tasks[name.value] = TaskStatus.FAILED
+        _persist_tasks(session, sku_generation_job, tasks)
+
     return persisted
+
+
+def _parse_stored_list(value: str) -> list[Any] | None:
+    """Parse a stored list value: JSON array, with a fallback for legacy rows
+    persisted via ``str(list)`` (Python repr) before JSON serialization existed."""
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        try:
+            parsed = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def _key_features_inputs(
+    session: Session,
+    sku_generation_job: SkuGenerationJob,
+    text_attrs: list[AttributeMaster],
+    tasks: dict[str, Any],
+    raw_values: dict[str, Any],
+) -> tuple[str, list[str]]:
+    """DESCRIPTION text + BULLET_POINTS list feeding the KEY_FEATURES derivation.
+
+    Prefers values generated earlier in this run; falls back to the latest persisted
+    rows so a retry that only re-runs KEY_FEATURES still has its inputs. Both source
+    tasks must already be COMPLETED.
+    """
+    for source in (AttributeName.DESCRIPTION, AttributeName.BULLET_POINTS):
+        if tasks.get(source.value) != TaskStatus.COMPLETED:
+            raise ValueError(f"KEY_FEATURES requires a completed {source.value} task")
+
+    description = raw_values.get(AttributeName.DESCRIPTION.value)
+    bullets = raw_values.get(AttributeName.BULLET_POINTS.value)
+
+    if description is None or bullets is None:
+        attribute_id_by_name = {
+            AttributeName(attribute.name): attribute.id for attribute in text_attrs
+        }
+        rows = attribute_value_repo.list_latest_by_sku_generation_job_id(
+            session, sku_generation_job.id
+        )
+        row_by_attribute_id = {row.attribute_id: row for row in rows if row.slot == 1}
+        if description is None:
+            row = row_by_attribute_id.get(attribute_id_by_name.get(AttributeName.DESCRIPTION))
+            description = row.value if row is not None else None
+        if bullets is None:
+            row = row_by_attribute_id.get(attribute_id_by_name.get(AttributeName.BULLET_POINTS))
+            bullets = _parse_stored_list(row.value) if row is not None else None
+
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError("KEY_FEATURES requires a non-empty DESCRIPTION value")
+    if not isinstance(bullets, list) or not bullets:
+        raise ValueError("KEY_FEATURES requires a non-empty BULLET_POINTS list")
+    return description, [str(bullet) for bullet in bullets]
 
 
 # Fixed aspect ratio per image type, decided HERE — never taken from the AI plan. A+ content

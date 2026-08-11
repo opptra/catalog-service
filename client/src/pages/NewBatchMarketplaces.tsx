@@ -22,6 +22,11 @@ function quantityForAttribute(name: string): number {
   return IMAGE_QUANTITIES[name] ?? 1
 }
 
+/** Derived attributes and the selections they need in the same job (mirrors server check). */
+const ATTRIBUTE_DEPENDENCIES: Record<string, string[]> = {
+  KEY_FEATURES: ['BULLET_POINTS', 'DESCRIPTION'],
+}
+
 function NewBatchMarketplaces() {
   const navigate = useNavigate()
   const subcategory = getBatchSubcategory()
@@ -91,8 +96,19 @@ function NewBatchMarketplaces() {
   function toggleAttribute(marketplaceId: string, attributeId: string) {
     setSelected((current) => {
       const nextSet = new Set(current[marketplaceId] ?? [])
-      if (nextSet.has(attributeId)) nextSet.delete(attributeId)
-      else nextSet.add(attributeId)
+      if (nextSet.has(attributeId)) {
+        nextSet.delete(attributeId)
+        // Deselecting a dependency also deselects anything derived from it.
+        for (const [dependent, dependencies] of Object.entries(ATTRIBUTE_DEPENDENCIES)) {
+          if (dependencies.includes(attributeId)) nextSet.delete(dependent)
+        }
+      } else {
+        nextSet.add(attributeId)
+        // Selecting a derived attribute pulls in what it is generated from.
+        for (const dependency of ATTRIBUTE_DEPENDENCIES[attributeId] ?? []) {
+          nextSet.add(dependency)
+        }
+      }
       return { ...current, [marketplaceId]: nextSet }
     })
   }

@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass
 
 from entities.catalog.attribute_enums import AttributeDataType, AttributeName
-from generation import category
+from generation import category, tools
 from generation.context import GenerationContext
 
 # Shared rules applied to every generation call.
@@ -32,6 +32,48 @@ _RULES = (
     "space, corners, banners, margins, or padding for a logo — the logo is added later by a "
     "deterministic code step, so compose the full frame with product/content only."
 )
+
+
+# Per-attribute role guidance appended to text generation prompts. Numeric limits
+# are NOT written here — they come from tools.TEXT_LIMITS via tools.limit_sentence
+# so each number exists in exactly one place.
+_ATTRIBUTE_GUIDANCE: dict[AttributeName, str] = {
+    AttributeName.TITLE: (
+        "Order: brand first, then the primary search keyword, then one real "
+        "differentiator, then a variant (colour/size/pack) if it fits. Title Case, "
+        "no promotional or subjective words, no ALL-CAPS words."
+    ),
+    AttributeName.ITEM_HIGHLIGHTS: (
+        "Amazon's Item Highlights field is shown directly beneath the title in search "
+        "results and on the product page. Write ONE natural phrase (not a keyword list, "
+        "not bullet style) carrying the strongest secondary facts that are NOT already "
+        "in the title: materials, use case, age range, pack size, certifications. "
+        "Never repeat the title."
+    ),
+    AttributeName.BULLET_POINTS: (
+        "Benefit-led Feature-then-Benefit sentences; lead each bullet with what buyers "
+        "care about most. No keyword stuffing."
+    ),
+    AttributeName.BACKEND_KEYWORDS: (
+        "Amazon's hidden backend search terms field — never shown to shoppers, indexed "
+        "for search only. Space-separated terms, no commas or semicolons, no brand or "
+        "competitor names, no words already in the title. Prefer long-tail and "
+        "regional/vernacular synonyms shoppers search for but that do not fit natural "
+        "listing copy."
+    ),
+}
+
+
+def attribute_rules(name: AttributeName) -> str:
+    """Guidance + hard-limit sentence for one text attribute ('' when none apply)."""
+    lines: list[str] = []
+    guidance = _ATTRIBUTE_GUIDANCE.get(name)
+    if guidance:
+        lines.append(guidance)
+    limit = tools.limit_sentence(name)
+    if limit:
+        lines.append(limit)
+    return " ".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +125,7 @@ def _text_tool_instruction(names: list[AttributeName]) -> str:
     field_word = "field" if len(names) == 1 else "fields"
     type_lines: list[str] = []
     for name in names:
-        if name == AttributeName.BULLET_POINTS:
+        if name in tools.LIST_TEXT_ATTRIBUTES:
             type_lines.append(f'"{name.value}" must be an array of strings.')
         else:
             type_lines.append(f'"{name.value}" must be a string.')
@@ -96,19 +138,33 @@ def _text_tool_instruction(names: list[AttributeName]) -> str:
     )
 
 
+def _attribute_rules_block(names: list[AttributeName]) -> str:
+    """ATTRIBUTE RULES section listing guidance + hard limits per requested attribute."""
+    lines = [
+        f"- {name.value}: {rules}" for name in names if (rules := attribute_rules(name))
+    ]
+    if not lines:
+        return ""
+    return "ATTRIBUTE RULES (hard requirements, checked in code after generation):\n" + "\n".join(
+        lines
+    )
+
+
 def text_generation_parts(
     ctx: GenerationContext, names: list[AttributeName], strategy: str
 ) -> PromptParts:
     """Generation prompt split for caching: rules + product + brand; strategy/tool last."""
     target = f"the final {names[0].value}" if len(names) == 1 else "the final text attributes"
     prefix = f"{_RULES}\n\n{_product_block(ctx.product)}\n\n{_brand_block(ctx.brand_dna)}"
+    rules_block = _attribute_rules_block(names)
     suffix = (
         "You are an expert marketplace copywriter. Using the STRATEGY and the authoritative "
         f"PRODUCT DATA below, write {target}. Apply the Brand DNA voice and "
         "guardrails. Every factual claim must be supported by PRODUCT DATA; when a recommended "
         "detail is missing, adapt gracefully with neutral, high-quality copy rather than "
         "guessing.\n\n"
-        f"STRATEGY:\n{strategy}\n\n"
+        + (f"{rules_block}\n\n" if rules_block else "")
+        + f"STRATEGY:\n{strategy}\n\n"
         f"{_text_tool_instruction(names)}"
     )
     return PromptParts(prefix=prefix, suffix=suffix)
@@ -119,6 +175,33 @@ def text_generation_prompt(
 ) -> str:
     """Final text prompt: apply the strategy + brand voice to the authoritative product facts."""
     return text_generation_parts(ctx, names, strategy).as_sent()
+
+
+def key_features_parts(
+    ctx: GenerationContext, *, description: str, bullet_points: list[str]
+) -> PromptParts:
+    """KEY_FEATURES prompt: condense the already-written Description + Bullet Points.
+
+    Amazon's Key Product Features flat-file field is separate from the five Bullet
+    Points columns: five short standalone lines. This is a derivation step — it never
+    re-researches from Category Intelligence, only compresses copy that has already
+    been generated and persisted for this SKU.
+    """
+    name = AttributeName.KEY_FEATURES
+    bullets_block = "\n".join(f"- {bullet}" for bullet in bullet_points)
+    prefix = f"{_RULES}\n\n{_product_block(ctx.product)}\n\n{_brand_block(ctx.brand_dna)}"
+    suffix = (
+        "You are an expert marketplace copywriter. Write Amazon's KEY PRODUCT FEATURES "
+        "field: five short standalone feature phrases (not full sentences), one per line "
+        "slot. Condense and rephrase the ALREADY-WRITTEN Bullet Points and Description "
+        "below — do not introduce any fact that is not in them or in PRODUCT DATA, and do "
+        "not simply copy a bullet verbatim.\n\n"
+        f"{_attribute_rules_block([name])}\n\n"
+        f"ALREADY-WRITTEN BULLET POINTS:\n{bullets_block}\n\n"
+        f"ALREADY-WRITTEN DESCRIPTION:\n{description}\n\n"
+        f"{_text_tool_instruction([name])}"
+    )
+    return PromptParts(prefix=prefix, suffix=suffix)
 
 
 def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeName, int]]) -> str:

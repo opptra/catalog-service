@@ -177,6 +177,13 @@ export async function getSkuGenerationJobContent(
   return data
 }
 
+/** Re-run only the PENDING/FAILED tasks of one SKU generation job. */
+export async function retrySkuGenerationJob(
+  skuGenerationJobExternalId: string,
+): Promise<void> {
+  await api.post(`/jobs/sku/${skuGenerationJobExternalId}/retry`)
+}
+
 export async function regenerateAttributeValue(
   valueExternalId: string,
   body: RegenerateAttributeValueRequest,

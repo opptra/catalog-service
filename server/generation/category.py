@@ -10,10 +10,22 @@ from typing import Any
 from entities.catalog.attribute_enums import AttributeName
 
 # Category Intelligence ``topics`` entries that inform each text attribute.
-_TEXT_TOPIC_BY_ATTRIBUTE: dict[AttributeName, str] = {
-    AttributeName.TITLE: "title",
-    AttributeName.BULLET_POINTS: "bullets",
-    AttributeName.DESCRIPTION: "aplus",
+# Missing topic names degrade gracefully (skipped in _build), so an attribute may
+# list a topic before the external scraping pipeline starts producing it.
+#
+# ITEM_HIGHLIGHTS has no dedicated topic yet: the scraper reads desktop pages,
+# where Amazon currently merges competitor Item Highlights into the title after
+# a " | " separator, and the raw titles are distilled away before they reach
+# category_intelligence. Until the pipeline adds an "item_highlights" topic
+# (listed first below so it wins as soon as it exists), the field draws on
+# "specs" (materials/dimensions/pack facts) and "bullets" (winning benefit
+# angles) — the same content Amazon says belongs in the field.
+_TEXT_TOPICS_BY_ATTRIBUTE: dict[AttributeName, tuple[str, ...]] = {
+    AttributeName.TITLE: ("title",),
+    AttributeName.ITEM_HIGHLIGHTS: ("item_highlights", "specs", "bullets"),
+    AttributeName.BULLET_POINTS: ("bullets",),
+    AttributeName.DESCRIPTION: ("aplus",),
+    AttributeName.BACKEND_KEYWORDS: ("keywords",),
 }
 # Cross-cutting topics that help all text listing optimization.
 _TEXT_COMMON_TOPICS = ("keywords", "specs")
@@ -34,7 +46,9 @@ _MAX_SIGNALS = 12
 
 def text_brief(category_intelligence: dict[str, Any], names: list[AttributeName]) -> dict[str, Any]:
     """Concise brief for the requested text attributes."""
-    topics = [_TEXT_TOPIC_BY_ATTRIBUTE[name] for name in names if name in _TEXT_TOPIC_BY_ATTRIBUTE]
+    topics = [
+        topic for name in names for topic in _TEXT_TOPICS_BY_ATTRIBUTE.get(name, ())
+    ]
     topics.extend(_TEXT_COMMON_TOPICS)
     return _build(category_intelligence, topics)
 

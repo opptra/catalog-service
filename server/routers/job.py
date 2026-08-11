@@ -22,6 +22,7 @@ from core.exceptions import (
     ProductNotFoundError,
     SkuGenerationJobExecutionFailedError,
     SkuGenerationJobNotFoundError,
+    SkuGenerationJobRetryConflictError,
     SkuNotFoundError,
     WorkflowsError,
 )
@@ -309,6 +310,48 @@ def execute_sku_generation_job(
     except GcsError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except SkuGenerationJobExecutionFailedError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return SkuGenerationJobExecutionResponse.model_validate(summary)
+
+
+@router.post(
+    "/sku/{external_id}/retry",
+    response_model=SkuGenerationJobExecutionResponse,
+)
+def retry_sku_generation_job(
+    external_id: UUID,
+    _user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+    openrouter: OpenRouterDep,
+    gcs: GcsDep,
+) -> SkuGenerationJobExecutionResponse:
+    """User-triggered retry of a SKU job's PENDING/FAILED tasks (e.g. one failed attribute)."""
+    try:
+        summary = job_service.retry_sku_generation_job(
+            catalog_session,
+            openrouter,
+            gcs,
+            external_id,
+        )
+    except SkuGenerationJobRetryConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SkuGenerationJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProductNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BrandNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CategoryIntelligenceMissingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except BrandDnaMissingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except GcsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except SkuGenerationJobExecutionFailedError as exc:
+        # Same mapping as /execute for the identical failure mode.
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return SkuGenerationJobExecutionResponse.model_validate(summary)

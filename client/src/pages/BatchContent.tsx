@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from 'react-router-dom'
 import {
   getJobStatus,
   getSkuGenerationJobContent,
+  retrySkuGenerationJob,
   type JobExpectedAttribute,
   type JobStatusResponse,
   type SkuGenerationJobAttributeSlot,
@@ -32,9 +33,46 @@ const ATTRIBUTE_DISPLAY_LABELS: Record<string, string> = {
   BULLET_POINTS: 'Bullet points',
   DESCRIPTION: 'Description',
   TITLE: 'Title',
+  ITEM_HIGHLIGHTS: 'Item highlights',
+  KEY_FEATURES: 'Key features',
+  BACKEND_KEYWORDS: 'Backend keywords',
   HERO: 'Hero',
   INFOGRAPHIC: 'Infographic',
   LIFESTYLE: 'Lifestyle',
+}
+
+/** Text attributes whose value is a JSON array of strings, rendered as a list. */
+const LIST_TEXT_NAMES = new Set(['BULLET_POINTS', 'KEY_FEATURES'])
+
+/** Shopper-reading order for text sections; names not listed keep API order after these. */
+const TEXT_SECTION_ORDER = [
+  'TITLE',
+  'ITEM_HIGHLIGHTS',
+  'BULLET_POINTS',
+  'KEY_FEATURES',
+  'DESCRIPTION',
+  'BACKEND_KEYWORDS',
+]
+
+function textSectionRank(name: string): number {
+  const index = TEXT_SECTION_ORDER.indexOf(name)
+  return index === -1 ? TEXT_SECTION_ORDER.length : index
+}
+
+/** Amazon hard limits (2026-07-27 title policy) — mirrors server generation/tools.py TEXT_LIMITS. */
+const TEXT_FIELD_LIMITS: Record<
+  string,
+  { maxChars?: number; maxBytes?: number; perItemMaxChars?: number }
+> = {
+  TITLE: { maxChars: 75 },
+  ITEM_HIGHLIGHTS: { maxChars: 125 },
+  BULLET_POINTS: { perItemMaxChars: 200 },
+  KEY_FEATURES: { perItemMaxChars: 100 },
+  BACKEND_KEYWORDS: { maxBytes: 249 },
+}
+
+function utf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).length
 }
 
 type ImageModalSource =
@@ -162,6 +200,8 @@ function BatchContent() {
   const [, setContentLoading] = useState(false)
   const [expandedText, setExpandedText] = useState<Record<string, boolean>>({})
   const [regenTarget, setRegenTarget] = useState<AttributeRegenTarget | null>(null)
+  const [retrying, setRetrying] = useState(false)
+  const [contentRefreshKey, setContentRefreshKey] = useState(0)
 
   useEffect(() => {
     document.title = status
@@ -208,7 +248,9 @@ function BatchContent() {
       cancelled = true
       if (intervalId != null) window.clearInterval(intervalId)
     }
-  }, [jobExternalId])
+    // contentRefreshKey re-fetches job-level status (counts, per-SKU chips) after a retry —
+    // polling stopped permanently once the job first hit a terminal status.
+  }, [jobExternalId, contentRefreshKey])
 
   const skuJobs = status?.sku_generation_jobs ?? []
   const safeSkuIndex = Math.min(skuIndex, Math.max(skuJobs.length - 1, 0))
@@ -267,9 +309,9 @@ function BatchContent() {
       cancelled = true
       if (intervalId != null) window.clearInterval(intervalId)
     }
-    // Only re-fetch when the selected SKU changes. Terminal status is read from
-    // the render that selected this SKU so completed jobs skip polling after one load.
-  }, [activeSkuJobId])
+    // Re-fetch when the selected SKU changes or a retry finishes. Terminal status is
+    // read from the render that selected this SKU so completed jobs skip polling.
+  }, [activeSkuJobId, contentRefreshKey])
 
   if (!brand) {
     return <Navigate to="/brands" replace />
@@ -288,7 +330,9 @@ function BatchContent() {
   const contentReady =
     content != null && activeSkuJobId != null && content.external_id === activeSkuJobId
 
-  const textAttributes = expected.filter((item) => item.data_type === 'TEXT')
+  const textAttributes = expected
+    .filter((item) => item.data_type === 'TEXT')
+    .toSorted((a, b) => textSectionRank(a.name) - textSectionRank(b.name))
   const pdpExpected = expected.filter((item) => PDP_IMAGE_NAMES.has(item.name))
   const otherImageAttributes = expected.filter(
     (item) => item.data_type === 'IMAGE' && !PDP_IMAGE_NAMES.has(item.name),
@@ -406,30 +450,94 @@ function BatchContent() {
     })
   }
 
+  async function handleRetry() {
+    if (!activeSkuJobId || retrying) return
+    setRetrying(true)
+    setContentError(null)
+    try {
+      await retrySkuGenerationJob(activeSkuJobId)
+    } catch (error) {
+      // 409 = already retrying / still running; other errors surface as-is.
+      setContentError(
+        error instanceof Error ? error.message : 'Retry failed — try again shortly.',
+      )
+    } finally {
+      setRetrying(false)
+      setContentRefreshKey((current) => current + 1)
+    }
+  }
+
   function renderTextSection(attr: JobExpectedAttribute) {
     const slot = contentReady ? slotsByName(attributes, attr.name)[0] : undefined
     const rawValue = slot?.value ?? null
     const pending =
       !contentReady || (isAttributePending(attr.name, tasks, skuStatus) && !rawValue)
     const label = formatAttributeLabel(attr.name)
-    const isBullets = attr.name === 'BULLET_POINTS'
-    const bullets = isBullets && rawValue ? parseBulletList(rawValue) : []
+    const isList = LIST_TEXT_NAMES.has(attr.name)
+    const isBackendKeywords = attr.name === 'BACKEND_KEYWORDS'
+    const listItems = isList && rawValue ? parseBulletList(rawValue) : []
     const expanded = expandedText[attr.name] === true
     const canRegen =
       slot?.value_external_id != null && slot.version != null && Boolean(slot.value)
 
+    const limit = TEXT_FIELD_LIMITS[attr.name]
+    let counter: string | null = null
+    let overLimit = false
+    if (rawValue && limit?.maxChars != null) {
+      counter = `${rawValue.length} / ${limit.maxChars}`
+      overLimit = rawValue.length > limit.maxChars
+    } else if (rawValue && limit?.maxBytes != null) {
+      const bytes = utf8Bytes(rawValue)
+      counter = `${bytes} / ${limit.maxBytes} bytes`
+      overLimit = bytes > limit.maxBytes
+    }
+
+    const keywordTerms =
+      isBackendKeywords && rawValue ? rawValue.split(/\s+/).filter(Boolean) : []
+
     return (
       <section key={attr.attribute_external_id} className="content-section">
-        <h3 className="content-section__label">{label}</h3>
+        <div className="content-section__head">
+          <h3 className="content-section__label">{label}</h3>
+          {!pending && counter ? (
+            <span
+              className={`content-counter${overLimit ? ' content-counter--over' : ''}`}
+            >
+              {counter}
+            </span>
+          ) : null}
+        </div>
         {pending ? (
           <div
-            className={`content-shimmer ${isBullets ? 'content-shimmer--bullets' : attr.name === 'DESCRIPTION' ? 'content-shimmer--body' : 'content-shimmer--title'}`}
+            className={`content-shimmer ${isList ? 'content-shimmer--bullets' : attr.name === 'DESCRIPTION' ? 'content-shimmer--body' : 'content-shimmer--title'}`}
             aria-hidden="true"
           />
-        ) : isBullets ? (
+        ) : isBackendKeywords ? (
+          <>
+            <p className="content-section__note">
+              Not shown to shoppers — indexed for search only.
+            </p>
+            <div className="content-keyword-chips">
+              {keywordTerms.map((term, index) => (
+                <span key={`${term}-${index}`} className="content-keyword-chip">
+                  {term}
+                </span>
+              ))}
+            </div>
+          </>
+        ) : isList ? (
           <ul className="content-bullets">
-            {bullets.map((item) => (
-              <li key={item}>{item}</li>
+            {listItems.map((item, index) => (
+              <li key={`${index}-${item.slice(0, 24)}`}>
+                {item}
+                {limit?.perItemMaxChars != null ? (
+                  <span
+                    className={`content-counter content-counter--inline${item.length > limit.perItemMaxChars ? ' content-counter--over' : ''}`}
+                  >
+                    {item.length}/{limit.perItemMaxChars}
+                  </span>
+                ) : null}
+              </li>
             ))}
           </ul>
         ) : (
@@ -459,18 +567,31 @@ function BatchContent() {
                 {expanded ? 'show less' : 'show full'}
               </button>
             ) : null}
-            <button
-              type="button"
-              className="content-regen"
-              title={canRegen ? 'Regenerate' : 'Regenerate unavailable'}
-              disabled={!canRegen}
-              onClick={() => {
-                if (slot) openTextRegen(attr, slot)
-              }}
-            >
-              <RefreshIcon />
-              Regenerate
-            </button>
+            {!canRegen && tasks?.[attr.name] === 'FAILED' ? (
+              <button
+                type="button"
+                className="content-regen"
+                title="Re-run the failed generation for this SKU"
+                disabled={retrying}
+                onClick={() => void handleRetry()}
+              >
+                <RefreshIcon />
+                {retrying ? 'Retrying…' : 'Retry'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="content-regen"
+                title={canRegen ? 'Regenerate' : 'Regenerate unavailable'}
+                disabled={!canRegen}
+                onClick={() => {
+                  if (slot) openTextRegen(attr, slot)
+                }}
+              >
+                <RefreshIcon />
+                Regenerate
+              </button>
+            )}
           </div>
         ) : null}
       </section>
