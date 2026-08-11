@@ -12,10 +12,8 @@ import { getBatchSubcategory } from '../data/batchDraft'
 
 /** Default image slot counts sent on job create. */
 const IMAGE_QUANTITIES: Record<string, number> = {
-  HERO: 1,
-  INFOGRAPHIC: 2,
-  LIFESTYLE: 3,
-  A_PLUS: 3,
+  IMAGE: 7,
+  A_PLUS: 5,
 }
 
 function quantityForAttribute(name: string): number {

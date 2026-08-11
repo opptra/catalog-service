@@ -69,7 +69,7 @@ from utils import flatfile as flatfile_utils
 logger = logging.getLogger(__name__)
 
 # Cloud Workflows resource id for cloud-workflows/job-pipeline.yaml
-_JOB_PIPELINE_WORKFLOW = "job-pipeline"
+_JOB_PIPELINE_WORKFLOW = "workflow-1"
 
 # Cap concurrent OpenRouter image calls. Slots are independent after planning; text + gallery
 # planning stay sequential.
@@ -445,13 +445,11 @@ def _run_text(
     return persisted
 
 
-# Fixed aspect ratio per image type, decided HERE — never taken from the AI plan. A+ content
-# images target ~970x600 min (~3:2 is the closest GPT-supported ratio); every standard gallery
-# image (hero/infographic/lifestyle) is square 1:1.
+# Fixed aspect ratio per image attribute, decided HERE — never taken from the AI plan.
+# Generic PDP gallery slots (IMAGE) are square 1:1; A+ content targets ~970x600 min
+# (~3:2 is the closest GPT-supported ratio).
 _ASPECT_RATIO_BY_TYPE: dict[AttributeName, str] = {
-    AttributeName.HERO: "1:1",
-    AttributeName.INFOGRAPHIC: "1:1",
-    AttributeName.LIFESTYLE: "1:1",
+    AttributeName.IMAGE: "1:1",
     AttributeName.A_PLUS: "3:2",
 }
 _DEFAULT_ASPECT_RATIO = "1:1"

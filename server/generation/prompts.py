@@ -27,7 +27,7 @@ _RULES = (
     "override category best practices unless a brand guardrail requires it.\n"
     "- Optimize for listing quality, customer trust, marketplace compliance and conversion — "
     "quality over completeness.\n"
-    "- For ANY image (hero, infographic, lifestyle, A+, or any other type): do NOT draw, render, "
+    "- For ANY image: do NOT draw, render, "
     "watermark, or place any brand logo or brand name on the image. Do NOT leave empty reserved "
     "space, corners, banners, margins, or padding for a logo — the logo is added later by a "
     "deterministic code step, so compose the full frame with product/content only."
@@ -121,61 +121,63 @@ def text_generation_prompt(
     return text_generation_parts(ctx, names, strategy).as_sent()
 
 
-def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeName, int]]) -> str:
-    """Category-agnostic brief: plan ONE coherent, non-duplicated image gallery via a tool call.
-
-    The model decides each image's role, composition and on-image text from the Category
-    Intelligence + Brand DNA + the attached real product image — no per-type templates and no
-    category-specific vocabulary in this prompt. Two things are deliberately NOT the model's job:
-    aspect ratio (the renderer uses a fixed ratio per image type) and brand-logo placement (the
-    logo is composited deterministically downstream, not drawn by the image model).
-    """
+def slot_brief_prompt(ctx: GenerationContext, requested: list[tuple[AttributeName, int]]) -> str:
+    """Step 1: minimal gallery sequence (role / visual / objective) from Category Intelligence."""
     brief = category.image_brief(ctx.category_intelligence, [name for name, _ in requested])
-    slot_rule = (
-        "In the tool call, slot is 1-based and restarts at 1 within EACH type — it is not a "
-        "running count across the whole gallery. E.g. if INFOGRAPHIC needs 2 images, they are "
-        "type=INFOGRAPHIC slot=1 and type=INFOGRAPHIC slot=2, regardless of how many other "
-        "types/slots precede them."
+    return (
+        "Map Category Intelligence onto the exact image slots below. Output a gallery sequence "
+        "only — not render prompts.\n\n"
+        f"{_reference_photos_note(ctx.product_image_urls)}\n\n"
+        "Slots required:\n"
+        f"{_requested_block(requested)}\n\n"
+        "For IMAGE slots, follow the category gallery arc. For A_PLUS slots, follow A+ module "
+        "guidance. Every slot must be distinct.\n\n"
+        "Each slot needs:\n"
+        "- role: short label (e.g. HERO_LIFESTYLE, FEATURE_CALLOUT, FABRIC_TEXTURE)\n"
+        "- visual: one sentence describing what the frame shows\n"
+        "- objective: one short phrase for why this slot exists\n\n"
+        f"{_category_block(brief)}\n\n"
+        "Call submit_slot_briefs with one entry per slot (type + slot + role + visual + "
+        "objective). Slot restarts at 1 within IMAGE and within A_PLUS."
     )
+
+
+def gallery_plan_prompt(
+    ctx: GenerationContext,
+    requested: list[tuple[AttributeName, int]],
+    slot_briefs: list[dict[str, object]],
+) -> str:
+    """Step 2: turn step-1 gallery sequence into complete standalone image-generation prompts."""
+    brief = category.image_brief(ctx.category_intelligence, [name for name, _ in requested])
+    briefs_json = json.dumps(slot_briefs, ensure_ascii=False, indent=2)
     return (
         "You are an expert e-commerce visual merchandiser and product-photography art director. "
-        "Design a COHERENT image gallery for ONE product. You are given the exact set of images to "
-        "produce (by type and count). Decide from the Category Intelligence gallery guidance, the "
-        "Brand DNA visual identity, and the attached product image(s) — what each image should "
-        "be so that together they form one connected, non-duplicated gallery.\n\n"
+        "Turn the GALLERY SEQUENCE into one complete image-generation prompt per slot, linked by "
+        "a shared visual system. Honour every role/visual/objective — do not reassign slots.\n\n"
         f"{_reference_photos_note(ctx.product_image_urls)}\n\n"
-        "Images to produce (submit EXACTLY one plan entry per slot via the tool):\n"
+        "Images to produce:\n"
         f"{_requested_block(requested)}\n\n"
-        "For EVERY slot, reason it out (do NOT use fixed templates) and decide:\n"
-        "- the role/objective for a high-converting, policy-compliant listing in this "
-        "marketplace/category;\n"
-        "- a DISTINCT concept drawn from the category's own gallery arc — no slot may duplicate "
-        "another;\n"
-        "- composition, camera angle, background, props, lighting, styling and visual hierarchy;\n"
-        "- honesty: the depiction must NOT contradict the attached real product (its colour, form, "
-        "material, finish, pattern) — never render it as something it is not;\n"
-        "- physical coherence: show the product realistically and correctly used/placed;\n"
-        "- on-image text/badges appropriate to this image role and the marketplace's compliance "
-        "rules (a strict primary/main image carries no text or badges; secondary images may);\n"
-        "- brand logo: never draw/render a logo or brand wordmark, and never leave reserved "
-        "space for one — every slot prompt must state this explicitly; the logo is composited "
-        "later in code;\n"
-        "- do NOT choose or mention an aspect ratio, canvas shape, orientation or pixel/format "
-        "dimensions anywhere — the renderer uses a fixed ratio per image type, so compose for the "
-        "subject and leave the canvas shape entirely to the system.\n\n"
-        "Keep the whole set LINKED via one shared visual system so every image clearly belongs to "
-        "the same product and brand. Use product facts ONLY from PRODUCT DATA; if a helpful detail "
-        "is missing, stay neutral — never fabricate. The real product reference image(s) are also "
-        "supplied to the image model at render time.\n\n"
+        "=== GALLERY SEQUENCE ===\n"
+        f"{briefs_json}\n\n"
+        "For EVERY slot, expand into a complete prompt covering:\n"
+        "- composition, camera, background, props, lighting, styling, visual hierarchy;\n"
+        "- honesty to the attached real product (colour, form, material, finish, pattern);\n"
+        "- physical coherence — product used/placed realistically;\n"
+        "- on-image text/badges only when the role calls for it and marketplace rules allow;\n"
+        "- never draw a brand logo/wordmark or leave reserved space for one (logo is composited "
+        "later in code — state this in every prompt);\n"
+        "- never mention aspect ratio, canvas shape, orientation, or pixel dimensions "
+        "(the renderer fixes that).\n\n"
+        "Keep the set visually linked. Product facts come ONLY from PRODUCT DATA; if a detail is "
+        "missing, stay neutral. Reference photos are also given to the image model at render "
+        "time.\n\n"
         f"{_RULES}\n\n"
         f"{_category_block(brief)}\n\n"
         f"{_brand_block(ctx.brand_dna)}\n\n"
         f"{_product_block(ctx.product)}\n\n"
-        "When finished, call the submit_gallery_plan tool with shared_style and one slots entry "
-        "for each requested (type, slot). Each prompt must be a complete, standalone "
-        "image-generation prompt that incorporates the shared_style and every decision above. "
-        "Do not write the plan as free-form JSON in the message body.\n"
-        f"{slot_rule}"
+        "When finished, call submit_gallery_plan with shared_style and one slots entry per "
+        "requested (type, slot). Each prompt must be complete and standalone. Slot restarts at 1 "
+        "within each type."
     )
 
 

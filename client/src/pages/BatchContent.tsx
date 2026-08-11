@@ -20,7 +20,7 @@ import type { ContentImage } from '../components/batch-content/types'
 const STATUS_POLL_MS = 4000
 const CONTENT_POLL_MS = 5000
 
-const PDP_IMAGE_NAMES = new Set(['HERO', 'INFOGRAPHIC', 'LIFESTYLE'])
+const PDP_IMAGE_NAMES = new Set(['IMAGE'])
 
 function isTerminalStatus(status: string | undefined): boolean {
   return status === 'COMPLETED' || status === 'FAILED'
@@ -32,9 +32,7 @@ const ATTRIBUTE_DISPLAY_LABELS: Record<string, string> = {
   BULLET_POINTS: 'Bullet points',
   DESCRIPTION: 'Description',
   TITLE: 'Title',
-  HERO: 'Hero',
-  INFOGRAPHIC: 'Infographic',
-  LIFESTYLE: 'Lifestyle',
+  IMAGE: 'Gallery image',
 }
 
 type ImageModalSource =

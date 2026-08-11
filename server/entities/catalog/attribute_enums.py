@@ -5,9 +5,7 @@ class AttributeName(StrEnum):
     TITLE = "TITLE"
     BULLET_POINTS = "BULLET_POINTS"
     DESCRIPTION = "DESCRIPTION"
-    HERO = "HERO"
-    INFOGRAPHIC = "INFOGRAPHIC"
-    LIFESTYLE = "LIFESTYLE"
+    IMAGE = "IMAGE"
     A_PLUS = "A_PLUS"
 
 
@@ -17,7 +15,7 @@ class AttributeDataType(StrEnum):
 
 
 class AttributeGroupLabel(StrEnum):
-    IMAGE = "IMAGE"
+    IMAGES = "IMAGES"
 
 
 class JobType(StrEnum):
