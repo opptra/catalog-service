@@ -17,6 +17,7 @@ from core.exceptions.job import (
     JobNotFoundError,
     MarketplaceNotFoundError,
     SkuGenerationJobExecutionFailedError,
+    SkuGenerationJobRetryConflictError,
     SkuNotFoundError,
 )
 from core.exceptions.openrouter import OpenRouterError
@@ -64,6 +65,7 @@ __all__ = [
     "RoleNotFoundError",
     "SkuGenerationJobExecutionFailedError",
     "SkuGenerationJobNotFoundError",
+    "SkuGenerationJobRetryConflictError",
     "SkuNotFoundError",
     "UserNotFoundError",
     "UserServiceBrandNotFoundError",

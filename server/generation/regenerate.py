@@ -4,6 +4,7 @@ Flow: load previous prompt + current value → revise prompt → re-render (imag
 → persist a new version under the same value ``external_id``.
 """
 
+import json
 from dataclasses import dataclass
 
 from core.clients.openrouter import OpenRouterClient, ReferenceImage
@@ -19,7 +20,6 @@ from generation.images import (
     _references,
     resolve_image_model,
 )
-
 
 @dataclass(frozen=True, slots=True)
 class RevisedPrompt:
@@ -122,13 +122,22 @@ def regenerate_text(
     name: AttributeName,
     revised_prompt: str,
 ) -> TextRegeneration:
-    """Generate a single text attribute from the revised prompt via a forced tool call."""
+    """Generate a single text attribute from the revised prompt via a forced tool call.
+
+    Size limits are defined only on the submit_text_attributes JSON tool schema.
+    """
+    tool = tools.text_attributes_tool([name])
     parsed = client.call_tool(
         revised_prompt,
         model=settings.openrouter_text_model,
-        tool=tools.text_attributes_tool([name]),
+        tool=tool,
     )
     raw = parsed.get(name.value)
     if raw is None:
         raise ValueError(f"Text regeneration missing attribute: {name.value}")
-    return TextRegeneration(value=str(raw), prompt=revised_prompt)
+    # List attributes persist as JSON arrays (same storage form as first generation).
+    if name in tools.LIST_TEXT_ATTRIBUTES:
+        value = json.dumps(raw if isinstance(raw, list) else [], ensure_ascii=False)
+    else:
+        value = str(raw)
+    return TextRegeneration(value=value, prompt=revised_prompt)

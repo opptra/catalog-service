@@ -2656,6 +2656,40 @@ a {
   margin-top: 6px;
 }
 
+.content-counter {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+.content-counter--inline {
+  margin-left: 8px;
+}
+
+.content-counter--over {
+  color: #b23b2e;
+  font-weight: 600;
+}
+
+.content-keyword-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.content-keyword-chip {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  background: #f7f7f8;
+}
+
 .pdp-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));

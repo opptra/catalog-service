@@ -28,6 +28,12 @@ class SkuGenerationJobExecutionFailedError(Exception):
     pass
 
 
+class SkuGenerationJobRetryConflictError(Exception):
+    """Retry requested while the SKU generation job is not in a retryable (FAILED) state."""
+
+    pass
+
+
 class FlatfileValidationError(Exception):
     """Template / mandatory-attribute validation failed for a flatfile upload."""
 

@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from entities.catalog.sku_generation_job import SkuGenerationJob
@@ -34,6 +34,30 @@ def list_by_job_ids(
     return session.scalars(
         select(SkuGenerationJob).where(SkuGenerationJob.job_id.in_(job_ids))
     ).all()
+
+
+def update_status_if(
+    session: Session,
+    external_id: UUID,
+    *,
+    expected_status: str,
+    new_status: str,
+) -> bool:
+    """Atomically flip status when it still matches ``expected_status``.
+
+    Returns True when one row was updated. Commits immediately so concurrent
+    callers see the new status before any follow-up work starts.
+    """
+    result = session.execute(
+        update(SkuGenerationJob)
+        .where(
+            SkuGenerationJob.external_id == external_id,
+            SkuGenerationJob.status == expected_status,
+        )
+        .values(status=new_status, updated_at=func.now())
+    )
+    session.commit()
+    return bool(result.rowcount)
 
 
 def save(session: Session, sku_generation_job: SkuGenerationJob) -> SkuGenerationJob:

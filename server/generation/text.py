@@ -27,6 +27,7 @@ def generate_attribute(
 
     Step 1 derives a content strategy for this attribute. Step 2 writes the attribute via a forced
     tool call. Shared product/brand/rules context is sent as a cacheable prefix when supported.
+    Size limits are defined only on the JSON tool schema.
     """
     names = [name]
     strategy_parts = prompts.text_strategy_parts(ctx, names)
@@ -38,18 +39,45 @@ def generate_attribute(
     )
 
     generation_parts = prompts.text_generation_parts(ctx, names, strategy)
+    return _generate_via_tool(client, name, generation_parts, session_id=session_id)
+
+
+def generate_key_features(
+    client: OpenRouterClient,
+    ctx: GenerationContext,
+    *,
+    description: str,
+    bullet_points: list[str],
+    session_id: str | None = None,
+) -> TextGeneration:
+    """Derive KEY_FEATURES from the already-generated description + bullet points.
+
+    No strategy step: this is compression of existing copy, not fresh research.
+    """
+    name = AttributeName.KEY_FEATURES
+    generation_parts = prompts.key_features_parts(
+        ctx, description=description, bullet_points=bullet_points
+    )
+    return _generate_via_tool(client, name, generation_parts, session_id=session_id)
+
+
+def _generate_via_tool(
+    client: OpenRouterClient,
+    name: AttributeName,
+    generation_parts: prompts.PromptParts,
+    *,
+    session_id: str | None,
+) -> TextGeneration:
+    """Call the generation tool once; size criteria live on the tool schema only."""
+    tool = tools.text_attributes_tool([name])
+    key = name.value
     parsed = client.call_tool(
         generation_parts.suffix,
         model=settings.openrouter_text_model,
-        tool=tools.text_attributes_tool(names),
+        tool=tool,
         cache_prefix=generation_parts.prefix,
         session_id=session_id,
     )
-
-    key = name.value
     if key not in parsed:
         raise ValueError(f"Text generation missing attribute: {key}")
-    return TextGeneration(
-        values={key: parsed[key]},
-        prompt=generation_parts.as_sent(),
-    )
+    return TextGeneration(values={key: parsed[key]}, prompt=generation_parts.as_sent())
