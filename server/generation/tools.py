@@ -11,6 +11,7 @@ from entities.catalog.attribute_enums import AttributeName
 
 GALLERY_PLAN_TOOL_NAME = "submit_gallery_plan"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
+REVISE_PROMPT_TOOL_NAME = "submit_revised_prompt"
 
 GALLERY_PLAN_TOOL: dict[str, Any] = {
     "type": "function",
@@ -64,6 +65,31 @@ GALLERY_PLAN_TOOL: dict[str, Any] = {
                 },
             },
             "required": ["shared_style", "slots"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+REVISE_PROMPT_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": REVISE_PROMPT_TOOL_NAME,
+        "description": (
+            "Submit the revised generation prompt after applying the user's improvement notes. "
+            "Call this tool with the final prompt — do not write it as free-form JSON text."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": (
+                        "Complete standalone generation prompt that incorporates the previous "
+                        "prompt and the user's requested changes."
+                    ),
+                },
+            },
+            "required": ["prompt"],
             "additionalProperties": False,
         },
     },

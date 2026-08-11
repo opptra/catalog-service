@@ -27,3 +27,15 @@ class CreateFlatfileJobRequest(BaseModel):
     template_filename: str = Field(min_length=1)
     template_content_type: str = Field(min_length=1)
     images: list[FlatfileImageFile] = Field(min_length=1)
+
+
+class RegenerateAttributeValueRequest(BaseModel):
+    """User-facing improvement notes for regenerating one attribute value version."""
+
+    improvement: str = Field(min_length=1, max_length=4000)
+
+
+class RestoreAttributeValueRequest(BaseModel):
+    """Re-promote an older version by copying it forward as a new latest version."""
+
+    version: int = Field(ge=1)

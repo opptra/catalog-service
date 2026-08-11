@@ -9,8 +9,9 @@ No hardcoded content or image templates: strategy and image direction are derive
 """
 
 import json
+from dataclasses import dataclass
 
-from entities.catalog.attribute_enums import AttributeName
+from entities.catalog.attribute_enums import AttributeDataType, AttributeName
 from generation import category
 from generation.context import GenerationContext
 
@@ -33,42 +34,91 @@ _RULES = (
 )
 
 
-def text_strategy_prompt(ctx: GenerationContext, names: list[AttributeName]) -> str:
-    """Ask for a concise, Category-Intelligence-led content strategy (not the final copy)."""
+@dataclass(frozen=True, slots=True)
+class PromptParts:
+    """Stable ``prefix`` (prompt-cacheable) + variable ``suffix`` for the API wire format."""
+
+    prefix: str
+    suffix: str
+
+    def as_sent(self) -> str:
+        """Full prompt text as the model receives it (prefix then suffix)."""
+        if not self.prefix:
+            return self.suffix
+        if not self.suffix:
+            return self.prefix
+        return f"{self.prefix}\n\n{self.suffix}"
+
+
+def text_strategy_parts(ctx: GenerationContext, names: list[AttributeName]) -> PromptParts:
+    """Strategy prompt split for caching: rules + product first; attribute/category last."""
     brief = category.text_brief(ctx.category_intelligence, names)
     attribute_list = ", ".join(name.value for name in names)
-    return (
+    attr_phrase = (
+        f"this attribute: {attribute_list}"
+        if len(names) == 1
+        else f"these attributes: {attribute_list}"
+    )
+    prefix = f"{_RULES}\n\n{_product_block(ctx.product)}"
+    suffix = (
         "You are an expert marketplace listing strategist. Produce a concise, high-signal "
-        f"content strategy for generating these attributes: {attribute_list}. Base it on the "
+        f"content strategy for generating {attr_phrase}. Base it on the "
         "Category Intelligence — positioning, differentiators, messaging, high-value keywords "
         "and customer signals (lead with what buyers praise, reassure on what they complain "
         "about). Reference the product only to tailor the angle. Output tight strategy notes in "
         "bullets, NOT final copy.\n\n"
-        f"{_RULES}\n\n"
-        f"{_category_block(brief)}\n\n"
-        f"{_product_block(ctx.product)}"
+        f"{_category_block(brief)}"
     )
+    return PromptParts(prefix=prefix, suffix=suffix)
+
+
+def text_strategy_prompt(ctx: GenerationContext, names: list[AttributeName]) -> str:
+    """Ask for a concise, Category-Intelligence-led content strategy (not the final copy)."""
+    return text_strategy_parts(ctx, names).as_sent()
+
+
+def _text_tool_instruction(names: list[AttributeName]) -> str:
+    """Tool-call instruction listing only the requested attributes and their types."""
+    keys = ", ".join(name.value for name in names)
+    field_word = "field" if len(names) == 1 else "fields"
+    type_lines: list[str] = []
+    for name in names:
+        if name == AttributeName.BULLET_POINTS:
+            type_lines.append(f'"{name.value}" must be an array of strings.')
+        else:
+            type_lines.append(f'"{name.value}" must be a string.')
+    type_note = " ".join(type_lines)
+    return (
+        f"When finished, call the submit_text_attributes tool with exactly "
+        f"{'this' if len(names) == 1 else 'these'} {field_word}: {keys}. "
+        f"{type_note} Do not write the attribute"
+        f"{'' if len(names) == 1 else 's'} as free-form JSON in the message body."
+    )
+
+
+def text_generation_parts(
+    ctx: GenerationContext, names: list[AttributeName], strategy: str
+) -> PromptParts:
+    """Generation prompt split for caching: rules + product + brand; strategy/tool last."""
+    target = f"the final {names[0].value}" if len(names) == 1 else "the final text attributes"
+    prefix = f"{_RULES}\n\n{_product_block(ctx.product)}\n\n{_brand_block(ctx.brand_dna)}"
+    suffix = (
+        "You are an expert marketplace copywriter. Using the STRATEGY and the authoritative "
+        f"PRODUCT DATA below, write {target}. Apply the Brand DNA voice and "
+        "guardrails. Every factual claim must be supported by PRODUCT DATA; when a recommended "
+        "detail is missing, adapt gracefully with neutral, high-quality copy rather than "
+        "guessing.\n\n"
+        f"STRATEGY:\n{strategy}\n\n"
+        f"{_text_tool_instruction(names)}"
+    )
+    return PromptParts(prefix=prefix, suffix=suffix)
 
 
 def text_generation_prompt(
     ctx: GenerationContext, names: list[AttributeName], strategy: str
 ) -> str:
     """Final text prompt: apply the strategy + brand voice to the authoritative product facts."""
-    keys = ", ".join(name.value for name in names)
-    return (
-        "You are an expert marketplace copywriter. Using the STRATEGY and the authoritative "
-        "PRODUCT DATA below, write the final text attributes. Apply the Brand DNA voice and "
-        "guardrails. Every factual claim must be supported by PRODUCT DATA; when a recommended "
-        "detail is missing, adapt gracefully with neutral, high-quality copy rather than "
-        "guessing.\n\n"
-        f"STRATEGY:\n{strategy}\n\n"
-        f"{_RULES}\n\n"
-        f"{_product_block(ctx.product)}\n\n"
-        f"{_brand_block(ctx.brand_dna)}\n\n"
-        f"When finished, call the submit_text_attributes tool with exactly these fields: {keys}. "
-        f'"{AttributeName.BULLET_POINTS.value}" must be an array of strings; all other fields '
-        "must be strings. Do not write the attributes as free-form JSON in the message body."
-    )
+    return text_generation_parts(ctx, names, strategy).as_sent()
 
 
 def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeName, int]]) -> str:
@@ -167,3 +217,33 @@ def _category_block(brief: dict) -> str:
 
 def _brand_block(brand_dna: str) -> str:
     return f"=== BRAND DNA (voice, personality, guardrails, restricted claims) ===\n{brand_dna}"
+
+
+def revise_generation_prompt(
+    *,
+    data_type: AttributeDataType,
+    attribute_name: AttributeName,
+    previous_prompt: str,
+    current_value: str,
+    improvement: str,
+) -> str:
+    """Ask the prompt model to produce a revised generation prompt from user feedback."""
+    kind = "image" if data_type == AttributeDataType.IMAGE else "text"
+    current_block = (
+        "CURRENT OUTPUT: an image is attached as vision input (the latest generated result)."
+        if data_type == AttributeDataType.IMAGE
+        else f"CURRENT OUTPUT (text):\n{current_value}"
+    )
+    return (
+        f"You revise marketplace {kind}-generation prompts. Attribute: {attribute_name.value}.\n"
+        "Combine the PREVIOUS PROMPT with the USER IMPROVEMENT into one complete, standalone "
+        f"{kind}-generation prompt that will be sent to the model as-is.\n"
+        "Keep everything that still applies from the previous prompt. Apply the user's requested "
+        "changes precisely. Do not invent product facts. Do not mention aspect ratio or brand-logo "
+        "placement (those are handled elsewhere).\n"
+        "When finished, call the submit_revised_prompt tool with the final prompt string — do not "
+        "write the prompt as free-form JSON in the message body.\n\n"
+        f"PREVIOUS PROMPT:\n{previous_prompt}\n\n"
+        f"{current_block}\n\n"
+        f"USER IMPROVEMENT:\n{improvement.strip()}"
+    )

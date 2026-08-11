@@ -17,6 +17,7 @@ class SkuMarketplaceAttributeValue(Base):
             "marketplace_id",
             "attribute_id",
             "slot",
+            "sku_generation_job_id",
             "version",
             name="sku_marketplace_attribute_value_slot_version_key",
         ),
@@ -28,7 +29,8 @@ class SkuMarketplaceAttributeValue(Base):
     )
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
-    # Stable across versions of the same slot — not unique alone; app mints/copies it.
+    # Deterministic per (sku, marketplace, attribute, slot, sku_generation_job).
+    # Shared across versions of that lineage — not unique alone.
     external_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     sku_id: Mapped[int] = mapped_column(ForeignKey("sku_master.id"), nullable=False)
     marketplace_id: Mapped[int] = mapped_column(ForeignKey("marketplace.id"), nullable=False)
@@ -36,6 +38,8 @@ class SkuMarketplaceAttributeValue(Base):
     slot: Mapped[int] = mapped_column(Integer, nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
+    # Exact prompt that produced this value version (null for rows written before this column).
+    prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     sku_generation_job_id: Mapped[int] = mapped_column(
         ForeignKey("sku_generation_job.id"),
         nullable=False,

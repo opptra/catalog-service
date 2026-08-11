@@ -11,6 +11,7 @@ class SkuGenerationJobAttributeValueResponse(BaseModel):
     slot: int
     version: int
     value: str
+    prompt: str | None = None
 
 
 class SkuGenerationJobExecutionResponse(BaseModel):
