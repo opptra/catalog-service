@@ -34,14 +34,17 @@ _RULES = (
 )
 
 
-# Per-attribute role guidance appended to text generation prompts. Numeric limits
-# are NOT written here — they come from tools.TEXT_LIMITS via tools.limit_sentence
-# so each number exists in exactly one place.
+# Per-attribute role guidance appended to text generation prompts. Numeric size
+# limits are NOT written here — they live only on the submit_text_attributes
+# JSON tool schema (tools.TEXT_LIMITS → text_attributes_tool).
 _ATTRIBUTE_GUIDANCE: dict[AttributeName, str] = {
     AttributeName.TITLE: (
         "Order: brand first, then the primary search keyword, then one real "
         "differentiator, then a variant (colour/size/pack) if it fits. Title Case, "
-        "no promotional or subjective words, no ALL-CAPS words."
+        "no promotional or subjective words, no ALL-CAPS words. Compose a COMPLETE "
+        "title that fits the character cap — never truncate mid-word or mid-phrase. "
+        "If something will not fit, drop the lowest-priority trailing element "
+        "(usually the variant) so the title still ends on a finished, natural phrase."
     ),
     AttributeName.ITEM_HIGHLIGHTS: (
         "Amazon's Item Highlights field is shown directly beneath the title in search "
@@ -56,24 +59,17 @@ _ATTRIBUTE_GUIDANCE: dict[AttributeName, str] = {
     ),
     AttributeName.BACKEND_KEYWORDS: (
         "Amazon's hidden backend search terms field — never shown to shoppers, indexed "
-        "for search only. Space-separated terms, no commas or semicolons, no brand or "
-        "competitor names, no words already in the title. Prefer long-tail and "
-        "regional/vernacular synonyms shoppers search for but that do not fit natural "
-        "listing copy."
+        "for search only. Return an ARRAY of terms (one term or short phrase per item). "
+        "No commas or semicolons inside an item, no brand or competitor names, no words "
+        "already in the title. Prefer long-tail and regional/vernacular synonyms shoppers "
+        "search for but that do not fit natural listing copy."
     ),
 }
 
 
 def attribute_rules(name: AttributeName) -> str:
-    """Guidance + hard-limit sentence for one text attribute ('' when none apply)."""
-    lines: list[str] = []
-    guidance = _ATTRIBUTE_GUIDANCE.get(name)
-    if guidance:
-        lines.append(guidance)
-    limit = tools.limit_sentence(name)
-    if limit:
-        lines.append(limit)
-    return " ".join(lines)
+    """Role guidance for one text attribute ('' when none apply). Size limits are on the tool."""
+    return _ATTRIBUTE_GUIDANCE.get(name, "")
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,15 +135,13 @@ def _text_tool_instruction(names: list[AttributeName]) -> str:
 
 
 def _attribute_rules_block(names: list[AttributeName]) -> str:
-    """ATTRIBUTE RULES section listing guidance + hard limits per requested attribute."""
+    """ATTRIBUTE RULES section listing role guidance per requested attribute."""
     lines = [
         f"- {name.value}: {rules}" for name in names if (rules := attribute_rules(name))
     ]
     if not lines:
         return ""
-    return "ATTRIBUTE RULES (hard requirements, checked in code after generation):\n" + "\n".join(
-        lines
-    )
+    return "ATTRIBUTE RULES:\n" + "\n".join(lines)
 
 
 def text_generation_parts(

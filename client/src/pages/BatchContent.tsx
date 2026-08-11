@@ -59,20 +59,15 @@ function textSectionRank(name: string): number {
   return index === -1 ? TEXT_SECTION_ORDER.length : index
 }
 
-/** Amazon hard limits (2026-07-27 title policy) — mirrors server generation/tools.py TEXT_LIMITS. */
+/** Field limits for UI counters — mirrors server generation/tools.py TEXT_LIMITS. */
 const TEXT_FIELD_LIMITS: Record<
   string,
-  { maxChars?: number; maxBytes?: number; perItemMaxChars?: number }
+  { maxChars?: number; perItemMaxChars?: number }
 > = {
   TITLE: { maxChars: 75 },
   ITEM_HIGHLIGHTS: { maxChars: 125 },
   BULLET_POINTS: { perItemMaxChars: 200 },
   KEY_FEATURES: { perItemMaxChars: 100 },
-  BACKEND_KEYWORDS: { maxBytes: 249 },
-}
-
-function utf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).length
 }
 
 type ImageModalSource =
@@ -475,7 +470,8 @@ function BatchContent() {
     const label = formatAttributeLabel(attr.name)
     const isList = LIST_TEXT_NAMES.has(attr.name)
     const isBackendKeywords = attr.name === 'BACKEND_KEYWORDS'
-    const listItems = isList && rawValue ? parseBulletList(rawValue) : []
+    const listItems =
+      (isList || isBackendKeywords) && rawValue ? parseBulletList(rawValue) : []
     const expanded = expandedText[attr.name] === true
     const canRegen =
       slot?.value_external_id != null && slot.version != null && Boolean(slot.value)
@@ -486,14 +482,9 @@ function BatchContent() {
     if (rawValue && limit?.maxChars != null) {
       counter = `${rawValue.length} / ${limit.maxChars}`
       overLimit = rawValue.length > limit.maxChars
-    } else if (rawValue && limit?.maxBytes != null) {
-      const bytes = utf8Bytes(rawValue)
-      counter = `${bytes} / ${limit.maxBytes} bytes`
-      overLimit = bytes > limit.maxBytes
     }
 
-    const keywordTerms =
-      isBackendKeywords && rawValue ? rawValue.split(/\s+/).filter(Boolean) : []
+    const keywordTerms = isBackendKeywords ? listItems : []
 
     return (
       <section key={attr.attribute_external_id} className="content-section">

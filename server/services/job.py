@@ -415,23 +415,29 @@ def retry_sku_generation_job(
     Only a FAILED job is retryable: while the Cloud Workflow is still executing
     the job is PENDING, and retrying then would run two generations against the
     same task map (duplicate renders, conflicting version bumps, last-writer-wins
-    task states). Flipping to PENDING immediately also rejects a second
-    concurrent retry of the same job.
+    task states). The FAILED→PENDING flip is a single conditional UPDATE so two
+    concurrent retries cannot both claim the same job.
 
     The Cloud Workflow that would normally mark the parent job COMPLETED has
     already finished by the time a user retries, so when this retry completes
     the last incomplete sibling, the parent is marked COMPLETED here.
     """
-    sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
-    if sku_generation_job is None:
-        raise SkuGenerationJobNotFoundError(str(external_id))
-    if sku_generation_job.status != SkuGenerationJobStatus.FAILED.value:
+    claimed = sku_generation_job_repo.update_status_if(
+        session,
+        external_id,
+        expected_status=SkuGenerationJobStatus.FAILED.value,
+        new_status=SkuGenerationJobStatus.PENDING.value,
+    )
+    if not claimed:
+        sku_generation_job = sku_generation_job_repo.get_by_external_id(
+            session, external_id
+        )
+        if sku_generation_job is None:
+            raise SkuGenerationJobNotFoundError(str(external_id))
         raise SkuGenerationJobRetryConflictError(
             f"sku_generation_job {external_id} is {sku_generation_job.status}, "
             "only FAILED jobs can be retried"
         )
-    sku_generation_job.status = SkuGenerationJobStatus.PENDING.value
-    sku_generation_job_repo.save(session, sku_generation_job)
 
     summary = execute_sku_generation_job(session, client, gcs, external_id)
 

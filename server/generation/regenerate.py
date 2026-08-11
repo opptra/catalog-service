@@ -5,7 +5,6 @@ Flow: load previous prompt + current value → revise prompt → re-render (imag
 """
 
 import json
-import logging
 from dataclasses import dataclass
 
 from core.clients.openrouter import OpenRouterClient, ReferenceImage
@@ -21,9 +20,6 @@ from generation.images import (
     _references,
     resolve_image_model,
 )
-
-logger = logging.getLogger(__name__)
-
 
 @dataclass(frozen=True, slots=True)
 class RevisedPrompt:
@@ -128,48 +124,17 @@ def regenerate_text(
 ) -> TextRegeneration:
     """Generate a single text attribute from the revised prompt via a forced tool call.
 
-    Enforces the same TEXT_LIMITS as first generation: one repair retry with the
-    exact violations, then minimum-length misses are accepted with a warning while
-    Amazon maximums stay hard.
+    Size limits are defined only on the submit_text_attributes JSON tool schema.
     """
-    limit_sentence = tools.limit_sentence(name)
-    base_prompt = (
-        revised_prompt if limit_sentence is None else f"{revised_prompt}\n\n{limit_sentence}"
-    )
     tool = tools.text_attributes_tool([name])
-    prompt_text = base_prompt
-    raw = None
-    violations: list[tools.Violation] = []
-    for _attempt in range(2):
-        parsed = client.call_tool(
-            prompt_text,
-            model=settings.openrouter_text_model,
-            tool=tool,
-        )
-        raw = parsed.get(name.value)
-        if raw is None:
-            raise ValueError(f"Text regeneration missing attribute: {name.value}")
-        violations = tools.validate_text_value(name, raw)
-        if not violations:
-            break
-        prompt_text = (
-            f"{base_prompt}\n\n"
-            "YOUR PREVIOUS ATTEMPT FAILED THESE CHECKS:\n"
-            + "\n".join(f"- {violation.message}" for violation in violations)
-            + "\nRewrite to satisfy every check and resubmit via the tool."
-        )
-    if violations:
-        if all(violation.is_minimum for violation in violations):
-            logger.warning(
-                "Accepting regenerated %s below minimum after retry: %s",
-                name.value,
-                tools.violation_messages(violations),
-            )
-        else:
-            raise ValueError(
-                "Text regeneration violated limits after retry: "
-                f"{tools.violation_messages(violations)}"
-            )
+    parsed = client.call_tool(
+        revised_prompt,
+        model=settings.openrouter_text_model,
+        tool=tool,
+    )
+    raw = parsed.get(name.value)
+    if raw is None:
+        raise ValueError(f"Text regeneration missing attribute: {name.value}")
     # List attributes persist as JSON arrays (same storage form as first generation).
     if name in tools.LIST_TEXT_ATTRIBUTES:
         value = json.dumps(raw if isinstance(raw, list) else [], ensure_ascii=False)

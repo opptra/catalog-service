@@ -97,31 +97,30 @@ REVISE_PROMPT_TOOL: dict[str, Any] = {
 }
 
 
-# --- Amazon text-attribute limits (single source of truth) -------------------
+# --- Amazon text-attribute limits (single source of truth for the JSON tool) --
 #
-# TEXT_LIMITS drives all three layers so a number is never written twice:
-# schema hints in ``text_attributes_tool`` (best-effort — providers do not
-# reliably enforce maxLength/maxItems on tool arguments), the limit sentence in
-# generation prompts, and the hard post-generation check in
-# ``validate_text_value``. ``max_bytes`` exists because Amazon's backend search
-# terms cap is 249 UTF-8 BYTES, which JSON Schema cannot express at all —
-# that limit is only ever enforceable in code.
+# TEXT_LIMITS exists only to build ``text_attributes_tool`` schema constraints
+# (minLength/maxLength/minItems/maxItems + property descriptions). Do not
+# restate these numbers in prompts or re-check them in Python — the JSON tool
+# is the criteria definition the model must satisfy.
+#
+# ``item_count`` means exactly N items (minItems = maxItems = N).
+# ``min_items`` / ``max_items`` allow a range (e.g. backend keywords 10–15).
 
 
 @dataclass(frozen=True, slots=True)
 class TextLimit:
     max_chars: int | None = None
     min_chars: int | None = None
-    max_bytes: int | None = None
-    min_bytes: int | None = None
     item_count: int | None = None
+    min_items: int | None = None
+    max_items: int | None = None
     per_item_max_chars: int | None = None
     per_item_min_chars: int | None = None
 
 
 # Amazon marketplace limits (title policy effective 2026-07-27). Maximums are
-# Amazon's hard caps; minimums are ours — copy should fill the available space,
-# so finishing far under the cap fails validation and triggers a repair retry.
+# Amazon's hard caps; minimums are ours — copy should fill the available space.
 TEXT_LIMITS: dict[AttributeName, TextLimit] = {
     AttributeName.TITLE: TextLimit(max_chars=75, min_chars=60),
     AttributeName.ITEM_HIGHLIGHTS: TextLimit(max_chars=125, min_chars=100),
@@ -131,36 +130,41 @@ TEXT_LIMITS: dict[AttributeName, TextLimit] = {
     AttributeName.KEY_FEATURES: TextLimit(
         item_count=5, per_item_max_chars=100, per_item_min_chars=80
     ),
-    AttributeName.BACKEND_KEYWORDS: TextLimit(max_bytes=249, min_bytes=200),
+    AttributeName.BACKEND_KEYWORDS: TextLimit(min_items=10, max_items=15),
 }
 
-# Attributes whose value is a list of strings (schema + persistence + validation).
-LIST_TEXT_ATTRIBUTES = frozenset({AttributeName.BULLET_POINTS, AttributeName.KEY_FEATURES})
+# Attributes whose value is a list of strings (schema + persistence).
+LIST_TEXT_ATTRIBUTES = frozenset(
+    {
+        AttributeName.BULLET_POINTS,
+        AttributeName.KEY_FEATURES,
+        AttributeName.BACKEND_KEYWORDS,
+    }
+)
 
 
-def limit_sentence(name: AttributeName) -> str | None:
-    """One human-readable sentence stating the hard limits for ``name`` (for prompts)."""
-    limit = TEXT_LIMITS.get(name)
-    if limit is None:
-        return None
+def _limit_description(limit: TextLimit) -> str:
+    """Human-readable limit summary embedded in the tool property description."""
     parts: list[str] = []
     if limit.max_chars is not None:
         if limit.min_chars is not None:
             parts.append(
-                f"between {limit.min_chars} and {limit.max_chars} characters "
-                "including spaces"
+                f"between {limit.min_chars} and {limit.max_chars} characters including spaces"
             )
         else:
             parts.append(f"at most {limit.max_chars} characters including spaces")
-    if limit.max_bytes is not None:
-        if limit.min_bytes is not None:
-            parts.append(
-                f"between {limit.min_bytes} and {limit.max_bytes} bytes when UTF-8 encoded"
-            )
-        else:
-            parts.append(f"at most {limit.max_bytes} bytes when UTF-8 encoded")
     if limit.item_count is not None:
         parts.append(f"exactly {limit.item_count} items")
+    elif limit.min_items is not None or limit.max_items is not None:
+        if limit.min_items is not None and limit.max_items is not None:
+            if limit.min_items == limit.max_items:
+                parts.append(f"exactly {limit.min_items} items")
+            else:
+                parts.append(f"between {limit.min_items} and {limit.max_items} items")
+        elif limit.max_items is not None:
+            parts.append(f"at most {limit.max_items} items")
+        else:
+            parts.append(f"at least {limit.min_items} items")
     if limit.per_item_max_chars is not None:
         if limit.per_item_min_chars is not None:
             parts.append(
@@ -169,11 +173,13 @@ def limit_sentence(name: AttributeName) -> str | None:
             )
         else:
             parts.append(f"each item at most {limit.per_item_max_chars} characters")
-    sentence = f"HARD LIMIT for {name.value}: " + ", ".join(parts) + "."
+    if not parts:
+        return ""
+    sentence = "HARD LIMIT: " + ", ".join(parts) + "."
     has_minimum = (
         limit.min_chars is not None
-        or limit.min_bytes is not None
         or limit.per_item_min_chars is not None
+        or (limit.min_items is not None and limit.item_count is None)
     )
     if has_minimum:
         sentence += (
@@ -183,109 +189,47 @@ def limit_sentence(name: AttributeName) -> str | None:
     return sentence
 
 
-@dataclass(frozen=True, slots=True)
-class Violation:
-    """One failed limit check. Maximums are Amazon hard caps (never persist over
-    them); minimums are our quality floors (retry, then accept with a warning)."""
-
-    message: str
-    is_minimum: bool = False
-
-
-def violation_messages(violations: list["Violation"]) -> str:
-    return "; ".join(violation.message for violation in violations)
-
-
-def validate_text_value(name: AttributeName, value: Any) -> list[Violation]:
-    """Violations for ``value`` against TEXT_LIMITS; empty list = passes.
-
-    The authoritative enforcement layer — schema hints are advisory only.
-    Checks the structured value (real list for list attributes), so item counts
-    and per-item lengths are validated before any serialization.
-    """
-    limit = TEXT_LIMITS.get(name)
-    if limit is None:
-        return []
-
-    violations: list[Violation] = []
-    if name in LIST_TEXT_ATTRIBUTES:
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-            return [Violation(f"{name.value} must be a list of strings")]
-        if limit.item_count is not None and len(value) != limit.item_count:
-            violations.append(
-                Violation(f"{name.value} has {len(value)} items, expected {limit.item_count}")
-            )
-        for index, item in enumerate(value, start=1):
-            if limit.per_item_max_chars is not None and len(item) > limit.per_item_max_chars:
-                violations.append(
-                    Violation(
-                        f"{name.value} item {index} is {len(item)} characters, "
-                        f"maximum {limit.per_item_max_chars}"
-                    )
-                )
-            if limit.per_item_min_chars is not None and len(item) < limit.per_item_min_chars:
-                violations.append(
-                    Violation(
-                        f"{name.value} item {index} is {len(item)} characters, "
-                        f"minimum {limit.per_item_min_chars} — expand it to fill the space",
-                        is_minimum=True,
-                    )
-                )
-        return violations
-
-    if not isinstance(value, str):
-        return [Violation(f"{name.value} must be a string")]
-    if limit.max_chars is not None and len(value) > limit.max_chars:
-        violations.append(
-            Violation(f"{name.value} is {len(value)} characters, maximum {limit.max_chars}")
-        )
-    if limit.min_chars is not None and len(value) < limit.min_chars:
-        violations.append(
-            Violation(
-                f"{name.value} is {len(value)} characters, minimum {limit.min_chars} "
-                "— expand it to fill the space",
-                is_minimum=True,
-            )
-        )
-    if limit.max_bytes is not None or limit.min_bytes is not None:
-        size = len(value.encode("utf-8"))
-        if limit.max_bytes is not None and size > limit.max_bytes:
-            violations.append(
-                Violation(f"{name.value} is {size} bytes, maximum {limit.max_bytes}")
-            )
-        if limit.min_bytes is not None and size < limit.min_bytes:
-            violations.append(
-                Violation(
-                    f"{name.value} is {size} bytes, minimum {limit.min_bytes} "
-                    "— add more relevant search terms",
-                    is_minimum=True,
-                )
-            )
-    return violations
-
-
 def _text_property_schema(name: AttributeName) -> dict[str, Any]:
-    """JSON-schema property for one text attribute, with best-effort limit hints."""
+    """JSON-schema property for one text attribute, with limit criteria on the tool."""
     limit = TEXT_LIMITS.get(name)
     if name in LIST_TEXT_ATTRIBUTES:
         items: dict[str, Any] = {"type": "string"}
+        if name == AttributeName.BACKEND_KEYWORDS:
+            description = (
+                f"{name.value} as an array of search-term strings "
+                "(one term or short phrase per item; no commas inside an item)."
+            )
+        else:
+            description = f"{name.value} as an array of strings."
         schema: dict[str, Any] = {
             "type": "array",
             "items": items,
-            "description": f"{name.value} as an array of strings.",
+            "description": description,
         }
         if limit is not None:
+            limit_note = _limit_description(limit)
+            if limit_note:
+                schema["description"] = f"{description} {limit_note}"
             if limit.item_count is not None:
                 schema["minItems"] = limit.item_count
                 schema["maxItems"] = limit.item_count
+            else:
+                if limit.min_items is not None:
+                    schema["minItems"] = limit.min_items
+                if limit.max_items is not None:
+                    schema["maxItems"] = limit.max_items
             if limit.per_item_max_chars is not None:
                 items["maxLength"] = limit.per_item_max_chars
             if limit.per_item_min_chars is not None:
                 items["minLength"] = limit.per_item_min_chars
         return schema
 
-    schema = {"type": "string", "description": f"Final copy for {name.value}."}
+    description = f"Final copy for {name.value}."
+    schema = {"type": "string", "description": description}
     if limit is not None:
+        limit_note = _limit_description(limit)
+        if limit_note:
+            schema["description"] = f"{description} {limit_note}"
         if limit.max_chars is not None:
             schema["maxLength"] = limit.max_chars
         if limit.min_chars is not None:
