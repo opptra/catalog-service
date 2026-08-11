@@ -6,6 +6,9 @@ from core.auth import SecureAPIRouter, internal_api
 from core.deps import CatalogSessionDep, CurrentUserDep, GcsDep, OpenRouterDep, WorkflowsDep
 from core.exceptions import (
     AttributeNotFoundError,
+    AttributeValueNotFoundError,
+    AttributeValuePromptMissingError,
+    AttributeValueRegenerationError,
     BrandDnaMissingError,
     BrandNotFoundError,
     CategoryIntelligenceMissingError,
@@ -25,6 +28,8 @@ from core.exceptions import (
 from dto.request.job import (
     CreateFlatfileJobRequest,
     CreateJobRequest,
+    RegenerateAttributeValueRequest,
+    RestoreAttributeValueRequest,
 )
 from dto.response.job import (
     CompleteFlatfileJobResponse,
@@ -35,6 +40,7 @@ from dto.response.job import (
 from dto.response.job_status import (
     JobListResponse,
     JobStatusResponse,
+    RegenerateAttributeValueResponse,
     SkuGenerationJobContentResponse,
 )
 from dto.response.sku_generation_job import SkuGenerationJobExecutionResponse
@@ -87,6 +93,80 @@ def get_sku_generation_job_content(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return SkuGenerationJobContentResponse.model_validate(content)
+
+
+@router.post(
+    "/attribute-values/{external_id}/regenerate",
+    response_model=RegenerateAttributeValueResponse,
+)
+def regenerate_attribute_value(
+    external_id: UUID,
+    body: RegenerateAttributeValueRequest,
+    _user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+    openrouter: OpenRouterDep,
+    gcs: GcsDep,
+) -> RegenerateAttributeValueResponse:
+    """Revise the stored prompt with user notes and write a new value version."""
+    try:
+        regenerated = job_service.regenerate_attribute_value(
+            catalog_session,
+            openrouter,
+            gcs,
+            value_external_id=external_id,
+            improvement=body.improvement,
+        )
+    except AttributeValueNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AttributeValuePromptMissingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (
+        AttributeNotFoundError,
+        SkuGenerationJobNotFoundError,
+        JobNotFoundError,
+        BrandNotFoundError,
+        ProductNotFoundError,
+    ) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CategoryIntelligenceMissingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except BrandDnaMissingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AttributeValueRegenerationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except GcsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return RegenerateAttributeValueResponse.model_validate(regenerated)
+
+
+@router.post(
+    "/attribute-values/{external_id}/restore",
+    response_model=RegenerateAttributeValueResponse,
+)
+def restore_attribute_value(
+    external_id: UUID,
+    body: RestoreAttributeValueRequest,
+    _user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+    gcs: GcsDep,
+) -> RegenerateAttributeValueResponse:
+    """Copy an older version forward as the new latest (same external_id)."""
+    try:
+        restored = job_service.restore_attribute_value_version(
+            catalog_session,
+            gcs,
+            value_external_id=external_id,
+            version=body.version,
+        )
+    except AttributeValueNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (AttributeNotFoundError, SkuGenerationJobNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GcsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return RegenerateAttributeValueResponse.model_validate(restored)
 
 
 @router.get("/{external_id}/status", response_model=JobStatusResponse)

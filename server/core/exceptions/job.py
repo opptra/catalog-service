@@ -38,3 +38,21 @@ class FlatfileUploadIncompleteError(Exception):
     """Required GCS objects for the flatfile job are missing."""
 
     pass
+
+
+class AttributeValueNotFoundError(Exception):
+    """No sku_marketplace_attribute_value exists for the given external_id."""
+
+    pass
+
+
+class AttributeValuePromptMissingError(Exception):
+    """Latest value row has no stored prompt, so regeneration cannot revise it."""
+
+    pass
+
+
+class AttributeValueRegenerationError(Exception):
+    """Regeneration failed while revising the prompt or producing a new value."""
+
+    pass

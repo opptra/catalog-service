@@ -7,6 +7,9 @@ from core.exceptions.gallery import GalleryPlanError
 from core.exceptions.gcs import GcsError
 from core.exceptions.job import (
     AttributeNotFoundError,
+    AttributeValueNotFoundError,
+    AttributeValuePromptMissingError,
+    AttributeValueRegenerationError,
     BrandNotFoundError,
     FlatfileUploadIncompleteError,
     FlatfileValidationError,
@@ -38,6 +41,9 @@ __all__ = [
     "AmbiguousCategoryError",
     "ApplicationNotFoundError",
     "AttributeNotFoundError",
+    "AttributeValueNotFoundError",
+    "AttributeValuePromptMissingError",
+    "AttributeValueRegenerationError",
     "BrandAccessDeniedError",
     "BrandDnaMissingError",
     "BrandNotFoundError",

@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,9 @@ from core.clients.workflows import WorkflowsClient
 from core.config import settings
 from core.exceptions import (
     AttributeNotFoundError,
+    AttributeValueNotFoundError,
+    AttributeValuePromptMissingError,
+    AttributeValueRegenerationError,
     BrandNotFoundError,
     CategoryNotFoundError,
     FlatfileUploadIncompleteError,
@@ -48,7 +51,7 @@ from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.sku_generation_job import SkuGenerationJob
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from entities.catalog.sku_master import SkuMaster
-from generation import gallery, images, inputs, text
+from generation import gallery, images, inputs, regenerate, text
 from generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
 from repositories.catalog import brand as brand_repo
@@ -116,21 +119,23 @@ def _persist_attribute_value(
     name: str,
     slot: int,
     value: str,
+    prompt: str | None,
 ) -> dict[str, Any]:
-    """Insert a new versioned attribute value row; never update in place."""
-    latest = attribute_value_repo.get_latest_by_slot(
-        session,
+    """Insert a new versioned attribute value row; never update in place.
+
+    ``external_id`` is deterministic from
+    (sku, marketplace, attribute, slot, sku_generation_job). Version bumps use that
+    id as the lineage key — never a cross-job slot lookup.
+    """
+    external_id = attribute_value_repo.lineage_external_id(
         sku_id=sku_generation_job.sku_id,
         marketplace_id=marketplace_id,
         attribute_id=attribute_id,
         slot=slot,
+        sku_generation_job_id=sku_generation_job.id,
     )
-    if latest is None:
-        external_id = uuid4()
-        version = 1
-    else:
-        external_id = latest.external_id
-        version = latest.version + 1
+    latest = attribute_value_repo.get_latest_by_external_id(session, external_id)
+    version = 1 if latest is None else latest.version + 1
 
     row = attribute_value_repo.save(
         session,
@@ -142,6 +147,7 @@ def _persist_attribute_value(
             slot=slot,
             version=version,
             value=value,
+            prompt=prompt,
             sku_generation_job_id=sku_generation_job.id,
         ),
     )
@@ -152,6 +158,7 @@ def _persist_attribute_value(
         "slot": row.slot,
         "version": row.version,
         "value": row.value,
+        "prompt": row.prompt,
     }
 
 
@@ -263,9 +270,7 @@ def create_job(
         },
     )
 
-    pk_to_business_sku_id = {
-        sku_by_business_id[sku_id].id: sku_id for sku_id in sku_ids
-    }
+    pk_to_business_sku_id = {sku_by_business_id[sku_id].id: sku_id for sku_id in sku_ids}
 
     return {
         "external_id": job.external_id,
@@ -404,7 +409,7 @@ def _run_text(
     text_attrs: list[AttributeMaster],
     tasks: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Generate incomplete text attributes; persist each value then mark tasks COMPLETED."""
+    """Generate incomplete text attributes one-by-one; persist value and task status per attr."""
     pending = [
         attribute
         for attribute in text_attrs
@@ -413,45 +418,41 @@ def _run_text(
     if not pending:
         return []
 
-    names = [AttributeName(attribute.name) for attribute in pending]
-    try:
-        generation = text.generate_attributes(client, ctx, names)
-    except Exception:  # noqa: BLE001 — mark failed, let images still run
-        for name in names:
+    session_id = str(sku_generation_job.external_id)
+    persisted: list[dict[str, Any]] = []
+    for attribute in pending:
+        name = AttributeName(attribute.name)
+        try:
+            generation = text.generate_attribute(client, ctx, name, session_id=session_id)
+            raw = generation.values.get(name.value)
+            value = "" if raw is None else str(raw)
+            persisted.append(
+                _persist_attribute_value(
+                    session,
+                    sku_generation_job=sku_generation_job,
+                    marketplace_id=marketplace_id,
+                    attribute_id=attribute.id,
+                    name=name.value,
+                    slot=1,
+                    value=value,
+                    prompt=generation.prompt,
+                )
+            )
+            tasks[name.value] = TaskStatus.COMPLETED
+        except Exception:  # noqa: BLE001 — mark failed, continue other attrs / images
             tasks[name.value] = TaskStatus.FAILED
         _persist_tasks(session, sku_generation_job, tasks)
-        return []
-
-    persisted: list[dict[str, Any]] = []
-    by_name = {AttributeName(attribute.name).value: attribute for attribute in pending}
-    for name in names:
-        attribute = by_name[name.value]
-        raw = generation.values.get(name.value)
-        value = "" if raw is None else str(raw)
-        persisted.append(
-            _persist_attribute_value(
-                session,
-                sku_generation_job=sku_generation_job,
-                marketplace_id=marketplace_id,
-                attribute_id=attribute.id,
-                name=name.value,
-                slot=1,
-                value=value,
-            )
-        )
-        tasks[name.value] = TaskStatus.COMPLETED
-    _persist_tasks(session, sku_generation_job, tasks)
     return persisted
 
 
 # Fixed aspect ratio per image type, decided HERE — never taken from the AI plan. A+ content
-# images are wide banners (Amazon's standard A+ header module is 1464x600, ~21:9 is the closest
-# Gemini-supported ratio); every standard gallery image (hero/infographic/lifestyle) is square 1:1.
+# images target ~970x600 min (~3:2 is the closest GPT-supported ratio); every standard gallery
+# image (hero/infographic/lifestyle) is square 1:1.
 _ASPECT_RATIO_BY_TYPE: dict[AttributeName, str] = {
     AttributeName.HERO: "1:1",
     AttributeName.INFOGRAPHIC: "1:1",
     AttributeName.LIFESTYLE: "1:1",
-    AttributeName.A_PLUS: "21:9",
+    AttributeName.A_PLUS: "3:2",
 }
 _DEFAULT_ASPECT_RATIO = "1:1"
 
@@ -544,6 +545,7 @@ def _run_images(
                         name=name.value,
                         slot=slot,
                         value=uploaded.gs_uri,
+                        prompt=slot_plans[(name, slot)].prompt,
                     )
                 )
             except Exception as exc:  # noqa: BLE001 — one failed slot fails the attribute
@@ -1051,6 +1053,7 @@ def get_sku_generation_job_content(
                     "version": row.version if row is not None else None,
                     "value": value,
                     "value_is_signed_url": value_is_signed_url,
+                    "prompt": row.prompt if row is not None else None,
                 }
             )
 
@@ -1066,4 +1069,256 @@ def get_sku_generation_job_content(
         "marketplace_external_id": marketplace.external_id if marketplace else None,
         "marketplace_name": marketplace.name if marketplace else None,
         "attributes": attributes,
+    }
+
+
+def regenerate_attribute_value(
+    session: Session,
+    client: OpenRouterClient,
+    gcs: GcsClient,
+    *,
+    value_external_id: UUID,
+    improvement: str,
+) -> dict[str, Any]:
+    """Revise the stored prompt with user notes, regenerate, and insert a new version.
+
+    Keeps the same ``external_id`` and bumps ``version``. IMAGE regenerations attach the
+    current output (plus product references); TEXT regenerations use the current copy.
+    """
+    latest = attribute_value_repo.get_latest_by_external_id(session, value_external_id)
+    if latest is None:
+        raise AttributeValueNotFoundError(f"attribute value not found: {value_external_id}")
+
+    previous_prompt = (latest.prompt or "").strip()
+    if not previous_prompt:
+        raise AttributeValuePromptMissingError(
+            f"attribute value {value_external_id} has no stored prompt to revise"
+        )
+
+    improvement_text = improvement.strip()
+    if not improvement_text:
+        raise AttributeValueRegenerationError("improvement text is required")
+
+    master = attribute_master_repo.get_by_id(session, latest.attribute_id)
+    if master is None:
+        raise AttributeNotFoundError(f"attribute_id={latest.attribute_id}")
+
+    sku_generation_job = sku_generation_job_repo.get_by_id(session, latest.sku_generation_job_id)
+    if sku_generation_job is None:
+        raise SkuGenerationJobNotFoundError(f"sku_generation_job_id={latest.sku_generation_job_id}")
+
+    job = job_repo.get_by_id(session, sku_generation_job.job_id)
+    if job is None or job.job_type != JobType.GENERATION.value:
+        raise JobNotFoundError(f"job_id={sku_generation_job.job_id}")
+    if job.marketplace_id is None:
+        raise JobNotFoundError(f"job {job.external_id} is missing marketplace_id")
+    if job.brand_id is None:
+        raise BrandNotFoundError(f"job {job.external_id} is missing brand_id")
+
+    brand = brand_repo.get_by_external_id(session, job.brand_id)
+    if brand is None:
+        raise BrandNotFoundError(f"brand_external_id={job.brand_id}")
+
+    sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
+    if sku is None or sku.deleted_at is not None:
+        raise ProductNotFoundError(f"No live SKU for id={sku_generation_job.sku_id}")
+
+    name = AttributeName(master.name)
+    data_type = AttributeDataType(master.data_type)
+    ctx = inputs.load_context(
+        session,
+        gcs,
+        sku=sku,
+        brand_id=brand.id,
+        marketplace_id=job.marketplace_id,
+    )
+
+    current_image_url: str | None = None
+    current_value_for_revision = latest.value
+    revision_image_urls: list[str] | None = None
+
+    if data_type == AttributeDataType.IMAGE:
+        if not latest.value.startswith("gs://"):
+            raise AttributeValueRegenerationError(
+                f"attribute value {value_external_id} is not a GCS image URI"
+            )
+        current_image_url = gcs.signed_url_for_gs_uri(
+            latest.value, expiration_seconds=_SIGNED_URL_TTL_SECONDS
+        )
+        current_value_for_revision = "(current generated image attached)"
+        revision_image_urls = [current_image_url]
+
+    try:
+        revised = regenerate.revise_prompt(
+            client,
+            data_type=data_type,
+            attribute_name=name,
+            previous_prompt=previous_prompt,
+            current_value=current_value_for_revision,
+            improvement=improvement_text,
+            image_urls=revision_image_urls,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface as domain error
+        raise AttributeValueRegenerationError(f"prompt revision failed: {exc}") from exc
+
+    if data_type == AttributeDataType.IMAGE:
+        assert current_image_url is not None
+        try:
+            generation = regenerate.regenerate_image(
+                client,
+                ctx,
+                image_prompt=revised.prompt,
+                aspect_ratio=_aspect_ratio_for(name),
+                current_image_url=current_image_url,
+            )
+            uploaded = gcs.upload_bytes(
+                generation.content,
+                (
+                    f"jobs/{job.external_id}/sku_generation_jobs/"
+                    f"{sku_generation_job.external_id}/images/"
+                    f"{name.value}_{latest.slot}_v{latest.version + 1}"
+                    f"{files.extension_for_image_content_type(generation.content_type)}"
+                ),
+                content_type=generation.content_type,
+            )
+            persisted = _persist_attribute_value(
+                session,
+                sku_generation_job=sku_generation_job,
+                marketplace_id=latest.marketplace_id,
+                attribute_id=master.id,
+                name=name.value,
+                slot=latest.slot,
+                value=uploaded.gs_uri,
+                prompt=revised.prompt,
+            )
+            signed = gcs.signed_url_for_gs_uri(
+                uploaded.gs_uri, expiration_seconds=_SIGNED_URL_TTL_SECONDS
+            )
+            return {
+                "value_external_id": persisted["external_id"],
+                "attribute_external_id": master.external_id,
+                "name": name.value,
+                "data_type": data_type.value,
+                "slot": latest.slot,
+                "version": persisted["version"],
+                "value": signed,
+                "value_is_signed_url": True,
+                "prompt": revised.prompt,
+            }
+        except AttributeValueRegenerationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise AttributeValueRegenerationError(f"image regeneration failed: {exc}") from exc
+
+    try:
+        text_result = regenerate.regenerate_text(
+            client,
+            name=name,
+            revised_prompt=revised.prompt,
+        )
+        persisted = _persist_attribute_value(
+            session,
+            sku_generation_job=sku_generation_job,
+            marketplace_id=latest.marketplace_id,
+            attribute_id=master.id,
+            name=name.value,
+            slot=latest.slot,
+            value=text_result.value,
+            prompt=text_result.prompt,
+        )
+        return {
+            "value_external_id": persisted["external_id"],
+            "attribute_external_id": master.external_id,
+            "name": name.value,
+            "data_type": data_type.value,
+            "slot": latest.slot,
+            "version": persisted["version"],
+            "value": text_result.value,
+            "value_is_signed_url": False,
+            "prompt": text_result.prompt,
+        }
+    except AttributeValueRegenerationError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise AttributeValueRegenerationError(f"text regeneration failed: {exc}") from exc
+
+
+def restore_attribute_value_version(
+    session: Session,
+    gcs: GcsClient,
+    *,
+    value_external_id: UUID,
+    version: int,
+) -> dict[str, Any]:
+    """Copy an older version forward as a new latest row (same external_id, bumped version)."""
+    latest = attribute_value_repo.get_latest_by_external_id(session, value_external_id)
+    if latest is None:
+        raise AttributeValueNotFoundError(f"attribute value not found: {value_external_id}")
+
+    source = attribute_value_repo.get_by_external_id_and_version(
+        session, value_external_id, version
+    )
+    if source is None:
+        raise AttributeValueNotFoundError(
+            f"attribute value {value_external_id} version {version} not found"
+        )
+
+    master = attribute_master_repo.get_by_id(session, source.attribute_id)
+    if master is None:
+        raise AttributeNotFoundError(f"attribute_id={source.attribute_id}")
+
+    sku_generation_job = sku_generation_job_repo.get_by_id(session, source.sku_generation_job_id)
+    if sku_generation_job is None:
+        raise SkuGenerationJobNotFoundError(f"sku_generation_job_id={source.sku_generation_job_id}")
+
+    name = AttributeName(master.name)
+    data_type = AttributeDataType(master.data_type)
+
+    if source.version == latest.version:
+        value = source.value
+        value_is_signed_url = False
+        if data_type == AttributeDataType.IMAGE and source.value.startswith("gs://"):
+            value = gcs.signed_url_for_gs_uri(
+                source.value, expiration_seconds=_SIGNED_URL_TTL_SECONDS
+            )
+            value_is_signed_url = True
+        return {
+            "value_external_id": source.external_id,
+            "attribute_external_id": master.external_id,
+            "name": name.value,
+            "data_type": data_type.value,
+            "slot": source.slot,
+            "version": source.version,
+            "value": value,
+            "value_is_signed_url": value_is_signed_url,
+            "prompt": source.prompt,
+        }
+
+    persisted = _persist_attribute_value(
+        session,
+        sku_generation_job=sku_generation_job,
+        marketplace_id=source.marketplace_id,
+        attribute_id=master.id,
+        name=name.value,
+        slot=source.slot,
+        value=source.value,
+        prompt=source.prompt,
+    )
+
+    value = persisted["value"]
+    value_is_signed_url = False
+    if data_type == AttributeDataType.IMAGE and str(value).startswith("gs://"):
+        value = gcs.signed_url_for_gs_uri(str(value), expiration_seconds=_SIGNED_URL_TTL_SECONDS)
+        value_is_signed_url = True
+
+    return {
+        "value_external_id": persisted["external_id"],
+        "attribute_external_id": master.external_id,
+        "name": name.value,
+        "data_type": data_type.value,
+        "slot": source.slot,
+        "version": persisted["version"],
+        "value": value,
+        "value_is_signed_url": value_is_signed_url,
+        "prompt": persisted.get("prompt"),
     }

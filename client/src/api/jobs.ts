@@ -97,6 +97,27 @@ export interface SkuGenerationJobAttributeSlot {
   version: number | null
   value: string | null
   value_is_signed_url: boolean
+  prompt: string | null
+}
+
+export interface RegenerateAttributeValueRequest {
+  improvement: string
+}
+
+export interface RestoreAttributeValueRequest {
+  version: number
+}
+
+export interface RegenerateAttributeValueResponse {
+  value_external_id: string
+  attribute_external_id: string
+  name: string
+  data_type: 'TEXT' | 'IMAGE' | string
+  slot: number
+  version: number
+  value: string
+  value_is_signed_url: boolean
+  prompt: string | null
 }
 
 export interface SkuGenerationJobContentResponse {
@@ -152,6 +173,28 @@ export async function getSkuGenerationJobContent(
 ): Promise<SkuGenerationJobContentResponse> {
   const { data } = await api.get<SkuGenerationJobContentResponse>(
     `/jobs/sku/${skuGenerationJobExternalId}`,
+  )
+  return data
+}
+
+export async function regenerateAttributeValue(
+  valueExternalId: string,
+  body: RegenerateAttributeValueRequest,
+): Promise<RegenerateAttributeValueResponse> {
+  const { data } = await api.post<RegenerateAttributeValueResponse>(
+    `/jobs/attribute-values/${valueExternalId}/regenerate`,
+    body,
+  )
+  return data
+}
+
+export async function restoreAttributeValue(
+  valueExternalId: string,
+  body: RestoreAttributeValueRequest,
+): Promise<RegenerateAttributeValueResponse> {
+  const { data } = await api.post<RegenerateAttributeValueResponse>(
+    `/jobs/attribute-values/${valueExternalId}/restore`,
+    body,
   )
   return data
 }

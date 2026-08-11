@@ -74,12 +74,18 @@ class OpenRouterClient:
         system: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        cache_prefix: str | None = None,
+        session_id: str | None = None,
     ) -> str:
         """Generate free-form text from a prompt. Caller picks the model.
 
         ``image_urls`` (remote or ``data:`` URLs) attach reference images to the user message so a
         vision-capable model can reason over them. For structured JSON outputs, use
         ``call_tool`` instead of asking the model to emit JSON in the message body.
+
+        ``cache_prefix`` (when set) is sent as a leading text block with ``cache_control`` so
+        OpenRouter can reuse stable context across sequential calls. ``session_id`` enables
+        sticky routing for higher cache-hit rates.
         """
         if not model:
             raise ValueError("model is required")
@@ -91,6 +97,8 @@ class OpenRouterClient:
             system=system,
             temperature=temperature,
             max_tokens=max_tokens,
+            cache_prefix=cache_prefix,
+            session_id=session_id,
         )
         return self._message_text(self.chat_completions(body))
 
@@ -104,6 +112,8 @@ class OpenRouterClient:
         system: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        cache_prefix: str | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         """Force the model to call ``tool`` and return its parsed arguments as a dict.
 
@@ -128,6 +138,8 @@ class OpenRouterClient:
             system=system,
             temperature=temperature,
             max_tokens=max_tokens,
+            cache_prefix=cache_prefix,
+            session_id=session_id,
         )
         body["tools"] = [tool]
         body["tool_choice"] = {"type": "function", "function": {"name": tool_name}}
@@ -142,13 +154,30 @@ class OpenRouterClient:
         system: str | None,
         temperature: float | None,
         max_tokens: int | None,
+        cache_prefix: str | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
-        user_content: Any = prompt
-        if image_urls:
-            user_content = [{"type": "text", "text": prompt}]
-            user_content.extend(
-                {"type": "image_url", "image_url": {"url": url}} for url in image_urls
-            )
+        prefix = cache_prefix or ""
+        cache_prefix_block = bool(prefix.strip())
+        use_multipart = cache_prefix_block or bool(image_urls)
+
+        if use_multipart:
+            user_content: Any = []
+            if cache_prefix_block:
+                user_content.append(
+                    {
+                        "type": "text",
+                        "text": prefix,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                )
+            user_content.append({"type": "text", "text": prompt})
+            if image_urls:
+                user_content.extend(
+                    {"type": "image_url", "image_url": {"url": url}} for url in image_urls
+                )
+        else:
+            user_content = prompt
 
         messages: list[dict[str, Any]] = []
         if system:
@@ -160,6 +189,8 @@ class OpenRouterClient:
             body["temperature"] = temperature
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
+        if session_id:
+            body["session_id"] = session_id
         return body
 
     def generate_gemini_image(

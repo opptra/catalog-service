@@ -10,7 +10,9 @@ import {
 } from '../api/jobs'
 import { useBrands } from '../brands/useBrands'
 import ContentImageGrid from '../components/batch-content/ContentImageGrid'
-import ImageRegenerateModal from '../components/batch-content/ImageRegenerateModal'
+import AttributeRegenModal, {
+  type AttributeRegenTarget,
+} from '../components/batch-content/AttributeRegenModal'
 import PipelineProgressBar from '../components/batch-content/PipelineProgressBar'
 import AppHeader from '../components/AppHeader'
 import type { ContentImage } from '../components/batch-content/types'
@@ -118,6 +120,8 @@ function imageSlotsToGrid(
       id: `${slot.name}-${slot.slot}`,
       url: slot.value,
       label: `${formatAttributeLabel(slot.name)} ${slot.slot}`,
+      valueExternalId: slot.value_external_id,
+      version: slot.version,
     }))
 }
 
@@ -157,8 +161,7 @@ function BatchContent() {
   const [contentError, setContentError] = useState<string | null>(null)
   const [, setContentLoading] = useState(false)
   const [expandedText, setExpandedText] = useState<Record<string, boolean>>({})
-  const [imageModal, setImageModal] = useState<ImageModalSource | null>(null)
-  const [regenPrompt, setRegenPrompt] = useState('')
+  const [regenTarget, setRegenTarget] = useState<AttributeRegenTarget | null>(null)
 
   useEffect(() => {
     document.title = status
@@ -268,17 +271,6 @@ function BatchContent() {
     // the render that selected this SKU so completed jobs skip polling after one load.
   }, [activeSkuJobId])
 
-  useEffect(() => {
-    if (!imageModal) return
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setImageModal(null)
-    }
-
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [imageModal])
-
   if (!brand) {
     return <Navigate to="/brands" replace />
   }
@@ -332,23 +324,8 @@ function BatchContent() {
     otherImageGrids.map((grid) => [grid.attribute.name, grid.images]),
   )
 
-  const modalImages =
-    imageModal == null
-      ? []
-      : imageModal.kind === 'pdp'
-        ? pdpImages
-        : (otherImagesByName.get(imageModal.attributeName) ?? [])
-  const modalIndex = imageModal?.index ?? 0
-  const modalImage = modalImages[modalIndex] ?? null
   const marketplaceName =
     content?.marketplace_name ?? status?.marketplace_name ?? 'Marketplace'
-  const modalKindLabel =
-    imageModal == null
-      ? 'Image'
-      : imageModal.kind === 'pdp'
-        ? 'PDP'
-        : formatAttributeLabel(imageModal.attributeName)
-  const modalHeader = `SKU${safeSkuIndex + 1} · ${marketplaceName} · ${modalKindLabel} ${modalIndex + 1} of ${modalImages.length}`
 
   const isFirstSku = safeSkuIndex <= 0
   const isLastSku = skuJobs.length === 0 || safeSkuIndex >= skuJobs.length - 1
@@ -357,37 +334,75 @@ function BatchContent() {
     if (skuJobs.length === 0 || next < 0 || next >= skuJobs.length) return
     setSkuIndex(next)
     setExpandedText({})
-    setImageModal(null)
+    setRegenTarget(null)
     setContent(null)
     setContentLoading(true)
     setContentError(null)
   }
 
+  function buildImageRegenTarget(
+    source: ImageModalSource,
+    index: number,
+  ): AttributeRegenTarget | null {
+    const images =
+      source.kind === 'pdp' ? pdpImages : (otherImagesByName.get(source.attributeName) ?? [])
+    const image = images[index]
+    if (image?.url == null || image.valueExternalId == null || image.version == null) {
+      return null
+    }
+    const kindLabel =
+      source.kind === 'pdp' ? 'PDP' : formatAttributeLabel(source.attributeName)
+    return {
+      dataType: 'IMAGE',
+      label: image.label,
+      headerLabel: `SKU${safeSkuIndex + 1} · ${marketplaceName} · ${kindLabel} ${index + 1} of ${images.length}`,
+      valueExternalId: image.valueExternalId,
+      version: image.version,
+      value: image.url,
+      canPrev: index > 0 && Boolean(images[index - 1]?.url),
+      canNext: index < images.length - 1 && Boolean(images[index + 1]?.url),
+      onPrev: () => {
+        const next = buildImageRegenTarget(source, index - 1)
+        if (next) setRegenTarget(next)
+      },
+      onNext: () => {
+        const next = buildImageRegenTarget(source, index + 1)
+        if (next) setRegenTarget(next)
+      },
+    }
+  }
+
   function openPdpImage(index: number) {
-    if (!pdpImages[index]?.url) return
-    setRegenPrompt('')
-    setImageModal({ kind: 'pdp', index })
+    const target = buildImageRegenTarget({ kind: 'pdp', index }, index)
+    if (target) setRegenTarget(target)
   }
 
   function openAttributeImage(attributeName: string, index: number) {
-    const list = otherImagesByName.get(attributeName) ?? []
-    if (!list[index]?.url) return
-    setRegenPrompt('')
-    setImageModal({ kind: 'attribute', attributeName, index })
+    const target = buildImageRegenTarget({ kind: 'attribute', attributeName, index }, index)
+    if (target) setRegenTarget(target)
   }
 
-  function shiftModal(delta: number) {
-    if (!imageModal) return
-    const next = imageModal.index + delta
-    if (next < 0 || next >= modalImages.length || !modalImages[next]?.url) return
-    if (imageModal.kind === 'pdp') {
-      setImageModal({ kind: 'pdp', index: next })
-      return
+  async function refreshActiveSkuContent() {
+    if (!activeSkuJobId) return
+    try {
+      const next = await getSkuGenerationJobContent(activeSkuJobId)
+      setContent(next)
+      setContentError(null)
+    } catch (error) {
+      setContentError(error instanceof Error ? error.message : 'Could not load SKU content.')
     }
-    setImageModal({
-      kind: 'attribute',
-      attributeName: imageModal.attributeName,
-      index: next,
+  }
+
+  function openTextRegen(attr: JobExpectedAttribute, slot: SkuGenerationJobAttributeSlot) {
+    if (!slot.value || !slot.value_external_id || slot.version == null) return
+    const label = formatAttributeLabel(attr.name)
+    setRegenTarget({
+      dataType: 'TEXT',
+      label,
+      headerLabel: `SKU${safeSkuIndex + 1} · ${marketplaceName} · ${label}`,
+      valueExternalId: slot.value_external_id,
+      version: slot.version,
+      value: slot.value,
     })
   }
 
@@ -400,6 +415,8 @@ function BatchContent() {
     const isBullets = attr.name === 'BULLET_POINTS'
     const bullets = isBullets && rawValue ? parseBulletList(rawValue) : []
     const expanded = expandedText[attr.name] === true
+    const canRegen =
+      slot?.value_external_id != null && slot.version != null && Boolean(slot.value)
 
     return (
       <section key={attr.attribute_external_id} className="content-section">
@@ -445,8 +462,11 @@ function BatchContent() {
             <button
               type="button"
               className="content-regen"
-              title="Regenerate (coming soon)"
-              onClick={() => undefined}
+              title={canRegen ? 'Regenerate' : 'Regenerate unavailable'}
+              disabled={!canRegen}
+              onClick={() => {
+                if (slot) openTextRegen(attr, slot)
+              }}
             >
               <RefreshIcon />
               Regenerate
@@ -587,27 +607,13 @@ function BatchContent() {
         </div>
       </footer>
 
-      <ImageRegenerateModal
-        open={imageModal != null && modalImage?.url != null}
-        headerLabel={modalHeader}
-        imageUrl={modalImage?.url ?? null}
-        imageAlt={modalImage?.label ?? 'Image'}
-        canPrev={
-          imageModal != null &&
-          modalIndex > 0 &&
-          Boolean(modalImages[modalIndex - 1]?.url)
-        }
-        canNext={
-          imageModal != null &&
-          modalIndex < modalImages.length - 1 &&
-          Boolean(modalImages[modalIndex + 1]?.url)
-        }
-        prompt={regenPrompt}
-        onPromptChange={setRegenPrompt}
-        onClose={() => setImageModal(null)}
-        onPrev={() => shiftModal(-1)}
-        onNext={() => shiftModal(1)}
-        onRegenerate={() => undefined}
+      <AttributeRegenModal
+        open={regenTarget != null}
+        target={regenTarget}
+        onClose={() => setRegenTarget(null)}
+        onApplied={() => {
+          void refreshActiveSkuContent()
+        }}
       />
 
       <span className="visually-hidden">

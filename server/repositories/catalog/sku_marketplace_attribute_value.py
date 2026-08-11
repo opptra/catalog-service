@@ -1,11 +1,29 @@
 from collections.abc import Sequence
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from repositories import base
+
+# Stable namespace for deterministic value external_ids (not a secret).
+_VALUE_EXTERNAL_ID_NAMESPACE = UUID("6f0a2c8e-4b1d-4e9a-9f3c-7a5d2e1b0c84")
+
+
+def lineage_external_id(
+    *,
+    sku_id: int,
+    marketplace_id: int,
+    attribute_id: int,
+    slot: int,
+    sku_generation_job_id: int,
+) -> UUID:
+    """external_id for one version lineage — unique per the five identity keys."""
+    return uuid5(
+        _VALUE_EXTERNAL_ID_NAMESPACE,
+        (f"{sku_id}:{marketplace_id}:{attribute_id}:{slot}:{sku_generation_job_id}"),
+    )
 
 
 def get_by_id(session: Session, value_id: int) -> SkuMarketplaceAttributeValue | None:
@@ -24,25 +42,14 @@ def get_latest_by_external_id(
     )
 
 
-def get_latest_by_slot(
-    session: Session,
-    *,
-    sku_id: int,
-    marketplace_id: int,
-    attribute_id: int,
-    slot: int,
+def get_by_external_id_and_version(
+    session: Session, external_id: UUID, version: int
 ) -> SkuMarketplaceAttributeValue | None:
-    """Latest version for a concrete (sku, marketplace, attribute, slot) identity."""
     return session.scalar(
-        select(SkuMarketplaceAttributeValue)
-        .where(
-            SkuMarketplaceAttributeValue.sku_id == sku_id,
-            SkuMarketplaceAttributeValue.marketplace_id == marketplace_id,
-            SkuMarketplaceAttributeValue.attribute_id == attribute_id,
-            SkuMarketplaceAttributeValue.slot == slot,
+        select(SkuMarketplaceAttributeValue).where(
+            SkuMarketplaceAttributeValue.external_id == external_id,
+            SkuMarketplaceAttributeValue.version == version,
         )
-        .order_by(SkuMarketplaceAttributeValue.version.desc())
-        .limit(1)
     )
 
 

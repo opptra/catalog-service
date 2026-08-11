@@ -71,6 +71,22 @@ class SkuGenerationJobAttributeSlotResponse(BaseModel):
     # Text content, or a signed HTTPS URL for IMAGE attributes.
     value: str | None = None
     value_is_signed_url: bool = False
+    # Exact generation prompt for this value version (null for older rows).
+    prompt: str | None = None
+
+
+class RegenerateAttributeValueResponse(BaseModel):
+    """Newest version after a successful regenerate or restore."""
+
+    value_external_id: UUID
+    attribute_external_id: UUID
+    name: str
+    data_type: str
+    slot: int
+    version: int
+    value: str
+    value_is_signed_url: bool
+    prompt: str | None = None
 
 
 class SkuGenerationJobContentResponse(BaseModel):
