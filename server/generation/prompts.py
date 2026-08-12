@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass
 
 from entities.catalog.attribute_enums import AttributeDataType, AttributeName
-from generation import category, tools
+from generation import category, common_image, tools
 from generation.context import GenerationContext
 
 # Single source: constraints for copy and branding drawn ON generated listing images.
@@ -235,36 +235,62 @@ def key_features_parts(
     return PromptParts(prefix=prefix, suffix=suffix)
 
 
-def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeName, int]]) -> str:
-    """Plan ONE coherent, non-duplicated image gallery via a tool call.
+def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: int) -> str:
+    """Plan exactly ``quantity`` slots for one image attribute type via a tool call.
 
-    IMAGE slots are generic PDP gallery positions — roles/concepts come from Category
-    Intelligence (gallery arc), not from hero/infographic/lifestyle labels. A_PLUS slots
-    follow the A+ playbook when requested. Aspect ratio and logo placement stay out of
-    the model's job (fixed per attribute type in code; logo composited downstream).
+    IMAGE (PDP gallery) and A_PLUS are planned in separate calls so each gets a focused
+    role palette from CI ``image_plan``. Aspect ratio and logo placement stay out of the
+    model's job (fixed per attribute type in code; logo composited downstream).
+
+    Full Brand DNA is NOT included — use ``ctx.common_image_context`` (distilled brand +
+    category visual bits) so every plan shares the same typography/palette/norms.
     """
-    brief = category.image_brief(ctx.category_intelligence, [name for name, _ in requested])
-    slot_rule = (
-        "In the tool call, slot is 1-based and restarts at 1 within EACH type — it is not a "
-        "running count across the whole gallery. E.g. if IMAGE needs 7 images, they are "
-        "type=IMAGE slot=1 .. slot=7; A_PLUS slots restart at 1 independently."
+    brief = category.image_brief(ctx.category_intelligence, [name])
+    type_label = (
+        "product gallery" if name == AttributeName.IMAGE else "enhanced brand / feature modules"
+    )
+    common_block = (
+        common_image.format_block(ctx.common_image_context)
+        if ctx.common_image_context
+        else (
+            "=== COMMON IMAGE CONTEXT ===\n"
+            "(missing — still keep one shared typography and palette across every slot)"
+        )
     )
     return (
         "You are an expert e-commerce visual merchandiser and product-photography art director. "
-        "Design a COHERENT image gallery for ONE product. You are given the exact set of images to "
-        "produce (by type and count). IMAGE means a generic PDP gallery slot — decide each slot's "
-        "role/concept from the Category Intelligence gallery guidance (not from fixed "
-        "hero/infographic/lifestyle templates). A_PLUS is an internal type for enhanced brand "
-        "modules — follow the A+ playbook when present, but never label artwork as A+ or a "
-        "module; use shopper-facing titles only. Also use Brand DNA visual identity and the "
-        "attached product image(s) so the set forms one connected, non-duplicated gallery.\n\n"
-        f"{image_on_canvas_copy_rules()}\n\n"
+        f"Design a COHERENT {type_label} image set for ONE product. Produce EXACTLY {quantity} "
+        f"image(s) for internal type {name.value} — count is fixed by the job; do not add, drop, "
+        "or replace it with recommended_build. Use COMMON IMAGE CONTEXT and the attached "
+        "product image(s) so the set forms one connected, non-redundant series with identical "
+        "typefaces.\n\n"
+        f"{_IMAGE_ON_CANVAS_COPY_RULES}\n\n"
+        "ROLE PALETTE (image_plan when present):\n"
+        f"- CATEGORY INTELLIGENCE.image_plan.{name.value} is the recommended role palette for "
+        "this type — guidance, not a locked recipe.\n"
+        "- Prefer priority=core roles as the main ideas. Use extended only when the requested "
+        "count needs more distinct roles than core provides.\n"
+        "- If N ≤ number of core roles: pick N distinct core roles "
+        "(do not invent near-duplicates).\n"
+        "- If N > core: cover core first, then use extended (or invent complementary distinct "
+        "roles) for the remainder — still no duplicates.\n"
+        "- Do NOT copy CI text verbatim onto the image; translate role/kind/pattern/content into "
+        "a concrete render prompt for THIS product + COMMON IMAGE CONTEXT.\n"
+        "- Topic playbook is supporting context only; image_plan is the primary role guidance "
+        "when present.\n\n"
+        "NON-REDUNDANCY (mandatory):\n"
+        "- Every slot must have a clearly different role and visual concept.\n"
+        "- No two slots may look like the same shot with minor tweaks (same angle, setting, "
+        "info density, or lifestyle framing).\n"
+        "- Make the difference obvious in composition, camera, background, props, and on-image "
+        "information load; each concept field must name a distinct role.\n"
+        "- Facts must not repeat across slots — each info/feature slot owns distinct claims.\n\n"
         f"{_reference_photos_note(ctx.product_image_urls)}\n\n"
-        "Images to produce (submit EXACTLY one plan entry per slot via the tool):\n"
-        f"{_requested_block(requested)}\n\n"
-        "For EVERY slot, reason it out (do NOT use fixed type templates) and decide:\n"
+        f"Images to produce: exactly {quantity} slot(s) of type {name.value} "
+        f"(slot 1 through {quantity}). Submit EXACTLY {quantity} plan entries via the tool.\n\n"
+        "For EVERY slot, reason it out and decide:\n"
         "- the role/objective for a high-converting, policy-compliant listing in this "
-        "marketplace/category, drawn from the category's own gallery / A+ arc;\n"
+        "marketplace/category, drawn from the image_plan palette (core first) when present;\n"
         "- a DISTINCT concept — no slot may duplicate another;\n"
         "- composition, camera angle, background, props, lighting, styling and visual hierarchy;\n"
         "- honesty: the depiction must NOT contradict the attached real product (its colour, form, "
@@ -272,33 +298,28 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
         "- physical coherence: show the product realistically and correctly used/placed;\n"
         "- on-image text/badges appropriate to this image role and the marketplace's compliance "
         "rules (a strict primary/main image carries no text or badges; secondary images may) — "
-        "shopper-facing only; obey ON-IMAGE COPY rules above;\n"
+        "shopper-facing only, never A+/EBC/PDP/internal labels;\n"
         "- brand logo: never draw/render a logo or brand wordmark, and never leave reserved "
         "space for one — every slot prompt must state this explicitly; the logo is composited "
         "later in code;\n"
         "- do NOT choose or mention an aspect ratio, canvas shape, orientation or pixel/format "
         "dimensions anywhere — the renderer uses a fixed ratio per image type, so compose for the "
         "subject and leave the canvas shape entirely to the system.\n\n"
-        "Keep the whole set LINKED via one shared visual system so every image clearly belongs to "
-        "the same product and brand. Use product facts ONLY from PRODUCT DATA; if a helpful detail "
-        "is missing, stay neutral — never fabricate. The real product reference image(s) are also "
-        "supplied to the image model at render time.\n\n"
+        "Keep the whole set LINKED via one shared visual system that MUST incorporate COMMON "
+        "IMAGE CONTEXT typography (primary ± secondary), palette, mood, and category norms so "
+        "every image clearly belongs to the same product and brand. Use product facts ONLY from "
+        "PRODUCT DATA; if a helpful detail is missing, stay neutral — never fabricate. The real "
+        "product reference image(s) are also supplied to the image model at render time.\n\n"
         f"{_RULES}\n\n"
         f"{_category_block(brief)}\n\n"
-        f"{_brand_block(ctx.brand_dna)}\n\n"
+        f"{common_block}\n\n"
         f"{_product_block(ctx.product)}\n\n"
-        "When finished, call the submit_gallery_plan tool with shared_style and one slots entry "
-        "for each requested (type, slot). Each prompt must be a complete, standalone "
-        "image-generation prompt that incorporates the shared_style and every decision above. "
-        "Do not write the plan as free-form JSON in the message body.\n"
-        f"{slot_rule}"
+        "When finished, call the submit_gallery_plan tool with shared_style and exactly "
+        f"{quantity} slots entries (type={name.value}, slot=1..{quantity}). Each prompt must be "
+        "a complete, standalone image-generation prompt that incorporates the shared_style, "
+        "COMMON IMAGE CONTEXT, and every decision above. Do not write the plan as free-form JSON "
+        "in the message body."
     )
-
-
-def _requested_block(requested: list[tuple[AttributeName, int]]) -> str:
-    lines = [f"- {name.value}: {quantity} image(s)" for name, quantity in requested]
-    total = sum(quantity for _, quantity in requested)
-    return "\n".join(lines) + f"\nTotal: {total} images."
 
 
 def _product_block(product: dict) -> str:
@@ -361,6 +382,9 @@ def revise_generation_prompt(
             f"{image_on_canvas_copy_rules()}\n\n"
             "Preserve these on-image copy rules in the revised prompt unless the user explicitly "
             "requests internal/module labels on the artwork (they should not).\n"
+            "If the PREVIOUS PROMPT contains an === COMMON IMAGE CONTEXT === block, preserve it "
+            "verbatim (typography, palette, mood, category norms) unless the user explicitly "
+            "asks to change visual style or fonts. Do not invent new typefaces.\n"
             if data_type == AttributeDataType.IMAGE
             else ""
         )
