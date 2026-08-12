@@ -1,0 +1,1045 @@
+{
+  "meta": {
+    "model": "claude-sonnet-4-5",
+    "category": "Bedding Duvet Cover Sets",
+    "our_count": 2,
+    "marketplace": "www.amazon.in",
+    "generated_at": "2026-08-12T03:51:54.573Z",
+    "schema_version": "2.4",
+    "competitor_count": 10
+  },
+  "topics": [
+    {
+      "name": "title",
+      "actions": [
+        "Compress titles to 75 characters maximum by eliminating redundant descriptors and consolidating dimensions into item_highlights",
+        "Lead with size descriptor (King/Super King/Single) immediately after brand for search relevance and filtering",
+        "Include material + TC count (e.g., '300TC Cotton' or 'Cloud Cotton') within first 40 characters for premium positioning",
+        "Use component count (2 Pillow Covers, 4PC Set) to communicate value without consuming dimension space",
+        "Test hybrid terminology by rotating 'Bedsheet,' 'Duvet Cover,' and 'Comforter' across variants to capture broader search intent",
+        "Reserve one benefit keyword (Soft/Breathable/Fade-Resistant) for the title suffix to differentiate from competitors"
+      ],
+      "observations": "Leaders average 184.5 characters in titles but must adapt to Amazon's new 75-character limit by 2026. Current winning formula packs [Brand] + [Material/TC count] + [Size] + \"Bedsheet\" + \"with [X] Pillow Covers\" + [Key attributes] + [Dimensions]. Top performers emphasize hybrid terminology—mixing \"bedsheet,\" \"duvet cover,\" and \"comforter\" within the same listing to capture varied search intent. Critical size descriptors (King Size, Super King, Single) and material callouts (Cotton, Microfiber, Cloud Cotton, 300 TC, 400 TC) drive click-through. Exact dimensions (108x108 inches, 270x250 cm) appear frequently but consume character budget. Mobile-first title experiments truncate to ~70 characters while preserving searchability: [Brand] + [Material] + [Size] + [Component count] + [Primary benefit]."
+    },
+    {
+      "name": "item_highlights",
+      "actions": [
+        "Structure all item highlights with pipe-delimited format: Size | Material | Pattern | Components | Dimension | Benefit 1 | Benefit 2",
+        "Front-load filterable attributes (Size, Material, Pattern) in first 40 characters for search and browse relevance",
+        "Include exact primary dimension (108x108 inches or 270x250cm) to satisfy size-specific queries without title bloat",
+        "Add component count (with 2 Pillow Covers, 4PC Set) to communicate completeness and value perception",
+        "Reserve final 40 characters for two stacked benefits using category vernacular (Soft Breathable, Fade-Resistant, Wrinkle-Free)",
+        "Match material terminology between title and item highlights (e.g., if title says 'Cloud Cotton,' repeat verbatim here)"
+      ],
+      "observations": "Item highlights serve as the complementary searchable field to the truncated title, with a 125-character limit. Leaders follow a scannable formula: [Size] | [Material] | [Pattern] | Includes [X] [Component] | [Key Dimension] | [Primary Benefit] | [Secondary Feature]. This zone achieves 100% fill rate among top performers, compressing title-level detail into pipe-delimited format. Examples include 'Super King | 300TC Microfiber | Floral | 108x108 inches with 2 Pillow Covers | Soft Breathable | Fade-Resistant' and 'King Size | Cloud Cotton Microfiber | Floral Print | 270x250cm with 2 Pillow Covers | Super Soft Breathable Skin-Friendly.' The format prioritizes filterable attributes (size, material, pattern) before dimensions and benefits. Leaders repeat key search terms from the title (size + material) to reinforce relevance signals."
+    },
+    {
+      "name": "bullets",
+      "actions": [
+        "Standardize bullet 1 with complete package contents and all component dimensions in both cm and inches for international clarity",
+        "Lead bullet 2 with thread count (TC) credential immediately followed by fiber type (Cotton/Microfiber/Cloud Cotton) and three comfort benefits (soft, breathable, skin-friendly)",
+        "Structure bullet 3 around design aesthetic first (Floral/Solid/Boho), then versatility claim (contemporary/classic interiors, home/hotel/hospital use)",
+        "Dedicate bullet 4 exclusively to longevity features, using category-standard phrasing like 'fade-resistant, shrink-proof, retaining color vibrancy wash after wash'",
+        "Reserve bullet 5 for care instructions (machine wash, cold water, tumble dry low, avoid bleach) followed by 2-3 gifting occasions (wedding, housewarming, anniversary)",
+        "Maintain 180-220 character length per bullet to maximize information density without overwhelming readability"
+      ],
+      "observations": "Leaders uniformly deploy 5 bullets following a strict thematic order: (1) Complete set contents with dimensions in multiple units (cm/inches/feet), (2) Premium fabric composition highlighting TC count, fiber type, and comfort benefits (soft, breathable, skin-friendly), (3) Design pattern and bedroom versatility, (4) Durability features (fade-resistant, shrink-proof, colorfast) with wash longevity claims, (5) Care instructions (machine wash, temperature, drying) plus gifting occasions. Each bullet averages 180-220 characters. Top performers layer exact measurements across bullets (e.g., 'Duvet Cover: 240 x 220 cm (94 x 87 Inches), Bedsheet - 270 x 250 cm (106 x 94 Inches), Pillow Covers - 46 x 69 cm (18 x 27 Inches)') to eliminate size ambiguity. Material bullets emphasize thread count credentials (200 TC, 300 TC, 400 TC) and fiber benefits (Cloud Cotton, Glace Cotton, Microfiber). Durability bullets frequently use the phrase 'retaining softness and color vibrancy wash after wash.' Care bullets balance practical instructions with emotional gifting language ('thoughtful gift for weddings, anniversaries')."
+    },
+    {
+      "name": "keywords",
+      "actions": [
+        "Integrate hybrid product type terminology by rotating 'duvet cover' and 'comforter' into bedsheet-focused listings to capture broader search queries",
+        "Embed long-tail size-specific phrases (super king size bedsheet 108x108, king size bedsheet with 2 pillow covers) into bullets and backend search terms",
+        "Layer material-specific keywords (cloud cotton bedsheet, 400 tc microfiber bedding, glace cotton) across title, item highlights, and bullet 2",
+        "Adopt performance descriptor vocabulary (shrink-proof, colorfast, anti-allergic, moisture-wicking) missing from current catalog to match leader lexicon",
+        "Use benefit stacking in bullets by pairing complementary vernacular terms (soft breathable, fade-resistant wrinkle-free, luxurious smooth texture)",
+        "Add occasion-based keywords (home decor, bedroom upgrade, gifting, housewarming) to bullet 5 and backend terms to capture gift-intent shoppers"
+      ],
+      "observations": "Category lexicon reveals a three-tier keyword hierarchy: (1) Head terms (bedsheet, pillow covers, king size, double bed, cotton, microfiber, soft, bedding set, duvet cover, comforter) dominate titles and bullets; (2) Long-tail phrases (king size bedsheet with 2 pillow covers, super king size bedsheet 108x108, cloud cotton bedsheet, bedsheet for double bed king size, soft breathable bedsheet, fade-resistant bedsheet, wrinkle-free bedsheet, flat bedsheet king size, elastic fitted bedsheet, 400 tc microfiber bedding) appear in bullets and item highlights; (3) Vernacular/benefit terms (breathable, skin-friendly, ultra-soft, fade-resistant, shrink-proof, wrinkle-free, luxurious feel, smooth texture, colorfast, anti-allergic) layer across all zones. Leaders exploit hybrid terminology by using 'bedsheet,' 'duvet cover,' and 'comforter' interchangeably across listings to capture varied search intent. Material-specific phrases (cloud cotton, glace cotton, 300 tc microfiber) serve as trust signals. Our catalog shows gaps in duvet/comforter terminology and performance descriptors (shrink-proof, colorfast, anti-allergic, moisture-wicking), limiting discoverability for quality-conscious shoppers."
+    },
+    {
+      "name": "gallery_images",
+      "actions": [
+        "Keep positions 1–2 photography-led bedroom heroes with no text walls.",
+        "Lock one primary typeface across all texted gallery frames.",
+        "Use short SEO labels only (soft, breathable, machine washable, fitted sheet) on detail/feature slots.",
+        "Give package contents and size guide their own slots with large phone-readable type — no fact reuse.",
+        "Avoid human presence on PDP if category norms require it; reserve people for A+.",
+        "Do not stack long bullet lists on lifestyle frames."
+      ],
+      "observations": "Leaders lead with styled bedroom heroes and fabric truth. PDP text overlays work when short and phone-readable; long feature essays hurt mobile shoppers. Package and size info should stay sparse and non-overlapping."
+    },
+    {
+      "name": "aplus",
+      "actions": [
+        "Lead A+ Content with lifestyle hero module featuring styled bedroom and aspirational text overlay (e.g., 'Dress Your Bed in Comfort,' 'Softness You Can Feel')",
+        "Deploy product features infographic at position 2 with circular detail insets highlighting 4-5 key benefits (Super Soft, Breathable, Fade-Resistant, Durable, Skin-Friendly)",
+        "Add care instructions module with clear washing machine icons, temperature guidance (cold/warm wash), tumble dry symbols, and 'Do Not Bleach' callouts",
+        "Include design variety showcase at position 3-4 displaying 4-6 color/pattern options in grid layout to demonstrate range and aid variant discovery",
+        "Insert fabric/material detail module with magnified texture insets and thread count credentials (300 TC, 400 TC) to reinforce quality positioning",
+        "Incorporate lifestyle imagery with families/children in 'Made for Precious Moments' or 'Comfort for Every Family' scenes to humanize the product and drive emotional connection",
+        "Match gallery typefaces exactly across A+ modules.",
+        "Keep care and feature modules sparse and phone-readable with SEO-useful short labels.",
+        "Do not reprint package-contents or softness claims already owned by gallery slots."
+      ],
+      "observations": "A+ Content appears in 40% of leader listings with a median of 6.5 modules. Core roles include: (1) Lifestyle hero with styled bedroom (100% prevalence, position 1) featuring text overlays like 'Dress Your Bed in Comfort' and 'Perfect Fit Perfect Sleep'; (2) Product features infographic (75% prevalence, position 2) with circular detail insets highlighting Super Soft, Lightweight, Durable, Skin-Friendly; (3) Care instructions module (75% prevalence, position 6) with washing machine icons, cold/warm wash symbols, and tumble dry guidance; (4) Design variety showcase (50% prevalence, position 3.5) displaying multiple color/pattern options in grid format; (5) Fabric and material details module (50% prevalence, position 1.5) with magnified texture insets and '400 thread count' callouts. Human presence appears in 75% of A+ Content (vs 0% in PDPs), typically showing families/children in 'Made for Precious Moments' lifestyle scenes. Leaders use consistent branding, clear typography, and legible text overlays. Our catalog shows 50% A+ adoption (vs 40% leader average) but could strengthen care instruction modules and design variety showcases. Typography must stay consistent with the gallery primary typeface; on-image text remains phone-readable and free of A+/internal jargon."
+    },
+    {
+      "name": "specs",
+      "actions": [
+        "Add Seasons spec field for all listings, specifying 'All Season' or 'Summer/Winter' to improve search filter discoverability and seasonal relevance",
+        "Populate Item Display Dimensions with packaged product measurements (length x width x height in cm) to aid logistics and storage queries",
+        "Fill Number of Packs field (typically '1') to clarify single-set purchase vs multi-pack, especially for bulk or gifting scenarios",
+        "Standardize Item Type Name taxonomy using leader conventions: 'Bedsheet' for flat sheets, 'Bed Sheet With Pillow Cover' for sets, 'Bedcover with Two Pillow Covers' for duvet-style sets",
+        "Ensure Thread Count appears in Material or Fabric Type fields (e.g., '300 TC Microfiber,' '400 TC Cotton') for quality filtering and comparison",
+        "Expand Product Care Instructions to include temperature guidance (cold/warm water), drying method (tumble dry low), and bleach/iron restrictions for customer confidence"
+      ],
+      "observations": "Leaders fill 27-32 spec fields (median 30) with 100% coverage of Brand, Number of Pieces, Included Components, Country of Origin, Pillowcase Quantity, Unit Count, and Item Type Name. Critical filterable specs include Size (Super King, King, Single, Double), Material (Cotton, Microfiber, Polycotton), Pattern (Floral, Solid), and Thread Count (144 TC, 200 TC, 300 TC, 400 TC). Leaders show 70% fill rate for Seasons, 60% for Item Display Dimensions, and 50% for Number of Packs—all absent from our catalog. Item Weight varies widely (363g to 2737g), correlating with set completeness (single bedsheet vs duvet cover + bedsheet + pillows). Product Care Instructions range from concise ('Do Not Bleach, Machine Wash') to detailed multi-step guidance. Set Name field distinguishes product type (Bedsheet, Bed Sheet With Pillow Cover, Bedcover with Two Pillow Covers, Comforter Fitted Set). Our catalog matches leader spec counts (29-30 fields) but misses Seasons, Display Dimensions, and Packs—limiting search filter relevance."
+    },
+    {
+      "name": "pricing",
+      "actions": [
+        "Maintain mid-range pricing (INR 450-700) for standard king size bedsheet + 2 pillow cover sets to match category median and cotton/cloud cotton positioning",
+        "Introduce premium tier (INR 800-1,200) for super king 108x108 sets and 400 TC variants to capture quality-conscious buyers and expand portfolio coverage",
+        "Price single bedsheet sets lower (INR 300-450) to compete with budget-conscious segments and entry-level shoppers",
+        "Add 4-piece duvet cover + bedsheet + pillow sets at INR 1,200-1,800 to fill portfolio gap and capture 'complete bedding solution' search intent",
+        "Use thread count and material credentials (300 TC vs 400 TC, Cloud Cotton vs Microfiber) to justify pricing tiers and differentiate value perception",
+        "Monitor price-per-panel competitiveness (currently INR 148-230 vs leader median 213) to ensure value positioning remains attractive without eroding margin"
+      ],
+      "observations": "Category pricing spans INR 169 to INR 3,799 with a median of INR 539. Leaders cluster around INR 450-700 for standard king size bedsheet sets (1 sheet + 2 pillow covers), with super king (108x108) and duvet cover sets commanding premiums (INR 800-1,200). Single bedsheet sets price lower (INR 300-450), while 4-piece duvet cover + bedsheet + pillow sets reach INR 1,500-3,799. Material and thread count drive pricing tiers: basic microfiber/polycotton (INR 350-550), cotton 200-300 TC (INR 500-800), premium cloud cotton/400 TC (INR 700-1,200). Our catalog sits mid-range (INR 444-689, median 566.5), aligning with cotton/cloud cotton positioning. Price-per-panel analysis shows leaders at INR 169-3,799 (median 213), while ours runs INR 148-230 (median 189)—suggesting competitive value. Pricing gaps appear in super king (108x108) and duvet cover sets, limiting portfolio coverage of premium segments."
+    },
+    {
+      "name": "reviews_and_trust",
+      "actions": [
+        "Prioritize review generation campaigns (post-purchase emails, inserts, early reviewer programs) to close the 10x review volume gap vs category median (10 vs 319)",
+        "Implement review request cadence targeting 7-14 days post-delivery when product experience (softness, wash durability) is fresh and positive sentiment peaks",
+        "Emphasize review themes in copy that align with verifiable experiences: fabric softness, color accuracy, wash durability, fit precision for stated bed sizes",
+        "Monitor competitor review velocity and content themes to identify emerging customer priorities (e.g., shrink-proof claims, pillow cover size) for copy refinement",
+        "Consider bundling incentives (care guide, seasonal promotions) to drive early reviews and accelerate path to 50+ review threshold for algorithmic visibility",
+        "Avoid review volume callouts in A+ Content or titles until reaching 100+ reviews to prevent negative signaling of newness or low adoption"
+      ],
+      "observations": "Review volume is the primary conversion driver in this category. Leaders average 319 reviews (median), with top performers reaching 4,700+, while our catalog trails significantly at median 10 reviews. Ratings remain comparable (leaders 3.5-4.5, median 3.85; ours 3.8-4.1, median 3.95), indicating product quality parity but insufficient social proof volume. The category shows high review elasticity—listings with 500+ reviews dominate search rankings even with 3.8-4.0 ratings, while sub-50 review listings struggle regardless of 4.2+ ratings. Leaders leverage review volume callouts in A+ Content ('Trusted by 4,000+ families') and titles when algorithmically permitted. Review content themes emphasize fabric softness, color accuracy, wash durability, and fit precision—aligning with bullet copy promises. Low review volume limits algorithmic visibility, Best Seller Badge eligibility, and conversion rate despite competitive product quality."
+    },
+    {
+      "name": "consistency_and_hygiene",
+      "actions": [
+        "Audit title, item highlights, bullets, and specs for verbatim consistency on Size (King/Super King/Single), Material (Cloud Cotton/Microfiber/Cotton), and Pattern (Floral/Solid/Boho)",
+        "Standardize dimension format to 'XXX x XXX cm (XX x XX inches)' across item highlights and bullet 1, avoiding mixed formats (e.g., 'XXX cm' in one place, 'XX inches' elsewhere)",
+        "Align Material field in specs with exact title/bullet terminology—if copy says 'Cloud Cotton,' specs must say 'Cloud Cotton' or 'Cloud Cotton - Microfiber,' not just 'Microfiber'",
+        "Use identical component count phrasing ('with 2 Pillow Covers,' '4PC Set') in title, highlights, bullets, and Included Components spec field",
+        "Eliminate terminology drift by locking product type descriptor (bedsheet vs bed cover vs duvet cover) to one term per listing, repeating it across all zones",
+        "Implement pre-publish checklist verifying Size, Material, Pattern, and Component consistency across title, highlights, bullets, and specs to prevent ranking fragmentation"
+      ],
+      "observations": "Leaders maintain strict consistency across title, item highlights, and bullets for core attributes (size, material, pattern, component count, dimensions). Size descriptors (King, Super King, Single) appear verbatim in all three zones. Material terminology (Cloud Cotton, 300 TC Microfiber, Glace Cotton) repeats across title, highlights, and bullet 2 without variation. Dimension formats standardize to 'XXX x XXX cm (XX x XX inches)' in bullets and highlights. Pattern descriptors (Floral, Solid, Boho) match exactly across zones. Component counts ('with 2 Pillow Covers,' '4PC Set') use identical phrasing. Leaders avoid terminology drift (e.g., 'bedsheet' in title, 'bed cover' in bullets) that fragments search relevance. Spec field alignment is critical—Size in specs must match title descriptor, Material in specs must match title/bullet claims. Inconsistencies penalize search ranking and customer trust. Our catalog shows strong hygiene but could tighten Material terminology alignment (title says 'Cloud Cotton,' specs say 'Microfiber')."
+    }
+  ],
+  "summary": "Top sellers in Bedding Duvet Cover Sets win through visual storytelling and extensive social proof. Category leaders average 319 reviews (with top performers reaching 4,700+), establishing credibility that drives conversions. Their PDPs deploy 10+ images featuring styled bedroom hero shots (100% prevalence), fabric texture close-ups, and feature callouts highlighting \"soft breathable,\" \"fade-resistant,\" and \"wrinkle-free\" benefits. Titles average 185 characters, balancing searchability with descriptive detail.\n\nWinning copy leverages hybrid terminology—blending \"bedsheet,\" \"duvet cover,\" and \"comforter\" across the same listings to capture varied search intent, plus size-specific callouts like \"super king size bedsheet 108x108\" and \"king size bedsheet with 2 pillow covers.\" Material-focused keywords (\"cloud cotton,\" \"400 tc microfiber\") and performance claims (\"shrink-proof,\" \"colorfast,\" \"anti-allergic\") satisfy quality-conscious buyers. A+ Content (40% adoption) reinforces trust with care instructions, design variety showcases, and lifestyle imagery emphasizing \"luxurious feel\" and \"bedroom upgrade\" positioning. Leaders also fill critical specs like Seasons, Item Display Dimensions, and Number of Packs to aid filtering.\n\nOur catalog trails significantly on review volume (median 10 vs 319), limiting conversion despite comparable ratings (3.95 vs 3.85). Missing leader lexicon—particularly duvet/comforter terminology and performance descriptors—reduces discoverability. Spec gaps (Seasons, Display Dimensions, Packs) hinder search relevance.",
+  "image_plan": {
+    "aplus": {
+      "slots": [
+        {
+          "kind": "hero",
+          "role": "Lifestyle hero with styled bedroom",
+          "order": 1,
+          "content": "Styled bedroom hero; optional one short benefit line. No brand logo draw; no long overlay essays.",
+          "pattern": "Full styled bedroom scene showing the duvet cover set on a bed with coordinating pillows, often with nightstand, window, headboard, or plants visible, frequently featuring text overlay with product benefits or brand messaging.",
+          "evidence": {
+            "prevalence": 1,
+            "per_listing": 1.8,
+            "typical_position": 1
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "infographic",
+          "role": "Product features and benefits",
+          "order": 2,
+          "content": "4–5 short phone-readable benefit chips with icons; unique facts not already on gallery feature slots.",
+          "pattern": "Infographic layout combining product photography or lifestyle images with text callouts and icon-based feature highlights, often using split panels, circular detail insets, or icon strips to organize information",
+          "evidence": {
+            "prevalence": 0.75,
+            "per_listing": 1.7,
+            "typical_position": 2
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "infographic",
+          "role": "Care instructions",
+          "order": 3,
+          "content": "Care icons with short labels (Machine Wash, Tumble Dry, No Bleach) — large type, minimal supporting copy.",
+          "pattern": "Split-panel layout showing either lifestyle imagery or product photos alongside care instruction icons and text",
+          "evidence": {
+            "prevalence": 0.75,
+            "per_listing": 1,
+            "typical_position": 6
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "comparison",
+          "role": "Design variety showcase",
+          "order": 4,
+          "content": "Header text stating \"AVAILABLE DESIGNS\" or \"CHOOSE BETWEEN DIFFERENT STYLES\". Grid displays different duvet cover designs shown on beds in styled bedroom settings with pillows, nightstands, windows, and decorative objects to showcase the variety of patterns and styles available in the product line.",
+          "pattern": "A grid layout showing multiple styled bedrooms or lifestyle scenes, typically 4-8 images arranged in a 2x2 or larger grid format with a header",
+          "evidence": {
+            "prevalence": 0.5,
+            "per_listing": 1,
+            "typical_position": 3.5
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "detail",
+          "role": "Fabric and material details",
+          "order": 5,
+          "content": "Ultra Soft 400 thread count, SOFTNESS you can feel in. Show fabric texture with magnified close-up inset to emphasize material quality and softness of the duvet cover.",
+          "pattern": "Macro fabric photograph with circular magnified inset showing texture detail and text overlay highlighting material quality.",
+          "evidence": {
+            "prevalence": 0.5,
+            "per_listing": 1,
+            "typical_position": 1.5
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "lifestyle",
+          "role": "Lifestyle scene with people",
+          "order": 6,
+          "content": "Family or people in bed with the duvet cover set in a bedroom environment. May include nightstand, lamp, books, and other bedroom furniture. Text overlay messaging such as \"Made for Precious Moments\" or \"Comfort for every family moment.\" showcasing the product's role in family life and comfort.",
+          "pattern": "Full lifestyle photo showing people (family members, children, adults) using the duvet cover in a bedroom setting, often with text overlay messaging.",
+          "evidence": {
+            "prevalence": 0.25,
+            "per_listing": 1,
+            "typical_position": 3
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "infographic",
+          "role": "Size chart",
+          "order": 7,
+          "content": "Sparse size table with large headers; phone-scannable only.",
+          "pattern": "A table with diagram illustration showing bedding measurements and available sizes",
+          "evidence": {
+            "prevalence": 0.25,
+            "per_listing": 1,
+            "typical_position": 12
+          },
+          "priority": "extended"
+        }
+      ],
+      "observed": {
+        "module_count": {
+          "max": 14,
+          "min": 5,
+          "median": 6.5
+        },
+        "modules_analyzed": 4
+      },
+      "build_rationale": "A+ focuses on lifestyle, care, and benefits not already owned by gallery slots. Use the same typeface system as the gallery. Keep feature/care modules sparse and phone-readable with SEO-useful short labels; avoid duplicating package-contents or fabric softness already shown on PDP.",
+      "recommended_build": 5
+    },
+    "gallery": {
+      "slots": [
+        {
+          "kind": "hero",
+          "role": "Styled bedroom hero",
+          "order": 1,
+          "content": "Complete bed made with the duvet cover set, nightstand, pillows, plant, rug, lamp, wall art, and flooring visible. May include floral pattern designs. Optional brand signage displaying VAS, COLLECTIONS, or BSB home.",
+          "pattern": "Fully styled bedroom scene showing the duvet cover set on a bed with surrounding furniture and decor",
+          "evidence": {
+            "prevalence": 1,
+            "per_listing": 3.2,
+            "typical_position": 1
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "detail",
+          "role": "Fabric detail with callout",
+          "order": 2,
+          "content": "Fabric close-up of weave/pattern. At most 2–3 large SEO labels (e.g. Soft, Easy Care, Breathable) supported by product facts — no diagonal slogan walls.",
+          "pattern": "Close-up detail shot of fabric texture or pattern with overlaid text callouts highlighting material features",
+          "evidence": {
+            "prevalence": 0.3,
+            "per_listing": 2.3,
+            "typical_position": 3
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "feature_banner",
+          "role": "Features list with product",
+          "order": 3,
+          "content": "Styled bed with product; 3–5 short phone-readable feature chips max, each a distinct fact not repeated elsewhere — no long bullet essays.",
+          "pattern": "Split panel or full lifestyle shot showing the duvet cover set on a bed in a styled room setting, with text overlay featuring bullet points or callout boxes highlighting key product features",
+          "evidence": {
+            "prevalence": 0.3,
+            "per_listing": 2.3,
+            "typical_position": 5
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "detail",
+          "role": "Fitted sheet elastic detail",
+          "order": 4,
+          "content": "Fitted-sheet corner showing elastic. One or two large labels (e.g. All-Around Elastic, Machine Washable) if facts support — no marketing paragraphs.",
+          "pattern": "Close-up photograph of fitted sheet corner on mattress with text overlay emphasizing elastic feature",
+          "evidence": {
+            "prevalence": 0.2,
+            "per_listing": 2.5,
+            "typical_position": 6
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "detail",
+          "role": "Fabric texture close-up",
+          "order": 5,
+          "content": "Detailed view of the fabric texture showcasing the textile weave, material quality, and surface pattern. Common patterns include floral designs, paisley motifs, and other decorative prints in colors like blue. The shot emphasizes the fabric's tactile qualities and construction.",
+          "pattern": "Close-up photograph showing the fabric texture and weave of the duvet cover material",
+          "evidence": {
+            "prevalence": 0.5,
+            "per_listing": 3,
+            "typical_position": 7
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "supporting",
+          "role": "Folded/stacked product shot",
+          "order": 6,
+          "content": "The complete duvet cover set folded and stacked to show the fabric pattern, including pillowcases. Common patterns include floral, paisley, or solid colors like blue. Product should be neatly arranged to display the design and texture of the bedding material.",
+          "pattern": "Neatly folded or stacked duvet cover set displayed against a white background",
+          "evidence": {
+            "prevalence": 0.3,
+            "per_listing": 1.3,
+            "typical_position": 5.5
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "infographic",
+          "role": "Package contents infographic",
+          "order": 7,
+          "content": "Sparse package list with large icons/labels (duvet cover, pillow covers, bedsheet as applicable). One short note if filler is excluded. No dense banners.",
+          "pattern": "Horizontal banner layout showing stacked bedding product with text overlay and icons indicating package contents",
+          "evidence": {
+            "prevalence": 0.1,
+            "per_listing": 2,
+            "typical_position": 5
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "comparison",
+          "role": "Multi-angle product showcase",
+          "order": 8,
+          "content": "2×2 detail grid of fabric/pattern; optional single short quality label — no curved essay overlays.",
+          "pattern": "A 2×2 grid layout showing multiple close-up detail shots of the duvet cover with curved text overlay across top or bottom",
+          "evidence": {
+            "prevalence": 0.2,
+            "per_listing": 2,
+            "typical_position": 5
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "detail",
+          "role": "Bedroom corner detail",
+          "order": 9,
+          "content": "The bed with bedding and pillows styled in the corner. Wooden nightstand beside the bed. Window with curtains. Decorative items including lamp, pampas grass in vases, and other decorative objects. Floor visible to ground the scene.",
+          "pattern": "A styled bedroom corner showing the bed with the duvet cover set dressed alongside complementary décor elements.",
+          "evidence": {
+            "prevalence": 0.2,
+            "per_listing": 2.5,
+            "typical_position": 7
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "infographic",
+          "role": "Size guide infographic",
+          "order": 10,
+          "content": "Phone-readable size panel: key mattress/duvet dimensions only; avoid packing every spec into one crowded table.",
+          "pattern": "Split panel layout featuring a bed illustration on one side with size specifications and product details on the other side",
+          "evidence": {
+            "prevalence": 0.1,
+            "per_listing": 2,
+            "typical_position": 5
+          },
+          "priority": "extended"
+        }
+      ],
+      "observed": {
+        "image_count": {
+          "max": 18,
+          "min": 2,
+          "median": 10.5
+        },
+        "listings_analyzed": 10
+      },
+      "build_rationale": "Build a coherent duvet-cover PDP gallery with one shared typeface system (brand primary on headlines; optional secondary for tiny labels only). Hero and lifestyle frames are photo-led with no text walls. Any on-image copy must be phone-readable and SEO-useful (short phrases like soft microfiber, machine washable, fitted sheet — never long bullet essays or internal module labels). Each slot owns unique facts; do not repeat softness/care/pack claims across feature and infographic frames. Keep package and size graphics sparse and scannable on a phone.",
+      "recommended_build": 7
+    }
+  },
+  "catalog_gaps": {
+    "summary": "Relative to category leaders, our catalog (aggregated): review volume trails leaders (median 10 vs 319); spec fields under-filled vs leaders: Seasons, Item Display Dimensions, Number of Packs; leader lexicon terms absent from our catalog copy: duvet cover, comforter, super king size bedsheet 108x108, cloud cotton bedsheet, soft breathable bedsheet, fade-resistant bedsheet, wrinkle-free bedsheet, flat bedsheet king size.",
+    "our_norms": {
+      "rating": {
+        "max": 4.1,
+        "min": 3.8,
+        "median": 3.9499999999999997
+      },
+      "price_inr": {
+        "max": 689,
+        "min": 444,
+        "median": 566.5
+      },
+      "image_count": {
+        "max": 12,
+        "min": 10,
+        "median": 11
+      },
+      "bullet_count": {
+        "max": 5,
+        "min": 5,
+        "median": 5
+      },
+      "review_count": {
+        "max": 11,
+        "min": 9,
+        "median": 10
+      },
+      "title_length": {
+        "max": 186,
+        "min": 182,
+        "median": 184
+      },
+      "aplus_presence_rate": 0.5
+    },
+    "leader_norms": {
+      "rating": {
+        "max": 4.5,
+        "min": 3.5,
+        "median": 3.8499999999999996
+      },
+      "price_inr": {
+        "max": 3799,
+        "min": 169,
+        "median": 539
+      },
+      "image_count": {
+        "max": 18,
+        "min": 2,
+        "median": 10.5
+      },
+      "bullet_count": {
+        "max": 5,
+        "min": 5,
+        "median": 5
+      },
+      "review_count": {
+        "max": 4797,
+        "min": 9,
+        "median": 319
+      },
+      "title_length": {
+        "max": 198,
+        "min": 119,
+        "median": 184.5
+      },
+      "aplus_presence_rate": 0.4
+    },
+    "metric_deltas": [
+      {
+        "ours": {
+          "max": 186,
+          "min": 182,
+          "median": 184
+        },
+        "metric": "title_length",
+        "leaders": {
+          "max": 198,
+          "min": 119,
+          "median": 184.5
+        }
+      },
+      {
+        "ours": {
+          "max": 5,
+          "min": 5,
+          "median": 5
+        },
+        "metric": "bullet_count",
+        "leaders": {
+          "max": 5,
+          "min": 5,
+          "median": 5
+        }
+      },
+      {
+        "ours": {
+          "max": 12,
+          "min": 10,
+          "median": 11
+        },
+        "metric": "image_count",
+        "leaders": {
+          "max": 18,
+          "min": 2,
+          "median": 10.5
+        }
+      },
+      {
+        "ours": {
+          "max": 3,
+          "min": 0,
+          "median": 1.5
+        },
+        "metric": "aplus_image_count",
+        "leaders": {
+          "max": 14,
+          "min": 0,
+          "median": 0
+        }
+      },
+      {
+        "ours": {
+          "max": 21,
+          "min": 0,
+          "median": 10.5
+        },
+        "metric": "aplus_text_count",
+        "leaders": {
+          "max": 7,
+          "min": 0,
+          "median": 0
+        }
+      },
+      {
+        "ours": {
+          "max": 30,
+          "min": 29,
+          "median": 29.5
+        },
+        "metric": "spec_key_count",
+        "leaders": {
+          "max": 32,
+          "min": 27,
+          "median": 30
+        }
+      },
+      {
+        "ours": {
+          "max": 689,
+          "min": 444,
+          "median": 566.5
+        },
+        "metric": "price_inr",
+        "leaders": {
+          "max": 3799,
+          "min": 169,
+          "median": 539
+        }
+      },
+      {
+        "ours": {
+          "max": 230,
+          "min": 148,
+          "median": 189
+        },
+        "metric": "price_per_panel",
+        "leaders": {
+          "max": 3799,
+          "min": 169,
+          "median": 213
+        }
+      },
+      {
+        "ours": {
+          "max": 4.1,
+          "min": 3.8,
+          "median": 3.9499999999999997
+        },
+        "metric": "rating",
+        "leaders": {
+          "max": 4.5,
+          "min": 3.5,
+          "median": 3.8499999999999996
+        }
+      },
+      {
+        "ours": {
+          "max": 11,
+          "min": 9,
+          "median": 10
+        },
+        "metric": "review_count",
+        "leaders": {
+          "max": 4797,
+          "min": 9,
+          "median": 319
+        }
+      },
+      {
+        "ours": {
+          "rate": 0.5
+        },
+        "metric": "aplus_presence_rate",
+        "leaders": {
+          "rate": 0.4
+        }
+      }
+    ],
+    "missing_spec_keys": [
+      {
+        "key": "Seasons",
+        "our_fill_rate": 0,
+        "leader_fill_rate": 0.7
+      },
+      {
+        "key": "Item Display Dimensions",
+        "our_fill_rate": 0,
+        "leader_fill_rate": 0.6
+      },
+      {
+        "key": "Number of Packs",
+        "our_fill_rate": 0,
+        "leader_fill_rate": 0.5
+      }
+    ],
+    "missing_visual_roles": [],
+    "missing_lexicon_terms": [
+      "duvet cover",
+      "comforter",
+      "super king size bedsheet 108x108",
+      "cloud cotton bedsheet",
+      "soft breathable bedsheet",
+      "fade-resistant bedsheet",
+      "wrinkle-free bedsheet",
+      "flat bedsheet king size",
+      "elastic fitted bedsheet",
+      "400 tc microfiber bedding",
+      "shrink-proof",
+      "luxurious feel",
+      "smooth texture",
+      "colorfast",
+      "anti-allergic",
+      "moisture-wicking",
+      "premium fabric",
+      "home decor",
+      "bedroom upgrade",
+      "gifting",
+      "anniversary",
+      "housewarming",
+      "festive occasions",
+      "mother's day",
+      "valentine's day"
+    ]
+  },
+  "backend_keywords": {
+    "terms": [
+      "duvet cover",
+      "300 tc",
+      "fitted bedsheet",
+      "comforter",
+      "colorfast",
+      "single bed",
+      "108x108 inches",
+      "polycotton",
+      "glace cotton",
+      "luxurious feel",
+      "smooth texture",
+      "anti allergic",
+      "bedcover",
+      "quilted",
+      "3d printed",
+      "natural fiber",
+      "gifting"
+    ],
+    "used_bytes": 198,
+    "paste_string": "duvet cover 300 tc fitted bedsheet comforter colorfast single bed 108x108 inches polycotton glace cotton luxurious feel smooth texture anti allergic bedcover quilted 3d printed natural fiber gifting",
+    "marketplace_limit_bytes": 200,
+    "excluded_because_already_in_copy": [
+      "bedsheet",
+      "pillow covers",
+      "king size",
+      "super king size",
+      "double bed",
+      "cotton",
+      "microfiber",
+      "soft",
+      "breathable",
+      "bedding set",
+      "fade resistant",
+      "wrinkle free",
+      "skin friendly",
+      "cloud cotton",
+      "flat bedsheet",
+      "thread count",
+      "ultra soft",
+      "shrink resistant",
+      "floral pattern",
+      "solid design",
+      "270x250 cm",
+      "machine washable",
+      "premium fabric",
+      "elegant design",
+      "boho design",
+      "super king size bedsheet 108x108",
+      "cloud cotton bedsheet",
+      "soft breathable bedsheet",
+      "fade resistant bedsheet",
+      "wrinkle free bedsheet"
+    ]
+  },
+  "category_lexicon": {
+    "terms": [
+      {
+        "term": "bedding set",
+        "relevance": "high"
+      },
+      {
+        "term": "bedsheet",
+        "relevance": "high"
+      },
+      {
+        "term": "breathable",
+        "relevance": "high"
+      },
+      {
+        "term": "cotton",
+        "relevance": "high"
+      },
+      {
+        "term": "double bed",
+        "relevance": "high"
+      },
+      {
+        "term": "duvet cover",
+        "relevance": "high"
+      },
+      {
+        "term": "fade-resistant",
+        "relevance": "high"
+      },
+      {
+        "term": "king size",
+        "relevance": "high"
+      },
+      {
+        "term": "microfiber",
+        "relevance": "high"
+      },
+      {
+        "term": "pillow covers",
+        "relevance": "high"
+      },
+      {
+        "term": "skin-friendly",
+        "relevance": "high"
+      },
+      {
+        "term": "soft",
+        "relevance": "high"
+      },
+      {
+        "term": "super king size",
+        "relevance": "high"
+      },
+      {
+        "term": "wrinkle-free",
+        "relevance": "high"
+      },
+      {
+        "term": "108x108 inches",
+        "relevance": "medium"
+      },
+      {
+        "term": "270x250 cm",
+        "relevance": "medium"
+      },
+      {
+        "term": "300 tc",
+        "relevance": "medium"
+      },
+      {
+        "term": "400 tc",
+        "relevance": "medium"
+      },
+      {
+        "term": "cloud cotton",
+        "relevance": "medium"
+      },
+      {
+        "term": "colorfast",
+        "relevance": "medium"
+      },
+      {
+        "term": "comforter",
+        "relevance": "medium"
+      },
+      {
+        "term": "fitted bedsheet",
+        "relevance": "medium"
+      },
+      {
+        "term": "flat bedsheet",
+        "relevance": "medium"
+      },
+      {
+        "term": "floral pattern",
+        "relevance": "medium"
+      },
+      {
+        "term": "polycotton",
+        "relevance": "medium"
+      },
+      {
+        "term": "shrink-resistant",
+        "relevance": "medium"
+      },
+      {
+        "term": "single bed",
+        "relevance": "medium"
+      },
+      {
+        "term": "solid design",
+        "relevance": "medium"
+      },
+      {
+        "term": "thread count",
+        "relevance": "medium"
+      },
+      {
+        "term": "ultra-soft",
+        "relevance": "medium"
+      }
+    ],
+    "observations": "Leaders in the bedding duvet cover sets category strategically distribute vocabulary across all content zones to maximize discoverability and conversion. Titles follow a consistent formula: [Brand] + [Material/TC count] + [Size descriptor] + \"Bedsheet\" + \"with [X] Pillow Covers\" + [Key attributes] + [Dimensions in multiple units]. They pack titles with size variants (King Size, Super King, Single), material callouts (Cotton, Microfiber, Cloud Cotton, Polycotton), thread count credentials (144 TC, 200 TC, 300 TC, 400 TC), and exact dimensions in inches/cm/feet. Bullets expand on five core themes in strict order: (1) Complete package contents with precise measurements in multiple units, (2) Premium fabric composition highlighting TC count, fiber type, and comfort benefits (soft, breathable, skin-friendly), (3) Design aesthetics and bedroom versatility, (4) Durability claims (fade-resistant, shrink-proof, colorfast) with wash longevity, and (5) Care instructions plus gifting occasions. Item highlights compress the title formula into a scannable format, repeating Size | Material | Pattern | Components | Dimensions | Benefits. Leaders layer vernacular terms like \"ultra-soft,\" \"breathable,\" \"skin-friendly,\" \"wrinkle-free,\" \"fade-resistant,\" and \"luxurious feel\" across all zones to reinforce quality perception. The category heavily emphasizes exact dimensions (108x108 inches, 270x250 cm, 90x100 inch) and bed fit terminology (Super King, King Size, Double Bed) as primary conversion drivers, with material credentials (Cloud Cotton, Glace Cotton, 300 TC Microfiber) serving as secondary trust signals."
+  },
+  "voice_of_customer": {
+    "signals": [
+      {
+        "phrase": "color different from picture",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 22
+      },
+      {
+        "phrase": "good quality fabric",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 18
+      },
+      {
+        "phrase": "extremely soft material",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 15
+      },
+      {
+        "phrase": "not pure cotton",
+        "relevance": "high",
+        "sentiment": "objection",
+        "mention_count": 14
+      },
+      {
+        "phrase": "value for money",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 12
+      },
+      {
+        "phrase": "size fits king size bed perfectly",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 11
+      },
+      {
+        "phrase": "polycotton blend instead of cotton",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 9
+      },
+      {
+        "phrase": "big size good for king bed",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 9
+      },
+      {
+        "phrase": "wrong design received",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 8
+      },
+      {
+        "phrase": "color looks faded",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 8
+      },
+      {
+        "phrase": "worth the cost",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 8
+      },
+      {
+        "phrase": "same as shown in picture",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 7
+      },
+      {
+        "phrase": "comfortable to use",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 7
+      },
+      {
+        "phrase": "too thin material",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 6
+      },
+      {
+        "phrase": "color lighter than shown",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 6
+      },
+      {
+        "phrase": "quality degraded after first wash",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 3
+      },
+      {
+        "phrase": "rough fabric",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 3
+      },
+      {
+        "phrase": "soft bedsheet",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 3
+      },
+      {
+        "phrase": "missing pillow cover",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 2
+      },
+      {
+        "phrase": "material is durable",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 2
+      },
+      {
+        "phrase": "perfect fit for king size bed",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 2
+      },
+      {
+        "phrase": "has two pillow covers",
+        "relevance": "high",
+        "sentiment": "neutral",
+        "mention_count": 2
+      },
+      {
+        "phrase": "old stock",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 1
+      },
+      {
+        "phrase": "colour faded",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 1
+      },
+      {
+        "phrase": "not recommended",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 1
+      },
+      {
+        "phrase": "affordable",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 1
+      },
+      {
+        "phrase": "high quality premium cotton",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 1
+      },
+      {
+        "phrase": "very very soft",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 1
+      },
+      {
+        "phrase": "beautiful design",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 10
+      },
+      {
+        "phrase": "stinking smell when delivered",
+        "relevance": "medium",
+        "sentiment": "complaint",
+        "mention_count": 4
+      },
+      {
+        "phrase": "adds elegance to bedroom",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 4
+      },
+      {
+        "phrase": "slippery material",
+        "relevance": "medium",
+        "sentiment": "complaint",
+        "mention_count": 3
+      },
+      {
+        "phrase": "pillow cover size too tight",
+        "relevance": "medium",
+        "sentiment": "complaint",
+        "mention_count": 3
+      },
+      {
+        "phrase": "heavy cotton quality",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 3
+      },
+      {
+        "phrase": "gets messed up easily",
+        "relevance": "medium",
+        "sentiment": "complaint",
+        "mention_count": 2
+      },
+      {
+        "phrase": "pretty colors",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 2
+      }
+    ],
+    "observations": "Buyers in the duvet cover set category prioritize fabric quality and softness above nearly everything else, frequently describing material as 'extremely soft' or 'very very soft' when satisfied. Quality perception centers on whether the fabric feels substantial, durable, and genuinely cotton—buyers are quick to call out polycotton blends or polyester marketed as pure cotton, viewing this as misleading and a deal-breaker. Value for money resonates strongly when quality meets expectations at affordable price points, but the relationship is fragile: buyers become vocal critics when quality degrades after the first wash or when material feels too thin or rough.\n\nColor and design accuracy is a persistent friction point. A significant portion of feedback highlights mismatches between product images and what arrives—colors appearing lighter, faded, or completely different from pictures. Buyers appreciate when the product looks 'same as shown in picture' and when designs add elegance to the bedroom, but edited or misleading photos erode trust quickly. Wrong designs being delivered compounds this frustration.\n\nSizing and fit generate positive sentiment when duvet sets fit king size beds perfectly with generous dimensions, but pillow cover sizing can be problematic—some report covers that are too tight or, worse, missing entirely from the package. Material performance matters beyond initial impressions: slippery fabrics that get messed up easily, stinking smells upon delivery, and degraded quality after washing all trigger negative reviews. Buyers want bedding that remains comfortable, durable, and aesthetically pleasing through regular use and laundering, with breathable, wrinkle-free, and fade-resistant properties implicitly expected from premium offerings."
+  }
+}

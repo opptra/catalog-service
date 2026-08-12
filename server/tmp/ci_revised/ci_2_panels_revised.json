@@ -1,0 +1,1191 @@
+{
+  "meta": {
+    "model": "claude-sonnet-4-5",
+    "category": "Panels",
+    "our_count": 3,
+    "marketplace": "www.amazon.in",
+    "generated_at": "2026-08-12T04:20:17.172Z",
+    "schema_version": "2.4",
+    "competitor_count": 10
+  },
+  "topics": [
+    {
+      "name": "title",
+      "actions": [
+        "Compress titles to 75 characters maximum, frontloading brand, opacity percentage, curtain type (door/window), and set quantity in the first 50 characters",
+        "Adopt the pattern: '[Brand] [Opacity%] Blackout [Type] Curtains Set of 2 | [Size Feet] | [Color]' to align with leader mobile-first structure",
+        "Include specific foot measurements (5 feet, 7 feet, 8 feet) as distinct search terms rather than generic size descriptors",
+        "Emphasize '100% Blackout' or specific opacity percentages early in title when applicable to differentiate from light-filtering variants",
+        "Reserve room type and design descriptors (plain, solid) for secondary positions or omit if character limit requires"
+      ],
+      "observations": "Leaders deploy titles averaging 126.5 characters (truncated to 75 on mobile), packing in brand, opacity percentage, curtain type (door/window), set quantity, size (5/7/8 feet), design descriptor (plain/solid), room applications, and color. The mobile-optimized pattern frontloads critical search terms: '[Brand] [Opacity%] Blackout [Type] Curtains Set of 2 | [Size] | [Design] for [Room] | [Color]'. Story@Home and amazon basics consistently emphasize '100% Blackout', set quantity, and specific foot measurements within the first 75 characters to ensure mobile visibility. Our catalog titles run 100-144 characters, missing the mobile-first compression leaders achieve."
+    },
+    {
+      "name": "item_highlights",
+      "actions": [
+        "Standardize item highlights to template: 'Brand [Brand] | Colour [Color] | Material [Material] | [Dimensions in L x W format] | Opacity [Opacity%] | Special Feature [Feature]' within 125 characters",
+        "Prioritize opacity percentage and special features (Blackout, Thermal Insulated, Waterproof) in the Special Feature slot to differentiate functional performance",
+        "Include dimensions in both metric (cm) and imperial (inches) in a compressed format (e.g., '2.15L x 1.16W Meters' or '150L x 115W cm') to accommodate diverse customer preferences",
+        "Use 'Recommended Uses For Product' variant highlighting room types (Door Window, Doorway, Living Room, Bedroom) when opacity is not a differentiator",
+        "Ensure color and material terms match spec fields exactly to avoid inconsistency flags"
+      ],
+      "observations": "Leaders use item highlights as a structured, searchable attribute line within the 125-character limit, following a strict template: 'Brand [Brand] | Colour [Color] | Material [Material] | [Dimensions] | Opacity [Opacity%] | Special Feature [Feature]'. This format appears in 100% of top listings, serving as a scannable spec snapshot that complements the title. amazon basics emphasizes 'Recommended Uses For Product' (Door Window, Doorway, Indoor, Medical, Window) while Story@Home highlights opacity percentage and material (Faux Silk). Our catalog lacks this templated consistency and does not consistently surface opacity or special features in this field."
+    },
+    {
+      "name": "bullets",
+      "actions": [
+        "Adopt rigid five-bullet role structure: (1) Package specs with dimensions in cm, inches, feet, GSM, material, color, opacity; (2) Performance claims with specific light-blocking percentages and privacy assurances; (3) Care instructions with water temperature, eyelet removal, and prohibited actions; (4) Room compatibility listing 6+ types including cultural spaces (pooja room) and commercial uses (hotel, theater); (5) Decorative and gifting applications",
+        "Maximize character count per bullet to 300+ characters by stacking related details (e.g., 'dimension (size): 116 x 215 cm or 46 x 84 inches, 300 gsm, pattern: plain, material: faux silk, color: Beige')",
+        "Integrate vernacular terms ('parda', 'door parda', 'window parda', 'blackout parda') naturally within bullets to capture Hindi-speaking search traffic",
+        "Include cultural gifting occasions (Diwali, Dussehra, Durga Puja, New Year, Anniversary) in fifth bullet to tap festive shopping cycles",
+        "Specify light-blocking percentages (80-90%, 100%) and privacy language ('complete privacy', 'hint of light') to set performance expectations",
+        "Add protective benefit language ('act as protective barriers, shielding your interior from outdoor elements') to expand value proposition beyond aesthetics"
+      ],
+      "observations": "Leaders employ a five-bullet structure with rigidly defined roles: (1) Package contents with comprehensive dimensions (cm, inches, feet), GSM, material, color, opacity percentage; (2) Functional performance emphasizing light blocking percentage, privacy, and thermal insulation; (3) Care instructions specifying cold water wash, eyelet/grommet removal, no bleaching/tumble drying; (4) Room type compatibility listing 5-8 spaces (bedroom, living room, office, hotel, theater, hostel); (5) Decorative versatility and gifting occasions (backdrop decoration, pooja room, Diwali, Durga Puja). Story@Home and amazon basics consistently deliver 300+ characters per bullet, maximizing allotted space. Bullets integrate vernacular terms ('parda', 'door parda') and cultural references (Durga Puja, Dussehra) to capture local search behavior. Our catalog delivers functional basics but lacks the cultural and aspirational layering leaders deploy."
+    },
+    {
+      "name": "keywords",
+      "actions": [
+        "Deploy three-tier keyword strategy: head terms (product type + core function), long-tail functional (specific benefits + room types), vernacular and occasion-based (cultural terms + gifting)",
+        "Prioritize size-specific keywords ('5 feet curtains', '7 feet curtains', '8 feet curtains') as distinct search terms, not generic 'size' descriptors",
+        "Integrate thermal and insulation vocabulary ('thermal insulated curtains', 'energy saving curtains', 'cooling barrier') to capture performance-focused searches",
+        "Incorporate vernacular terms ('parda', 'door parda', 'window parda', 'blackout parda', 'curtain set') throughout backend and visible copy to capture Hindi-English bilingual searches",
+        "Layer in occasion and decoration keywords ('home decoration items', 'pooja room decoration', 'backdrop curtain for decoration', 'diwali gifts', 'durga puja decoration') to tap festive and event-driven traffic",
+        "Use '100% true blackout' and opacity-specific phrases ('100% blackout', '80-90% blackout', 'room darkening') to differentiate from light-filtering variants",
+        "Add installation method terms ('eyelet curtains', 'grommet curtains', 'rod pocket curtains') to capture feature-specific searches"
+      ],
+      "observations": "Leaders leverage a three-tier keyword strategy: (1) Head terms like 'blackout curtains', 'door curtains', 'window curtains', 'room darkening curtains', 'curtains set of 2', '5 feet curtains', '7 feet curtains'; (2) Long-tail functional phrases like 'thermal insulated curtains', '100% true blackout curtains', 'blackout curtains for bedroom', 'blackout curtains for living room', 'eyelet curtains', 'grommet curtains', 'plain design curtains'; (3) Vernacular and occasion-based terms like 'parda', 'door parda', 'window parda', 'blackout parda', 'curtain panel', 'home decoration items', 'pooja room decoration', 'backdrop curtain for decoration', 'diwali gifts', 'new year gifts'. This layered approach captures functional searchers (blackout, thermal), size-specific buyers (5 feet, 7 feet), Hindi-speaking customers (parda), and gifting occasions. Our catalog under-indexes on size-specific terms, thermal descriptors, and vernacular vocabulary."
+    },
+    {
+      "name": "gallery_images",
+      "actions": [
+        "Keep hero and alternate-angle lifestyle shots photography-first with no text walls.",
+        "Use one shared primary typeface on every texted frame; optional secondary for tiny labels only.",
+        "Limit on-image copy to short SEO-useful phrases (blackout, eyelets, room darkening) that are phone-legible.",
+        "Assign each fact to one slot — do not repeat light-blocking, installation, or material claims.",
+        "Prefer sparse size/opacity graphics; move dense education to A+ when gallery count is limited.",
+        "Capture fabric, grommet, and tie-back details as close-ups with minimal or no overlay text."
+      ],
+      "observations": "Leaders use lifestyle-first galleries with shared lighting and typography. Texted PDP frames stay sparse and phone-readable; dense charts belong in A+ or a single owned infographic slot. Duplicate claims across feature banners hurt conversion."
+    },
+    {
+      "name": "aplus",
+      "actions": [
+        "Lead A+ content with brand hero banner establishing heritage, trust signals (years in business, customer count, media logos), and category breadth ('12 years, 50 lakh+ families served') to build credibility",
+        "Deploy blackout technology infographic (layer diagram showing fabric layers and light-blocking percentages per layer) at position 3 to educate skeptical buyers on performance mechanism",
+        "Include color blackout effectiveness chart comparing lighter colors (80% blockage) vs. darker colors (99% blockage) to set realistic expectations and guide color selection",
+        "Add installation hardware detail image showing grommet count, interior/exterior diameter, and rod compatibility to simplify setup and reduce installation-related returns",
+        "Create size and color options chart showing available dimensions (Window 5 ft, Door 7 ft, Long Door 8-9 ft) with color swatches to help customers navigate SKU selection",
+        "Incorporate three lifestyle scenes: couple/romance (position 6), entertainment/social (position 8), sleeping (position 7) to demonstrate use cases and emotional benefits (privacy, comfort, rest quality)",
+        "Layer light blocking demonstration (room with curtains closed, emphasizing darkness) at position 1 to immediately validate primary benefit claim",
+        "Maintain consistent color palette (teal accents, neutral backgrounds) and text-overlay integration across all modules for cohesive brand presentation",
+        "Reuse gallery typography (primary ± secondary); never introduce new fonts in A+ modules.",
+        "Keep module copy phone-readable and shopper-facing — never print A+/EBC labels on artwork.",
+        "Avoid duplicating gallery-owned light-blocking or installation facts; teach what PDP skipped."
+      ],
+      "observations": "Leaders deploy A+ content at 80% rate with median 6 images, leveraging defined roles: brand hero banner (57%, position 0), lifestyle hero with features (57%, position 0), blackout technology infographic (43%, position 3), color blackout effectiveness chart (43%, position 5), installation hardware detail (43%, position 2), light blocking demonstration (43%, position 1), size and color options chart (43%, position 5), fabric detail close-up (43%, position 2), plus aspirational lifestyle scenes (couple/romance 43%, entertainment/social 43%, sleeping 43%). Story@Home establishes brand heritage ('12 years, 50 lakh+ families') and deploys layer diagrams explaining triple-weave blackout technology. amazon basics uses icon-supported feature callouts (blocks sunlight, ensures privacy, easy to hang, velcro straps). All A+ content integrates text overlays with lifestyle photography and maintains color palette consistency (teal and neutral tones). Our catalog achieves 100% A+ presence but lacks educational infographics (blackout technology diagrams, color effectiveness charts) and aspirational lifestyle variety. Typography must stay consistent with the gallery primary typeface; on-image text remains phone-readable and free of A+/internal jargon."
+    },
+    {
+      "name": "specs",
+      "actions": [
+        "Fill 'Closure Type' field at 100% rate using standardized values (Grommet, Eyelet, Rod Pocket, Tie Top) to match leader fill-rate of 60% and improve filterability",
+        "Standardize 'Opacity' values to three tiers: '100% Blackout' (full light blocking), '80-90% Blackout' (room darkening), 'Light-filtering' (semi-transparent) to eliminate formatting inconsistencies ('100%' vs. '100 %')",
+        "Separate 'Style' into two distinct fields: 'Curtain Count' (Pack of 2, Set of 1, 2 Piece) and 'Design Style' (Traditional, Modern, Contemporary) to avoid mixing quantity and aesthetic attributes",
+        "Populate 'Room Type' with comprehensive list including cultural spaces (Pooja Room) and commercial uses (Office, Hotel, Theater, Hostel) to match leader breadth (5-8 room types per listing)",
+        "Align 'Seasons' field to leader pattern using comma-separated multi-season values ('All Season, Monsoon, Summer, Winter' or 'All Season, Spring, Summer, Winter') rather than single-season tags",
+        "Expand 'Occasion Type' to include festive and life events (Diwali, Durga Puja, Dussehra, Housewarming, Wedding, Anniversary, New Year) to capture gifting search traffic",
+        "Ensure 'Colour' values in specs match item highlights and title exactly (case-sensitive) to avoid inconsistency penalties",
+        "Use 'Curtain Form' consistently across SKUs (Door Panel Curtain for 7-9 ft, Curtain Panel Set for window 5 ft, Drapes for specialty) to improve browse tree accuracy"
+      ],
+      "observations": "Leaders populate 37-41 specification keys with flagship field 'Opacity' offering tiered values: '100%', 'Blackout', 'Light-filtering Inches', '2 Inches', 'Light-filtering', '100 %'. Core spec fields include Colour (Beige, Coffee, Cream, Pack of 2, White), Room Type (Bedroom/Kids Room/Living Room/Pooja Room/TV Room, Hall/Bedroom/Office), Style (Pack of 2, Traditional, No. of Curtains - 2), Pattern (Solid, Floral), Theme (Blackout, Building/Carnival/Cities/Fashion/Festival, Floral, Solid, Coffee), Curtain Form (Door Panel Curtain, Curtain Panel Set, Drapes), top-style (Grommet, Rod Pocket/Tape Top/Tie Top), Seasons (All Season/Monsoon/Summer/Winter), Occasion Type (Anniversary, New Year, Wedding, Baby Shower, Bridal Shower). Leaders fill 'Closure Type' at 60% rate—our catalog fills this at 0%. Inconsistent opacity formatting ('100%' vs. '100 %' vs. 'Blackout') and Style values mixing quantity ('Pack of 2') with aesthetic ('Traditional') create taxonomy confusion."
+    },
+    {
+      "name": "pricing",
+      "actions": [
+        "Reposition set-of-2 blackout curtains (7 feet, 300 GSM, thermal insulated) in ₹500-800 range to align with mid-premium tier leaders (Story@Home, amazon basics) and avoid cheap-quality perception",
+        "Price single-panel specialty variants (PVC, light-filtering, decorative prints) at ₹300-500 to differentiate from commodity bundles while remaining below premium tier ceiling",
+        "Establish price-per-panel target of ₹300-400 for blackout door curtains (7-8 feet) to match leader median (₹351) and signal quality parity",
+        "Reserve ₹200-300 price band for entry-level window curtains (5 feet, light-filtering, 150 GSM) to compete with budget players without cannibalizing premium SKUs",
+        "Test ₹800-1,200 premium tier for innovation SKUs (e.g., PVC transparent, smart thermal, extra-long 9 feet) following STITCHNEST model of functional differentiation justifying price premium",
+        "Avoid pricing below ₹200 for any set-of-2 curtain offering to prevent race-to-bottom perception and maintain category floor",
+        "Bundle tieback accessories, extra grommets, or measurement guides into ₹600-800 SKUs to justify mid-premium pricing and improve perceived value"
+      ],
+      "observations": "Leaders span ₹224-1,281 with median ₹630, reflecting set-of-2 bundles driving higher total price but competitive ₹137-641 price-per-panel (median ₹351). Story@Home and amazon basics dominate the ₹500-800 mid-premium tier with 100% blackout, thermal insulation, and 7-foot door curtains. Budget players (Home Sizzler) occupy ₹224-400 with light-filtering, lower GSM (150 vs. 300), and window-only sizes. Specialty SKUs (STITCHNEST PVC transparent AC curtain) command premium ₹1,281 for single-piece functional innovation (waterproof, energy-saving). Our catalog prices ₹163-749 (median ₹272) with price-per-panel ₹136-375 (median ₹163), significantly undercutting leaders despite comparable quality signals (4.0-4.2 ratings, 100% A+ presence). This pricing gap risks brand perception issues (too cheap = inferior quality) and leaves margin on table."
+    },
+    {
+      "name": "reviews_and_trust",
+      "actions": [
+        "Implement automated review request campaigns targeting 7-day and 21-day post-delivery windows to accelerate review accumulation and close 10x volume gap with leaders",
+        "Enroll all SKUs in Early Reviewer Program and Vine Program to seed credible reviews on new launches and establish baseline social proof",
+        "Address common review concerns preemptively in listing copy: specify exact opacity percentage achieved (e.g., '80-90% light blocking' vs. vague 'blackout'), show grommet installation step-by-step in gallery, clarify color under different lighting in lifestyle images",
+        "Leverage existing 4.0-4.2 ratings in advertising and A+ content ('Rated 4+ stars by 500+ customers') to maximize credibility of current review base while building volume",
+        "Prioritize review velocity on best-performing SKUs (highest conversion rate, lowest return rate) through targeted sampling, influencer partnerships, and bundle incentives to create hero products with 2,000+ reviews",
+        "Monitor review sentiment for recurring keywords (opacity, installation, color accuracy, wash durability) and update listing copy to address gaps or reinforce strengths",
+        "Add Q&A seeding addressing top review themes (actual darkness level, grommet diameter, shrinkage after wash, pet/child friendliness) to reduce pre-purchase friction"
+      ],
+      "observations": "Leaders average 5,797 reviews (median) with ratings 3.8-4.3 (median 4.15), creating massive social proof moats. Story@Home achieves 8,998 reviews through 12-year tenure and SKU proliferation. amazon basics leverages brand halo and Prime eligibility to accumulate reviews rapidly. Our catalog trails significantly at median 548 reviews (10x gap) despite competitive 4.0-4.2 ratings, limiting organic rank and conversion. Review volume correlates with pricing tier—premium SKUs (₹600-1,281) average 5,000+ reviews while budget entries (₹224-400) cluster at 900-2,000. Leaders actively prompt reviews through packaging inserts, follow-up emails, and Early Reviewer Programs. Review content reveals key decision drivers: actual opacity percentage vs. claims, ease of grommet installation, fabric texture/thickness, color accuracy, and post-wash durability."
+    },
+    {
+      "name": "consistency_and_hygiene",
+      "actions": [
+        "Audit all SKUs for exact match between title color, item highlights color, bullet color, and spec field 'Colour'—eliminate variants like 'Pack of 2' in color field",
+        "Standardize dimension format across all fields to 'XXL x XXW Meters' in item highlights, 'XX x XX cm or XX x XX inches' in bullets, and numerical-only values in spec dimensions fields",
+        "Move quantity descriptors ('Pack of 2', 'Set of 2', '2 Piece') from 'Style' spec field to 'Number of Items' and 'Included Components' fields exclusively",
+        "Unify 'Opacity' field to three standardized values: '100% Blackout', '80-90% Blackout', 'Light-filtering'—eliminate ambiguous entries like '2 Inches' or 'Light-filtering Inches'",
+        "Add GSM callout in first bullet for every SKU (300 GSM for premium blackout, 150 GSM for budget light-filtering) to establish quality signal consistency",
+        "Cross-reference material descriptors across title, bullets, item highlights, and specs—ensure 'Faux Silk' in title matches 'Faux Silk' in specs, not 'Polyester' variant",
+        "Validate grommet/eyelet count across gallery images, bullets ('8 eyelets'), and spec fields to prevent customer expectation mismatches"
+      ],
+      "observations": "Leaders maintain tight consistency across title, item highlights, bullets, and specs—color, material, dimensions, and opacity values match character-for-character. Story@Home and amazon basics use identical dimension formats across all fields ('2.15L x 1.16W Meters', '116 x 215 cm', '46 x 84 inches') to avoid confusion. Spec field 'Colour' values in our catalog sometimes mismatch item highlights ('Pack of 2' as color value vs. actual color name). Leaders avoid mixing Style field with quantity descriptors ('Pack of 2', 'Set of 2', 'No. of Curtains - 2') that should populate 'Number of Items' or 'Included Components'. Opacity field shows format inconsistencies ('100%', '100 %', 'Blackout', '2 Inches', 'Light-filtering Inches') creating taxonomy fragmentation. Leaders deploy consistent GSM callouts in first bullet (300 GSM for blackout, 150 GSM for light-filtering) to signal quality tier."
+    }
+  ],
+  "summary": "In the door curtain / panels category, top sellers win by combining comprehensive visual storytelling with functional clarity. Leaders deploy 14+ images including styled room shots from multiple angles (hero and alternate), close-up detail photography of fabric texture, grommets, and tiebacks, plus educational infographics like size guide charts and light-blocking demonstrations. A/+ content (present in 80% of leaders) reinforces blackout technology through layer diagrams, color-effectiveness comparisons, and aspirational lifestyle scenes (couples, entertainment).\n\nCopy strategy emphasizes search-optimized titles (126 chars median) rich in functional descriptors: \"blackout curtains,\" \"room darkening curtains,\" \"curtains set of 2,\" specific sizes (\"5 feet curtains,\" \"7 feet curtains\"), thermal properties, and room applications. Vernacular terms (\"parda,\" \"door parda\") bridge Hindi-speaking shoppers. Bullets balance package specs (dimensions, GSM, opacity) with performance claims (light blocking percentages, privacy) and usage versatility (room types, gifting occasions).\n\nSocial proof is critical—leaders average 5,797 reviews (median), 10x higher than typical challengers. Pricing spans ₹224–1,281 with median ₹630, reflecting set-of-2 bundles at higher price-per-panel than budget singles.\n\nOur catalog exhibits strong baseline execution (100% A+ presence, competitive ratings 4.0–4.2) but trails in review volume (median 548) and visual completeness. Missing from our galleries: styled room variety, fabric/grommet/tieback close-ups, size guides. Spec field \"Closure Type\" unfilled. Leader lexicon gaps include \"thermal insulated,\" \"100% true blackout,\" \"window curtains,\" and size-specific terms. Bridging these content and proof gaps is key to competing at category-leader visibility.",
+  "image_plan": {
+    "aplus": {
+      "slots": [
+        {
+          "kind": "hero",
+          "role": "Brand hero banner",
+          "order": 1,
+          "content": "Lifestyle room with panels; short shopper-facing value line only. No brand-logo rendering (composited later). No A+ / heritage essay walls.",
+          "pattern": "Split panel layout with lifestyle room scene on one side and brand messaging text box on the other side, or text overlaid on styled room photograph",
+          "evidence": {
+            "prevalence": 0.57,
+            "per_listing": 1.3,
+            "typical_position": 0
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "hero",
+          "role": "Lifestyle hero with features",
+          "order": 2,
+          "content": "Lifestyle room; 3–4 short feature chips max (e.g. Blocks Sunlight, Privacy, Easy Hang) — phone-readable, non-overlapping with gallery-owned facts when possible.",
+          "pattern": "Split panel layout with lifestyle photo on one side and feature callouts with icons and text on the other side",
+          "evidence": {
+            "prevalence": 0.57,
+            "per_listing": 1,
+            "typical_position": 0
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "infographic",
+          "role": "Blackout technology infographic",
+          "order": 3,
+          "content": "Simple layer diagram with short labels per layer; large type; no dense percentage essays unless product facts support specific numbers.",
+          "pattern": "Split-panel technical diagram showing a darkened room scene on one side and a layered fabric structure illustration on the other, with text annotations explaining the light-blocking properties of each layer.",
+          "evidence": {
+            "prevalence": 0.43,
+            "per_listing": 1,
+            "typical_position": 3
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "feature_banner",
+          "role": "Light blocking demonstration",
+          "order": 4,
+          "content": "Darkened-room proof shot with one short SEO headline (e.g. Total Light Blockage) — avoid duplicating gallery light-blocking copy.",
+          "pattern": "Split-panel layout showing a darkened room lifestyle photo on one side and headline with descriptive text on the other side",
+          "evidence": {
+            "prevalence": 0.43,
+            "per_listing": 1,
+            "typical_position": 1
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "comparison",
+          "role": "Color blackout effectiveness chart",
+          "order": 5,
+          "content": "Color swatches with blackout percentages: Lighter Colors 80%, Darker Colors 99%. May include gradient scale showing opacity progression and bedroom setting with bed and pillow to demonstrate room darkening effect.",
+          "pattern": "Horizontal chart showing color swatches paired with their blackout effectiveness percentages, often displayed over a gradient scale or bedroom scene.",
+          "evidence": {
+            "prevalence": 0.43,
+            "per_listing": 1,
+            "typical_position": 5
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "comparison",
+          "role": "Size and color options chart",
+          "order": 6,
+          "content": "Available in 2 Sizes, Pick from 5 Colors to Match Your Décor, Window Size: 115cm X 150cm (5 Feet), Door size: 115cm X 210cm (7 Feet), color swatches, size comparison images showing curtains at window and door placements",
+          "pattern": "Color swatches displayed on one side with size comparison panels showing curtains in different room contexts (window vs door) with dimensional annotations",
+          "evidence": {
+            "prevalence": 0.43,
+            "per_listing": 1,
+            "typical_position": 5
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "lifestyle",
+          "role": "Sleeping lifestyle",
+          "order": 7,
+          "content": "Person sleeping or resting in bed, pillows around the person, curtains framing the bedroom environment",
+          "pattern": "A lifestyle scene showing a person in bed with pillows and curtains visible in the background",
+          "evidence": {
+            "prevalence": 0.43,
+            "per_listing": 1.3,
+            "typical_position": 7
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "lifestyle",
+          "role": "Entertainment/social lifestyle",
+          "order": 8,
+          "content": "Panels installed on windows with curtains visible, person present in the scene, living room setup featuring sofa/couch with pillows, decorative elements like plants, casual entertainment props like popcorn suggesting movie/social viewing scenario",
+          "pattern": "A lifestyle scene showing the panels in use in a living room or entertainment setting with furniture and social elements",
+          "evidence": {
+            "prevalence": 0.43,
+            "per_listing": 1,
+            "typical_position": 8
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "detail",
+          "role": "Installation hardware detail",
+          "order": 9,
+          "content": "Headline: \"Hassle Free Hanging\" with supporting text explaining the metal eyelet features. Facts to include: Equipped with 8-9 metal eyelets for smooth gliding, quick setup, and compatible with most rods. Show close-up detail of grommets/eyelets on curtain rod.",
+          "pattern": "Split panel layout with headline or feature text on the left side and a close-up photograph of the grommet/eyelet installation hardware on the right side",
+          "evidence": {
+            "prevalence": 0.43,
+            "per_listing": 1,
+            "typical_position": 2
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "feature_banner",
+          "role": "Versatility showcase",
+          "order": 10,
+          "content": "Versatile Elegance. Easily adapts to any space, perfect for both bedrooms & living areas with effortless style.",
+          "pattern": "Split-panel layout with headline text on the left and lifestyle room scenes (bedroom, living area, or entryway) on the right, sometimes using angled photo frames",
+          "evidence": {
+            "prevalence": 0.43,
+            "per_listing": 1,
+            "typical_position": 3
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "lifestyle",
+          "role": "Window/curtain opening lifestyle",
+          "order": 11,
+          "content": "Person opening or adjusting curtains at a window with natural sunlight streaming through, creating atmospheric silhouette or backlit effect that demonstrates the product in real-world use",
+          "pattern": "Lifestyle scene showing a person interacting with curtains at a window, often backlit by natural sunlight creating silhouettes",
+          "evidence": {
+            "prevalence": 0.43,
+            "per_listing": 1,
+            "typical_position": 4
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "infographic",
+          "role": "Temperature comparison infographic",
+          "order": 12,
+          "content": "WITHOUT BLACKOUT CURTAIN - 33.5°C, WITH BLACKOUT CURTAIN - 24.8°C. Temperature reduction comparison chart demonstrating thermal insulation benefit. May include visual thermometer graphics and window/hand imagery to illustrate the temperature difference.",
+          "pattern": "Side-by-side split comparison showing thermometer readings with and without the blackout curtain panel",
+          "evidence": {
+            "prevalence": 0.29,
+            "per_listing": 1,
+            "typical_position": 9
+          },
+          "priority": "extended"
+        }
+      ],
+      "observed": {
+        "module_count": {
+          "max": 10,
+          "min": 6,
+          "median": 9
+        },
+        "modules_analyzed": 7
+      },
+      "build_rationale": "A+ modules complement the gallery: brand/lifestyle storytelling plus educational modules without duplicating PDP facts. Keep typography locked to the same primary (± secondary) as the gallery. On-image text stays shopper-facing, phone-readable, and SEO-useful; never print A+/EBC labels. Prefer one clear claim cluster per module.",
+      "recommended_build": 8
+    },
+    "gallery": {
+      "slots": [
+        {
+          "kind": "hero",
+          "role": "styled room hero",
+          "order": 1,
+          "content": "Full room scene featuring the panels installed on windows with curtains, accompanied by furniture such as chairs, decorative elements including vases, plants, flowers, framed art on walls, lamps, and pillows to create an aspirational lifestyle context",
+          "pattern": "Hero image showing the panels styled in a complete, furnished room setting",
+          "evidence": {
+            "prevalence": 0.9,
+            "per_listing": 1.4,
+            "typical_position": 0
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "lifestyle",
+          "role": "styled room alternate angle",
+          "order": 2,
+          "content": "Room scene featuring the panels installed with supporting decor elements including curtains, curtain rod, window, chair, lamp, armchair, pillow, door, floor mat, and wall visible to create a complete lifestyle environment",
+          "pattern": "A styled room photographed from an alternate viewing angle to show panels installed in a residential setting",
+          "evidence": {
+            "prevalence": 0.9,
+            "per_listing": 1.4,
+            "typical_position": 1
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "detail",
+          "role": "fabric texture close-up",
+          "order": 3,
+          "content": "Fabric texture and weave structure, curtain material details, textile folds and stitching, may include contextual elements like candle/candleholder or table to demonstrate the fabric's appearance in use",
+          "pattern": "Extreme close-up photograph showing the fabric's texture, weave pattern, and material details",
+          "evidence": {
+            "prevalence": 0.6,
+            "per_listing": 2.2,
+            "typical_position": 8
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "detail",
+          "role": "grommet detail close-up",
+          "order": 4,
+          "content": "Tight detail shot featuring the grommets (eyelets) in the panel fabric, showing how they interface with the curtain rod, and capturing the fabric texture and any decorative pattern near the grommet area",
+          "pattern": "Close-up photograph showing the grommet hardware detail where metal or plastic eyelets are installed in the curtain fabric and threaded onto the curtain rod",
+          "evidence": {
+            "prevalence": 0.6,
+            "per_listing": 1.7,
+            "typical_position": 7.5
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "detail",
+          "role": "tieback detail close-up",
+          "order": 5,
+          "content": "Close-up of the Velcro / tie-back fastening on the panel. At most 2–3 large phone-readable labels (e.g. Velcro Tie-Back, Easy Fastening) — no benefit paragraphs.",
+          "pattern": "Close-up photograph of curtain tieback hardware with circular callout or label annotation",
+          "evidence": {
+            "prevalence": 0.6,
+            "per_listing": 2,
+            "typical_position": 10
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "feature_banner",
+          "role": "light blocking demonstration",
+          "order": 6,
+          "content": "Room scene with panels closed showing light control. One short SEO headline only (e.g. Room Darkening or Blocks Harsh Sunlight) if product facts support it — no stacked slogans or body copy.",
+          "pattern": "Text overlay banner on room scene or lifestyle image showcasing curtains blocking light through a window",
+          "evidence": {
+            "prevalence": 0.4,
+            "per_listing": 2,
+            "typical_position": 7
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "feature_banner",
+          "role": "installation feature callout",
+          "order": 7,
+          "content": "Installation-focused frame: eyelets on rod. Sparse phone-readable chips only (e.g. Metal Eyelets, Easy Hang) — no 2×2 essay grids or long captions.",
+          "pattern": "Top headline with grid of orange feature buttons or badges above a close-up product detail photo showing grommets and curtain rod installation.",
+          "evidence": {
+            "prevalence": 0.3,
+            "per_listing": 1.7,
+            "typical_position": 6
+          },
+          "priority": "core"
+        },
+        {
+          "kind": "feature_banner",
+          "role": "material quality callout",
+          "order": 8,
+          "content": "Lifestyle room with panels; one short material SEO label if supported by product facts (e.g. Soft Polyester) — no multi-line marketing blocks.",
+          "pattern": "Bottom text overlay on lifestyle scene showing the panels in a furnished room",
+          "evidence": {
+            "prevalence": 0.3,
+            "per_listing": 1.7,
+            "typical_position": 5
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "comparison",
+          "role": "brand comparison chart",
+          "order": 9,
+          "content": "Only if product facts support a fair comparison. Sparse checkmarks; large readable labels; no dense competitor essays.",
+          "pattern": "Split-panel vertical comparison showing this brand's curtains on one side versus competitor curtains on the other, with checkmarks and X-marks overlaid on product photos to highlight feature differences.",
+          "evidence": {
+            "prevalence": 0.3,
+            "per_listing": 2,
+            "typical_position": 5
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "infographic",
+          "role": "size guide chart",
+          "order": 10,
+          "content": "Sparse size guide: Window / Door / Long Door lengths as large phone-readable labels plus one short measure tip. No dense multi-table walls.",
+          "pattern": "Split panel infographic combining a size conversion table with diagrams showing curtain length classifications and measurement instructions",
+          "evidence": {
+            "prevalence": 0.5,
+            "per_listing": 1.6,
+            "typical_position": 11
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "infographic",
+          "role": "measurement guide",
+          "order": 11,
+          "content": "Minimal measure diagram with a few large dimension labels. Avoid duplicate size tables already owned by the size-guide slot.",
+          "pattern": "Measurement guide infographic showing curtain panel dimensions with annotated diagrams, sizing tables, and installation tips",
+          "evidence": {
+            "prevalence": 0.3,
+            "per_listing": 2.7,
+            "typical_position": 5.5
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "infographic",
+          "role": "curtain quantity guide",
+          "order": 12,
+          "content": "Simple width → piece count chart with large type; keep rows minimal and phone-scannable.",
+          "pattern": "Split panel infographic showing curtain width examples on one side and a table matching window widths to required curtain quantities on the other",
+          "evidence": {
+            "prevalence": 0.2,
+            "per_listing": 2,
+            "typical_position": 7.5
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "infographic",
+          "role": "opacity guide chart",
+          "order": 13,
+          "content": "Compact opacity ladder (Sheer → Blackout) with short labels only; no long definitions.",
+          "pattern": "Horizontal comparison chart showing five curtain opacity levels with room examples and explanatory text",
+          "evidence": {
+            "prevalence": 0.2,
+            "per_listing": 3,
+            "typical_position": 11
+          },
+          "priority": "extended"
+        },
+        {
+          "kind": "supporting",
+          "role": "packaging disclaimer",
+          "order": 14,
+          "content": "Skip unless marketplace policy requires it; if used, short notice only — no logo walls.",
+          "pattern": "Centered text layout displaying Amazon branding logo variations with informational notice boxes",
+          "evidence": {
+            "prevalence": 0.3,
+            "per_listing": 1.7,
+            "typical_position": 17
+          },
+          "priority": "extended"
+        }
+      ],
+      "observed": {
+        "image_count": {
+          "max": 18,
+          "min": 6,
+          "median": 14
+        },
+        "listings_analyzed": 10
+      },
+      "build_rationale": "Build a coherent PDP gallery with shared typography (brand primary typeface on every texted frame; optional secondary only for small labels). Prefer photography-first: hero and lifestyle slots carry no text walls. When on-image text is used, keep it phone-readable (large type, 2–6 short SEO-useful words/phrases from product facts — e.g. blackout, metal eyelets, room darkening — never paragraphs, never A+/EBC/PDP jargon). Assign each fact to exactly one slot so feature banners and sparse infographics do not repeat claims. Core roles cover discovery; move dense charts to extended / A+ when possible.",
+      "recommended_build": 7
+    }
+  },
+  "catalog_gaps": {
+    "summary": "Relative to category leaders, our catalog (aggregated): review volume trails leaders (median 548 vs 5797); missing or rare gallery roles vs leaders: styled room alternate angle, styled room hero, fabric texture close-up, grommet detail close-up, tieback detail close-up; spec fields under-filled vs leaders: Closure Type; leader lexicon terms absent from our catalog copy: window curtains, room darkening curtains, curtains set of 2, 5 feet curtains, 7 feet curtains, thermal insulated curtains, 100% true blackout curtains, blackout curtains for bedroom.",
+    "our_norms": {
+      "rating": {
+        "max": 4.2,
+        "min": 4,
+        "median": 4
+      },
+      "price_inr": {
+        "max": 749,
+        "min": 163,
+        "median": 272
+      },
+      "image_count": {
+        "max": 14,
+        "min": 12,
+        "median": 12
+      },
+      "bullet_count": {
+        "max": 5,
+        "min": 5,
+        "median": 5
+      },
+      "review_count": {
+        "max": 1602,
+        "min": 483,
+        "median": 548
+      },
+      "title_length": {
+        "max": 144,
+        "min": 100,
+        "median": 141
+      },
+      "aplus_presence_rate": 1
+    },
+    "leader_norms": {
+      "rating": {
+        "max": 4.3,
+        "min": 3.8,
+        "median": 4.15
+      },
+      "price_inr": {
+        "max": 1281,
+        "min": 224,
+        "median": 629.5
+      },
+      "image_count": {
+        "max": 18,
+        "min": 6,
+        "median": 14
+      },
+      "bullet_count": {
+        "max": 7,
+        "min": 5,
+        "median": 5
+      },
+      "review_count": {
+        "max": 8998,
+        "min": 889,
+        "median": 5797
+      },
+      "title_length": {
+        "max": 187,
+        "min": 73,
+        "median": 126.5
+      },
+      "aplus_presence_rate": 0.8
+    },
+    "metric_deltas": [
+      {
+        "ours": {
+          "max": 144,
+          "min": 100,
+          "median": 141
+        },
+        "metric": "title_length",
+        "leaders": {
+          "max": 187,
+          "min": 73,
+          "median": 126.5
+        }
+      },
+      {
+        "ours": {
+          "max": 5,
+          "min": 5,
+          "median": 5
+        },
+        "metric": "bullet_count",
+        "leaders": {
+          "max": 7,
+          "min": 5,
+          "median": 5
+        }
+      },
+      {
+        "ours": {
+          "max": 14,
+          "min": 12,
+          "median": 12
+        },
+        "metric": "image_count",
+        "leaders": {
+          "max": 18,
+          "min": 6,
+          "median": 14
+        }
+      },
+      {
+        "ours": {
+          "max": 7,
+          "min": 6,
+          "median": 6
+        },
+        "metric": "aplus_image_count",
+        "leaders": {
+          "max": 10,
+          "min": 0,
+          "median": 6
+        }
+      },
+      {
+        "ours": {
+          "max": 4,
+          "min": 0,
+          "median": 4
+        },
+        "metric": "aplus_text_count",
+        "leaders": {
+          "max": 44,
+          "min": 0,
+          "median": 6
+        }
+      },
+      {
+        "ours": {
+          "max": 40,
+          "min": 36,
+          "median": 39
+        },
+        "metric": "spec_key_count",
+        "leaders": {
+          "max": 41,
+          "min": 37,
+          "median": 38.5
+        }
+      },
+      {
+        "ours": {
+          "max": 749,
+          "min": 163,
+          "median": 272
+        },
+        "metric": "price_inr",
+        "leaders": {
+          "max": 1281,
+          "min": 224,
+          "median": 629.5
+        }
+      },
+      {
+        "ours": {
+          "max": 375,
+          "min": 136,
+          "median": 163
+        },
+        "metric": "price_per_panel",
+        "leaders": {
+          "max": 641,
+          "min": 137,
+          "median": 351
+        }
+      },
+      {
+        "ours": {
+          "max": 4.2,
+          "min": 4,
+          "median": 4
+        },
+        "metric": "rating",
+        "leaders": {
+          "max": 4.3,
+          "min": 3.8,
+          "median": 4.15
+        }
+      },
+      {
+        "ours": {
+          "max": 1602,
+          "min": 483,
+          "median": 548
+        },
+        "metric": "review_count",
+        "leaders": {
+          "max": 8998,
+          "min": 889,
+          "median": 5797
+        }
+      },
+      {
+        "ours": {
+          "rate": 1
+        },
+        "metric": "aplus_presence_rate",
+        "leaders": {
+          "rate": 0.8
+        }
+      }
+    ],
+    "missing_spec_keys": [
+      {
+        "key": "Closure Type",
+        "our_fill_rate": 0,
+        "leader_fill_rate": 0.6
+      }
+    ],
+    "missing_visual_roles": [
+      "styled room alternate angle",
+      "styled room hero",
+      "fabric texture close-up",
+      "grommet detail close-up",
+      "tieback detail close-up",
+      "size guide chart"
+    ],
+    "missing_lexicon_terms": [
+      "window curtains",
+      "room darkening curtains",
+      "curtains set of 2",
+      "5 feet curtains",
+      "7 feet curtains",
+      "thermal insulated curtains",
+      "100% true blackout curtains",
+      "blackout curtains for bedroom",
+      "blackout curtains for living room",
+      "eyelet curtains",
+      "grommet curtains",
+      "plain design curtains",
+      "parda",
+      "curtain panel",
+      "door parda",
+      "window parda",
+      "blackout parda",
+      "curtain set",
+      "home decoration items",
+      "pooja room decoration",
+      "backdrop curtain for decoration",
+      "bedroom decoration",
+      "diwali gifts",
+      "new year gifts"
+    ]
+  },
+  "backend_keywords": {
+    "terms": [
+      "room darkening",
+      "plain design",
+      "parda",
+      "faux silk",
+      "light blocking",
+      "royal silky",
+      "metal eyelets",
+      "backdrop curtain",
+      "home decoration items",
+      "rust free",
+      "silver coated",
+      "smooth sliding",
+      "wrinkle resistant",
+      "office",
+      "hotel",
+      "cafe"
+    ],
+    "used_bytes": 198,
+    "paste_string": "room darkening plain design parda faux silk light blocking royal silky metal eyelets backdrop curtain home decoration items rust free silver coated smooth sliding wrinkle resistant office hotel cafe",
+    "marketplace_limit_bytes": 200,
+    "excluded_because_already_in_copy": [
+      "blackout curtains",
+      "door curtains",
+      "window curtains",
+      "set of 2",
+      "thermal insulated",
+      "100 blackout",
+      "eyelet",
+      "grommet",
+      "7 feet",
+      "5 feet",
+      "bedroom",
+      "living room",
+      "pack of 2",
+      "polyester",
+      "opacity",
+      "curtain panel",
+      "8 feet",
+      "door parda",
+      "window parda",
+      "solid design",
+      "gsm",
+      "machine washable",
+      "transparent",
+      "room darkening curtains",
+      "curtains set of 2",
+      "5 feet curtains",
+      "7 feet curtains",
+      "thermal insulated curtains",
+      "blackout curtains for bedroom",
+      "blackout curtains for living room"
+    ]
+  },
+  "category_lexicon": {
+    "terms": [
+      {
+        "term": "100% blackout",
+        "relevance": "high"
+      },
+      {
+        "term": "5 feet",
+        "relevance": "high"
+      },
+      {
+        "term": "7 feet",
+        "relevance": "high"
+      },
+      {
+        "term": "bedroom",
+        "relevance": "high"
+      },
+      {
+        "term": "blackout curtains",
+        "relevance": "high"
+      },
+      {
+        "term": "door curtains",
+        "relevance": "high"
+      },
+      {
+        "term": "eyelet",
+        "relevance": "high"
+      },
+      {
+        "term": "grommet",
+        "relevance": "high"
+      },
+      {
+        "term": "living room",
+        "relevance": "high"
+      },
+      {
+        "term": "pack of 2",
+        "relevance": "high"
+      },
+      {
+        "term": "parda",
+        "relevance": "high"
+      },
+      {
+        "term": "plain design",
+        "relevance": "high"
+      },
+      {
+        "term": "room darkening",
+        "relevance": "high"
+      },
+      {
+        "term": "set of 2",
+        "relevance": "high"
+      },
+      {
+        "term": "thermal insulated",
+        "relevance": "high"
+      },
+      {
+        "term": "window curtains",
+        "relevance": "high"
+      },
+      {
+        "term": "8 feet",
+        "relevance": "medium"
+      },
+      {
+        "term": "backdrop curtain",
+        "relevance": "medium"
+      },
+      {
+        "term": "curtain panel",
+        "relevance": "medium"
+      },
+      {
+        "term": "door parda",
+        "relevance": "medium"
+      },
+      {
+        "term": "faux silk",
+        "relevance": "medium"
+      },
+      {
+        "term": "GSM",
+        "relevance": "medium"
+      },
+      {
+        "term": "home decoration items",
+        "relevance": "medium"
+      },
+      {
+        "term": "light blocking",
+        "relevance": "medium"
+      },
+      {
+        "term": "metal eyelets",
+        "relevance": "medium"
+      },
+      {
+        "term": "opacity",
+        "relevance": "medium"
+      },
+      {
+        "term": "polyester",
+        "relevance": "medium"
+      },
+      {
+        "term": "pooja room decoration",
+        "relevance": "medium"
+      },
+      {
+        "term": "royal silky",
+        "relevance": "medium"
+      },
+      {
+        "term": "solid design",
+        "relevance": "medium"
+      },
+      {
+        "term": "window parda",
+        "relevance": "medium"
+      }
+    ],
+    "observations": "Leaders in the Panels category strategically distribute seller vocabulary across listing components to maximize discoverability and conversion. Titles typically emphasize core product identity (blackout curtains, door curtains, window curtains) combined with key specifications like size (5 feet, 7 feet, 8 feet), set quantity (Set of 2, Pack of 2), opacity percentage (100% blackout), and color. Brands like Story@Home and amazon basics front-load technical details in titles while maintaining readability within 75-character mobile limits. Bullet points follow a consistent pattern: first bullet delivers comprehensive package details (dimensions in both cm and inches, GSM, material, color, opacity percentage), second bullet highlights functional benefits (light blocking, privacy, thermal insulation), third covers care instructions (cold water wash, eyelet removal, no bleaching), fourth lists compatible spaces (bedroom, living room, office, hotel, theater), and fifth emphasizes decorative versatility and gifting occasions (backdrop decoration, pooja room, Diwali, Durga Puja). Item highlights use a structured template format emphasizing Brand, Colour, Material, Product Dimensions, and Opacity/Special Features within 125-character limits. Leaders consistently employ vernacular terms like 'parda' alongside English equivalents to capture local search behavior. Material descriptors range from premium positioning (faux silk, royal silky) to functional clarity (polyester, PVC). Design language emphasizes simplicity (plain, solid) while benefit-focused vocabulary stresses light control (room darkening, 100% opacity, light blockage), ease of use (eyelet, grommet, smooth sliding), and multi-purpose applications (decoration items, backdrop cloth). The lexicon balances technical specifications with lifestyle benefits and cultural relevance."
+  },
+  "voice_of_customer": {
+    "signals": [
+      {
+        "phrase": "very thin material",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 18
+      },
+      {
+        "phrase": "good value for money",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 15
+      },
+      {
+        "phrase": "poor quality",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 14
+      },
+      {
+        "phrase": "not 100% blackout as advertised",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 12
+      },
+      {
+        "phrase": "blocks 80-90% of light",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 12
+      },
+      {
+        "phrase": "doesn't block light as claimed",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 11
+      },
+      {
+        "phrase": "excellent fabric quality",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 9
+      },
+      {
+        "phrase": "fabric quality is good",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 9
+      },
+      {
+        "phrase": "poor stitching quality",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 8
+      },
+      {
+        "phrase": "product different than shown",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 8
+      },
+      {
+        "phrase": "completely blocks sunlight",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 8
+      },
+      {
+        "phrase": "thick premium material",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 8
+      },
+      {
+        "phrase": "received damaged product",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 7
+      },
+      {
+        "phrase": "cheap plastic rings",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 7
+      },
+      {
+        "phrase": "misleading product description",
+        "relevance": "high",
+        "sentiment": "objection",
+        "mention_count": 7
+      },
+      {
+        "phrase": "perfect size fit",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 7
+      },
+      {
+        "phrase": "thin fabric quality",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 6
+      },
+      {
+        "phrase": "not worth the price",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 6
+      },
+      {
+        "phrase": "color different from picture",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 6
+      },
+      {
+        "phrase": "different sizes unequal curtains",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 6
+      },
+      {
+        "phrase": "color exactly as shown",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 6
+      },
+      {
+        "phrase": "only blocks 20-40% light",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 5
+      },
+      {
+        "phrase": "holes in fabric",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 5
+      },
+      {
+        "phrase": "eyelets falling apart",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 5
+      },
+      {
+        "phrase": "length is very short",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 5
+      },
+      {
+        "phrase": "only 50% blackout",
+        "relevance": "high",
+        "sentiment": "objection",
+        "mention_count": 5
+      },
+      {
+        "phrase": "thick material",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 5
+      },
+      {
+        "phrase": "cloth is transparent",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 4
+      },
+      {
+        "phrase": "loose threads",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 4
+      },
+      {
+        "phrase": "received damaged piece",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 4
+      },
+      {
+        "phrase": "width doesn't cover window",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 4
+      },
+      {
+        "phrase": "blocks 95% light",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 4
+      },
+      {
+        "phrase": "stains on curtains",
+        "relevance": "high",
+        "sentiment": "complaint",
+        "mention_count": 3
+      },
+      {
+        "phrase": "keeps room cool",
+        "relevance": "high",
+        "sentiment": "praise",
+        "mention_count": 2
+      },
+      {
+        "phrase": "length is perfect",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 6
+      },
+      {
+        "phrase": "looks premium and elegant",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 5
+      },
+      {
+        "phrase": "worth the price",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 4
+      },
+      {
+        "phrase": "provides good privacy",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 3
+      },
+      {
+        "phrase": "silky polyester fabric",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 3
+      },
+      {
+        "phrase": "reduces heat",
+        "relevance": "medium",
+        "sentiment": "praise",
+        "mention_count": 2
+      }
+    ],
+    "observations": "Buyers in the panels category prioritize blackout performance above all else, yet face widespread frustration with misleading product claims. While some panels successfully block 80-95% of light and earn praise for effective room darkening, a significant portion fall short of advertised '100% blackout' promises, with many customers reporting only 20-50% light blocking and transparent or semi-sheer fabric despite blackout labeling. This discrepancy between expectations and reality drives the most frequent complaints and objections.\n\nFabric quality divides opinion sharply. Satisfied customers describe thick, premium material with excellent construction, silky polyester texture, and elegant appearance that justifies the purchase. Conversely, disappointed buyers cite very thin material, poor stitching quality with loose threads, and fabric that feels cheap or plasticky. Quality control emerges as a critical pain point, with numerous reports of damaged products arriving with holes, stains, crushed packaging, or torn fabric—suggesting fulfillment and manufacturing inconsistencies.\n\nHardware components, particularly grommets and rings, generate complaints about cheap plastic construction, eyelets falling apart, and poor durability. Sizing accuracy varies considerably, with some buyers praising perfect length and fit while others receive unequal curtain sizes in the same order, panels too short for standard windows, or insufficient width coverage.\n\nColor representation shows mixed results: some customers confirm panels arrive true to color with lasting vibrancy that doesn't fade, while others report significant differences from product images. Functional benefits beyond blackout—thermal insulation that keeps rooms cool, heat reduction, and privacy enhancement—earn positive mentions when delivered. Value perception correlates directly with whether the product meets its core blackout promise: buyers who receive adequate light blocking consider panels worth the price, while those receiving thin, transparent fabric view the purchase as misleading and not worth the money. A persistent chemical or pungent smell upon arrival appears occasionally but adds to negative first impressions."
+  }
+}
