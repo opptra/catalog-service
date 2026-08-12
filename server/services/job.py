@@ -11,6 +11,7 @@ import json
 import logging
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from typing import Any
 from uuid import UUID
 
@@ -53,7 +54,7 @@ from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.sku_generation_job import SkuGenerationJob
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from entities.catalog.sku_master import SkuMaster
-from generation import gallery, images, inputs, regenerate, text, tools
+from generation import common_image, gallery, images, inputs, regenerate, text, tools
 from generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
 from repositories.catalog import brand as brand_repo
@@ -70,7 +71,7 @@ from utils import flatfile as flatfile_utils
 
 logger = logging.getLogger(__name__)
 
-# Cloud Workflows resource id for cloud-workflows/job-pipeline.yaml
+# Cloud Workflows resource id — must match the id in cloud-workflows/manifest.yaml.
 _JOB_PIPELINE_WORKFLOW = "job-pipeline"
 
 # Cap concurrent OpenRouter image calls. Slots are independent after planning; text + gallery
@@ -224,7 +225,8 @@ def create_job(
         master = by_external_id[external_id]
         if not master.allows_quantity and quantity != 1:
             raise InvalidJobAttributesError(
-                f"attribute_external_id={external_id} ({master.name.value}) does not allow quantity>1"
+                f"attribute_external_id={external_id} ({master.name.value}) "
+                "does not allow quantity>1"
             )
         resolved.append((master, quantity))
 
@@ -429,9 +431,7 @@ def retry_sku_generation_job(
         new_status=SkuGenerationJobStatus.PENDING.value,
     )
     if not claimed:
-        sku_generation_job = sku_generation_job_repo.get_by_external_id(
-            session, external_id
-        )
+        sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
         if sku_generation_job is None:
             raise SkuGenerationJobNotFoundError(str(external_id))
         raise SkuGenerationJobRetryConflictError(
@@ -447,8 +447,7 @@ def retry_sku_generation_job(
         if job is not None and job.status != JobStatus.COMPLETED.value:
             siblings = sku_generation_job_repo.list_by_job_id(session, job.id)
             if all(
-                sibling.status == SkuGenerationJobStatus.COMPLETED.value
-                for sibling in siblings
+                sibling.status == SkuGenerationJobStatus.COMPLETED.value for sibling in siblings
             ):
                 job.status = JobStatus.COMPLETED.value
                 job_repo.save(session, job)
@@ -633,12 +632,10 @@ def _key_features_inputs(
 
 
 # Fixed aspect ratio per image type, decided HERE — never taken from the AI plan. A+ content
-# images target ~970x600 min (~3:2 is the closest GPT-supported ratio); every standard gallery
-# image (hero/infographic/lifestyle) is square 1:1.
+# images target ~970x600 min (~3:2 is the closest GPT-supported ratio); IMAGE (PDP gallery)
+# is square 1:1.
 _ASPECT_RATIO_BY_TYPE: dict[AttributeName, str] = {
-    AttributeName.HERO: "1:1",
-    AttributeName.INFOGRAPHIC: "1:1",
-    AttributeName.LIFESTYLE: "1:1",
+    AttributeName.IMAGE: "1:1",
     AttributeName.A_PLUS: "3:2",
 }
 _DEFAULT_ASPECT_RATIO = "1:1"
@@ -670,25 +667,33 @@ def _run_images(
     if not pending_attrs:
         return []
 
-    requested = [
-        (AttributeName(attribute.name), quantities.get(attribute.id, 1))
-        for attribute in pending_attrs
-    ]
-    try:
-        slot_plans = gallery.plan(client, ctx, requested)
-    except Exception:  # noqa: BLE001 — plan covers everything or nothing; mark it all failed
-        for attribute in pending_attrs:
-            tasks[AttributeName(attribute.name).value] = TaskStatus.FAILED
-        _persist_tasks(session, sku_generation_job, tasks)
+    # Distill Brand DNA + category CI once; reuse on every plan/render slot.
+    pending_names = [AttributeName(attribute.name) for attribute in pending_attrs]
+    ctx = replace(
+        ctx,
+        common_image_context=common_image.extract(client, ctx, pending_names),
+    )
+
+    # Plan IMAGE and A_PLUS separately — one tool call per attribute type.
+    slot_plans: dict[tuple[AttributeName, int], gallery.SlotPlan] = {}
+    expected: dict[AttributeName, int] = {}
+    attribute_id_by_name: dict[AttributeName, int] = {}
+    for attribute in pending_attrs:
+        name = AttributeName(attribute.name)
+        quantity = quantities.get(attribute.id, 1)
+        attribute_id_by_name[name] = attribute.id
+        try:
+            slot_plans.update(gallery.plan(client, ctx, name, quantity))
+        except Exception:  # noqa: BLE001 — fail this type only; other types still plan/render
+            logger.exception("Gallery plan failed for %s", name.value)
+            tasks[name.value] = TaskStatus.FAILED
+            _persist_tasks(session, sku_generation_job, tasks)
+            continue
+        expected[name] = quantity
+
+    if not expected:
         return []
 
-    expected: dict[AttributeName, int] = {
-        AttributeName(attribute.name): quantities.get(attribute.id, 1)
-        for attribute in pending_attrs
-    }
-    attribute_id_by_name = {
-        AttributeName(attribute.name): attribute.id for attribute in pending_attrs
-    }
     jobs = [(name, slot) for name, quantity in expected.items() for slot in range(1, quantity + 1)]
     remaining = dict(expected)
     successes: dict[AttributeName, int] = dict.fromkeys(expected, 0)
@@ -1350,11 +1355,16 @@ def regenerate_attribute_value(
 
     if data_type == AttributeDataType.IMAGE:
         assert current_image_url is not None
+        # Preserve distilled common context (typography/palette/category norms) across regen.
+        common = common_image.parse_common_from_prompt(previous_prompt)
+        if common is None:
+            common = common_image.extract(client, ctx, [name])
+        image_prompt = common_image.ensure_in_prompt(revised.prompt, common)
         try:
             generation = regenerate.regenerate_image(
                 client,
                 ctx,
-                image_prompt=revised.prompt,
+                image_prompt=image_prompt,
                 aspect_ratio=_aspect_ratio_for(name),
                 current_image_url=current_image_url,
             )
@@ -1376,7 +1386,7 @@ def regenerate_attribute_value(
                 name=name.value,
                 slot=latest.slot,
                 value=uploaded.gs_uri,
-                prompt=revised.prompt,
+                prompt=image_prompt,
             )
             signed = gcs.signed_url_for_gs_uri(
                 uploaded.gs_uri, expiration_seconds=_SIGNED_URL_TTL_SECONDS
@@ -1390,7 +1400,7 @@ def regenerate_attribute_value(
                 "version": persisted["version"],
                 "value": signed,
                 "value_is_signed_url": True,
-                "prompt": revised.prompt,
+                "prompt": image_prompt,
             }
         except AttributeValueRegenerationError:
             raise
