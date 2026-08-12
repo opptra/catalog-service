@@ -632,13 +632,10 @@ def _key_features_inputs(
     return description, [str(bullet) for bullet in bullets]
 
 
-# Fixed aspect ratio per image type, decided HERE — never taken from the AI plan. A+ content
-# images target ~970x600 min (~3:2 is the closest GPT-supported ratio); every standard gallery
-# image (hero/infographic/lifestyle) is square 1:1.
+# Fixed aspect ratio per image attribute. IMAGE (PDP gallery) is square 1:1;
+# A+ content targets ~970x600 min (~3:2 is the closest GPT-supported ratio).
 _ASPECT_RATIO_BY_TYPE: dict[AttributeName, str] = {
-    AttributeName.HERO: "1:1",
-    AttributeName.INFOGRAPHIC: "1:1",
-    AttributeName.LIFESTYLE: "1:1",
+    AttributeName.IMAGE: "1:1",
     AttributeName.A_PLUS: "3:2",
 }
 _DEFAULT_ASPECT_RATIO = "1:1"

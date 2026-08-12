@@ -1,8 +1,8 @@
 """Stage 1: plan a coherent, non-duplicated image gallery in one coordinated reasoning call.
 
 The planner sees the real product image and the Category Intelligence gallery guidance and returns
-a ready prompt per (type, slot), all linked by a shared visual system. Category-agnostic: no image
-type or category is special-cased here. No fallback: a plan that fails or doesn't cover every
+a ready prompt per (type, slot) for IMAGE (PDP gallery) and/or A_PLUS. Roles come from CI, not from
+fixed hero/infographic/lifestyle templates. No fallback: a plan that fails or doesn't cover every
 requested slot is rejected outright, so a bad plan never silently ships a low-quality image.
 """
 
@@ -86,8 +86,8 @@ def plan(
 def _index_plan(parsed: dict[str, Any]) -> dict[tuple[AttributeName, int], SlotPlan]:
     """Index the model's slots by (type, within-type position) — never by its own "slot" number.
 
-    The model sometimes numbers "slot" as a running count across the whole gallery (e.g. HERO=1,
-    INFOGRAPHIC=2, LIFESTYLE=3) instead of restarting at 1 per type, which silently orphaned every
+    The model sometimes numbers "slot" as a running count across the whole gallery (e.g. IMAGE=1..7
+    then A_PLUS continuing at 8) instead of restarting at 1 per type, which silently orphaned every
     slot after the first. Assigning the slot index ourselves from each type's order of appearance
     is correct regardless of what convention the model used.
     """

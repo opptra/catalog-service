@@ -40,7 +40,7 @@ GALLERY_PLAN_TOOL: dict[str, Any] = {
                         "properties": {
                             "type": {
                                 "type": "string",
-                                "description": "Image attribute type, e.g. HERO, INFOGRAPHIC.",
+                                "description": "Image attribute type: IMAGE (PDP gallery) or A_PLUS.",
                             },
                             "slot": {
                                 "type": "integer",

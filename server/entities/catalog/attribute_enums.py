@@ -8,9 +8,7 @@ class AttributeName(StrEnum):
     KEY_FEATURES = "KEY_FEATURES"
     DESCRIPTION = "DESCRIPTION"
     BACKEND_KEYWORDS = "BACKEND_KEYWORDS"
-    HERO = "HERO"
-    INFOGRAPHIC = "INFOGRAPHIC"
-    LIFESTYLE = "LIFESTYLE"
+    IMAGE = "IMAGE"
     A_PLUS = "A_PLUS"
 
 
@@ -20,7 +18,7 @@ class AttributeDataType(StrEnum):
 
 
 class AttributeGroupLabel(StrEnum):
-    IMAGE = "IMAGE"
+    IMAGES = "IMAGES"
 
 
 class JobType(StrEnum):

@@ -199,35 +199,34 @@ def key_features_parts(
 
 
 def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeName, int]]) -> str:
-    """Category-agnostic brief: plan ONE coherent, non-duplicated image gallery via a tool call.
+    """Plan ONE coherent, non-duplicated image gallery via a tool call.
 
-    The model decides each image's role, composition and on-image text from the Category
-    Intelligence + Brand DNA + the attached real product image — no per-type templates and no
-    category-specific vocabulary in this prompt. Two things are deliberately NOT the model's job:
-    aspect ratio (the renderer uses a fixed ratio per image type) and brand-logo placement (the
-    logo is composited deterministically downstream, not drawn by the image model).
+    IMAGE slots are generic PDP gallery positions — roles/concepts come from Category
+    Intelligence (gallery arc), not from hero/infographic/lifestyle labels. A_PLUS slots
+    follow the A+ playbook when requested. Aspect ratio and logo placement stay out of
+    the model's job (fixed per attribute type in code; logo composited downstream).
     """
     brief = category.image_brief(ctx.category_intelligence, [name for name, _ in requested])
     slot_rule = (
         "In the tool call, slot is 1-based and restarts at 1 within EACH type — it is not a "
-        "running count across the whole gallery. E.g. if INFOGRAPHIC needs 2 images, they are "
-        "type=INFOGRAPHIC slot=1 and type=INFOGRAPHIC slot=2, regardless of how many other "
-        "types/slots precede them."
+        "running count across the whole gallery. E.g. if IMAGE needs 7 images, they are "
+        "type=IMAGE slot=1 .. slot=7; A_PLUS slots restart at 1 independently."
     )
     return (
         "You are an expert e-commerce visual merchandiser and product-photography art director. "
         "Design a COHERENT image gallery for ONE product. You are given the exact set of images to "
-        "produce (by type and count). Decide from the Category Intelligence gallery guidance, the "
-        "Brand DNA visual identity, and the attached product image(s) — what each image should "
-        "be so that together they form one connected, non-duplicated gallery.\n\n"
+        "produce (by type and count). IMAGE means a generic PDP gallery slot — decide each slot's "
+        "role/concept from the Category Intelligence gallery guidance (not from fixed "
+        "hero/infographic/lifestyle templates). A_PLUS means an A+ content module — follow the "
+        "A+ guidance when present. Also use Brand DNA visual identity and the attached product "
+        "image(s) so the set forms one connected, non-duplicated gallery.\n\n"
         f"{_reference_photos_note(ctx.product_image_urls)}\n\n"
         "Images to produce (submit EXACTLY one plan entry per slot via the tool):\n"
         f"{_requested_block(requested)}\n\n"
-        "For EVERY slot, reason it out (do NOT use fixed templates) and decide:\n"
+        "For EVERY slot, reason it out (do NOT use fixed type templates) and decide:\n"
         "- the role/objective for a high-converting, policy-compliant listing in this "
-        "marketplace/category;\n"
-        "- a DISTINCT concept drawn from the category's own gallery arc — no slot may duplicate "
-        "another;\n"
+        "marketplace/category, drawn from the category's own gallery / A+ arc;\n"
+        "- a DISTINCT concept — no slot may duplicate another;\n"
         "- composition, camera angle, background, props, lighting, styling and visual hierarchy;\n"
         "- honesty: the depiction must NOT contradict the attached real product (its colour, form, "
         "material, finish, pattern) — never render it as something it is not;\n"

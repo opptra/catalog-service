@@ -21,7 +21,7 @@ import type { ContentImage } from '../components/batch-content/types'
 const STATUS_POLL_MS = 4000
 const CONTENT_POLL_MS = 5000
 
-const PDP_IMAGE_NAMES = new Set(['HERO', 'INFOGRAPHIC', 'LIFESTYLE'])
+const PDP_IMAGE_NAMES = new Set(['IMAGE'])
 
 function isTerminalStatus(status: string | undefined): boolean {
   return status === 'COMPLETED' || status === 'FAILED'
@@ -36,9 +36,7 @@ const ATTRIBUTE_DISPLAY_LABELS: Record<string, string> = {
   ITEM_HIGHLIGHTS: 'Item highlights',
   KEY_FEATURES: 'Key features',
   BACKEND_KEYWORDS: 'Backend keywords',
-  HERO: 'Hero',
-  INFOGRAPHIC: 'Infographic',
-  LIFESTYLE: 'Lifestyle',
+  IMAGE: 'Gallery image',
 }
 
 /** Text attributes whose value is a JSON array of strings, rendered as a list. */
@@ -148,7 +146,7 @@ function imageSlotsToGrid(
 ): ContentImage[] {
   return attributes
     .filter((item) => item.data_type === 'IMAGE' && names.has(item.name))
-    .toSorted((a, b) => a.name.localeCompare(b.name) || a.slot - b.slot)
+    .toSorted((a, b) => a.slot - b.slot || a.name.localeCompare(b.name))
     .map((slot) => ({
       id: `${slot.name}-${slot.slot}`,
       url: slot.value,
