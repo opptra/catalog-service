@@ -71,8 +71,8 @@ from utils import flatfile as flatfile_utils
 
 logger = logging.getLogger(__name__)
 
-# Cloud Workflows resource id for cloud-workflows/job-pipeline.yaml
-_JOB_PIPELINE_WORKFLOW = "workflow-1"
+# Cloud Workflows resource id — must match the id in cloud-workflows/manifest.yaml.
+_JOB_PIPELINE_WORKFLOW = "job-pipeline"
 
 # Cap concurrent OpenRouter image calls. Slots are independent after planning; text + gallery
 # planning stay sequential.
@@ -431,9 +431,7 @@ def retry_sku_generation_job(
         new_status=SkuGenerationJobStatus.PENDING.value,
     )
     if not claimed:
-        sku_generation_job = sku_generation_job_repo.get_by_external_id(
-            session, external_id
-        )
+        sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
         if sku_generation_job is None:
             raise SkuGenerationJobNotFoundError(str(external_id))
         raise SkuGenerationJobRetryConflictError(
@@ -449,8 +447,7 @@ def retry_sku_generation_job(
         if job is not None and job.status != JobStatus.COMPLETED.value:
             siblings = sku_generation_job_repo.list_by_job_id(session, job.id)
             if all(
-                sibling.status == SkuGenerationJobStatus.COMPLETED.value
-                for sibling in siblings
+                sibling.status == SkuGenerationJobStatus.COMPLETED.value for sibling in siblings
             ):
                 job.status = JobStatus.COMPLETED.value
                 job_repo.save(session, job)
