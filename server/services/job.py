@@ -431,7 +431,9 @@ def retry_sku_generation_job(
         new_status=SkuGenerationJobStatus.PENDING.value,
     )
     if not claimed:
-        sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
+        sku_generation_job = sku_generation_job_repo.get_by_external_id(
+            session, external_id
+        )
         if sku_generation_job is None:
             raise SkuGenerationJobNotFoundError(str(external_id))
         raise SkuGenerationJobRetryConflictError(
@@ -447,7 +449,8 @@ def retry_sku_generation_job(
         if job is not None and job.status != JobStatus.COMPLETED.value:
             siblings = sku_generation_job_repo.list_by_job_id(session, job.id)
             if all(
-                sibling.status == SkuGenerationJobStatus.COMPLETED.value for sibling in siblings
+                sibling.status == SkuGenerationJobStatus.COMPLETED.value
+                for sibling in siblings
             ):
                 job.status = JobStatus.COMPLETED.value
                 job_repo.save(session, job)
@@ -631,8 +634,9 @@ def _key_features_inputs(
     return description, [str(bullet) for bullet in bullets]
 
 
-# Fixed aspect ratio per image attribute. IMAGE (PDP gallery) is square 1:1;
-# A+ content targets ~970x600 min (~3:2 is the closest GPT-supported ratio).
+# Fixed aspect ratio per image type, decided HERE — never taken from the AI plan. A+ content
+# images target ~970x600 min (~3:2 is the closest GPT-supported ratio); IMAGE (PDP gallery)
+# is square 1:1.
 _ASPECT_RATIO_BY_TYPE: dict[AttributeName, str] = {
     AttributeName.IMAGE: "1:1",
     AttributeName.A_PLUS: "3:2",
