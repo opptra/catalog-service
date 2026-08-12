@@ -15,7 +15,30 @@ from entities.catalog.attribute_enums import AttributeDataType, AttributeName
 from generation import category, tools
 from generation.context import GenerationContext
 
-# Shared rules applied to every generation call.
+# Single source: constraints for copy and branding drawn ON generated listing images.
+_IMAGE_RENDER_RULES_MARKER = "=== IMAGE RENDER RULES ==="
+
+_IMAGE_ON_CANVAS_COPY_RULES = (
+    "ON-IMAGE COPY (shopper-facing only):\n"
+    "- Every headline, badge, and label on the artwork must read as normal product copy a "
+    "shopper sees on the live listing.\n"
+    "- NEVER render internal or ops jargon on the image — including A+, A Plus, A+ Content, "
+    "A+ Features, A+ Care, Enhanced Brand Content, EBC, PDP, gallery slot, IMAGE, A_PLUS, "
+    'module names, attribute type codes, or phrases like "A plus module works included".\n'
+    "- Planning hints (IMAGE/A_PLUS slots, CI role/kind/pattern codes) are for you only; "
+    "translate them into real messaging (e.g. Features, Care instructions, King bed fit) — "
+    "never print the hint labels.\n"
+    "- Factual size/fit labels are fine when shopper-facing (e.g. King Size, Fits King Bed) — "
+    "not prefixed with A+ or module jargon."
+)
+
+_IMAGE_LOGO_RULES = (
+    "Brand logo: do not draw, render, watermark, or place any brand logo or brand name on the "
+    "image. Do not leave empty reserved space, corners, banners, margins, or padding for a logo "
+    "— the logo is added later by a deterministic code step."
+)
+
+# Shared rules applied to every generation call (text and image planning).
 _RULES = (
     "RULES:\n"
     "- Product facts (materials, dimensions, colour, pack size, care, weight, etc.) come ONLY "
@@ -26,11 +49,7 @@ _RULES = (
     "keywords; use Brand DNA for tone, personality and restricted claims. Do not let Brand DNA "
     "override category best practices unless a brand guardrail requires it.\n"
     "- Optimize for listing quality, customer trust, marketplace compliance and conversion — "
-    "quality over completeness.\n"
-    "- For ANY image (hero, infographic, lifestyle, A+, or any other type): do NOT draw, render, "
-    "watermark, or place any brand logo or brand name on the image. Do NOT leave empty reserved "
-    "space, corners, banners, margins, or padding for a logo — the logo is added later by a "
-    "deterministic code step, so compose the full frame with product/content only."
+    "quality over completeness."
 )
 
 
@@ -70,6 +89,26 @@ _ATTRIBUTE_GUIDANCE: dict[AttributeName, str] = {
 def attribute_rules(name: AttributeName) -> str:
     """Role guidance for one text attribute ('' when none apply). Size limits are on the tool."""
     return _ATTRIBUTE_GUIDANCE.get(name, "")
+
+
+def image_on_canvas_copy_rules() -> str:
+    """Single source for shopper-facing on-image copy rules (plan + revise prompts)."""
+    return _IMAGE_ON_CANVAS_COPY_RULES
+
+
+def image_render_prompt_suffix() -> str:
+    """Single source appended to every prompt sent to the image model."""
+    return f"{_IMAGE_RENDER_RULES_MARKER}\n{_IMAGE_LOGO_RULES}\n\n{_IMAGE_ON_CANVAS_COPY_RULES}"
+
+
+def ensure_image_render_suffix(prompt: str) -> str:
+    """Idempotently attach render rules so storage and re-render stay aligned."""
+    if _IMAGE_RENDER_RULES_MARKER in prompt:
+        return prompt
+    stripped = prompt.strip()
+    if not stripped:
+        return image_render_prompt_suffix()
+    return f"{stripped}\n\n{image_render_prompt_suffix()}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,9 +175,7 @@ def _text_tool_instruction(names: list[AttributeName]) -> str:
 
 def _attribute_rules_block(names: list[AttributeName]) -> str:
     """ATTRIBUTE RULES section listing role guidance per requested attribute."""
-    lines = [
-        f"- {name.value}: {rules}" for name in names if (rules := attribute_rules(name))
-    ]
+    lines = [f"- {name.value}: {rules}" for name in names if (rules := attribute_rules(name))]
     if not lines:
         return ""
     return "ATTRIBUTE RULES:\n" + "\n".join(lines)
@@ -217,9 +254,11 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
         "Design a COHERENT image gallery for ONE product. You are given the exact set of images to "
         "produce (by type and count). IMAGE means a generic PDP gallery slot — decide each slot's "
         "role/concept from the Category Intelligence gallery guidance (not from fixed "
-        "hero/infographic/lifestyle templates). A_PLUS means an A+ content module — follow the "
-        "A+ guidance when present. Also use Brand DNA visual identity and the attached product "
-        "image(s) so the set forms one connected, non-duplicated gallery.\n\n"
+        "hero/infographic/lifestyle templates). A_PLUS is an internal type for enhanced brand "
+        "modules — follow the A+ playbook when present, but never label artwork as A+ or a "
+        "module; use shopper-facing titles only. Also use Brand DNA visual identity and the "
+        "attached product image(s) so the set forms one connected, non-duplicated gallery.\n\n"
+        f"{image_on_canvas_copy_rules()}\n\n"
         f"{_reference_photos_note(ctx.product_image_urls)}\n\n"
         "Images to produce (submit EXACTLY one plan entry per slot via the tool):\n"
         f"{_requested_block(requested)}\n\n"
@@ -232,7 +271,8 @@ def gallery_plan_prompt(ctx: GenerationContext, requested: list[tuple[AttributeN
         "material, finish, pattern) — never render it as something it is not;\n"
         "- physical coherence: show the product realistically and correctly used/placed;\n"
         "- on-image text/badges appropriate to this image role and the marketplace's compliance "
-        "rules (a strict primary/main image carries no text or badges; secondary images may);\n"
+        "rules (a strict primary/main image carries no text or badges; secondary images may) — "
+        "shopper-facing only; obey ON-IMAGE COPY rules above;\n"
         "- brand logo: never draw/render a logo or brand wordmark, and never leave reserved "
         "space for one — every slot prompt must state this explicitly; the logo is composited "
         "later in code;\n"
@@ -317,9 +357,18 @@ def revise_generation_prompt(
         "Keep everything that still applies from the previous prompt. Apply the user's requested "
         "changes precisely. Do not invent product facts. Do not mention aspect ratio or brand-logo "
         "placement (those are handled elsewhere).\n"
-        "When finished, call the submit_revised_prompt tool with the final prompt string — do not "
-        "write the prompt as free-form JSON in the message body.\n\n"
-        f"PREVIOUS PROMPT:\n{previous_prompt}\n\n"
-        f"{current_block}\n\n"
-        f"USER IMPROVEMENT:\n{improvement.strip()}"
+        + (
+            f"{image_on_canvas_copy_rules()}\n\n"
+            "Preserve these on-image copy rules in the revised prompt unless the user explicitly "
+            "requests internal/module labels on the artwork (they should not).\n"
+            if data_type == AttributeDataType.IMAGE
+            else ""
+        )
+        + (
+            "When finished, call the submit_revised_prompt tool with the final prompt "
+            "string — do not write the prompt as free-form JSON in the message body.\n\n"
+        )
+        + f"PREVIOUS PROMPT:\n{previous_prompt}\n\n"
+        + f"{current_block}\n\n"
+        + f"USER IMPROVEMENT:\n{improvement.strip()}"
     )

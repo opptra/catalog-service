@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from core.clients.openrouter import OpenRouterClient, ReferenceImage
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
+from generation import prompts
 from generation.context import GenerationContext
 
 _PRODUCT_LABEL = (
@@ -46,6 +47,7 @@ def render(
     aspect_ratio: str | None = None,
 ) -> ImageGeneration:
     """Render one planned image via Gemini (chat + modalities)."""
+    image_prompt = prompts.ensure_image_render_suffix(image_prompt)
     image = client.generate_gemini_image(
         image_prompt,
         model=settings.openrouter_image_model,
@@ -68,6 +70,7 @@ def render_gpt(
     aspect_ratio: str | None = None,
 ) -> ImageGeneration:
     """Render the same planned prompt via GPT Image (dedicated Images API)."""
+    image_prompt = prompts.ensure_image_render_suffix(image_prompt)
     image = client.generate_gpt_image(
         image_prompt,
         model=settings.openrouter_image_model,

@@ -13,13 +13,14 @@ from entities.catalog.attribute_enums import AttributeDataType, AttributeName
 from generation import prompts, tools
 from generation.context import GenerationContext
 from generation.images import (
-    ImageGeneration,
     _GEMINI_ASPECT_RATIOS,
     _GPT_ASPECT_RATIOS,
+    ImageGeneration,
     _normalize_aspect_ratio,
     _references,
     resolve_image_model,
 )
+
 
 @dataclass(frozen=True, slots=True)
 class RevisedPrompt:
@@ -71,6 +72,7 @@ def regenerate_image(
     current_image_url: str,
 ) -> ImageGeneration:
     """Re-render with the revised prompt, using the current output as a primary reference."""
+    image_prompt = prompts.ensure_image_render_suffix(image_prompt)
     references = [
         ReferenceImage(
             url=current_image_url,
