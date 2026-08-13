@@ -1,30 +1,33 @@
 from datetime import datetime
 from typing import Any
-from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, Identity, Text, func, text
+from sqlalchemy import ForeignKey, Identity, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import DateTime
 
 from entities.catalog.base import Base
 
 
-class SkuGenerationJob(Base):
-    __tablename__ = "sku_generation_job"
+class ListingTemplate(Base):
+    """Blank Amazon listing workbook for one category × marketplace pair."""
+
+    __tablename__ = "listing_template"
+    __table_args__ = (
+        UniqueConstraint(
+            "category_marketplace_id",
+            name="listing_template_category_marketplace_id_key",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
-    external_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        unique=True,
+    category_marketplace_id: Mapped[int] = mapped_column(
+        ForeignKey("category_marketplace.id", ondelete="CASCADE"),
         nullable=False,
-        default=uuid4,
     )
-    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), nullable=False)
-    sku_id: Mapped[int] = mapped_column(ForeignKey("sku_master.id"), nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False)
-    tasks: Mapped[dict[str, Any]] = mapped_column(
+    gcs_object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata",
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),

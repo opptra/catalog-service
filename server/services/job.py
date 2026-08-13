@@ -54,8 +54,8 @@ from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.sku_generation_job import SkuGenerationJob
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from entities.catalog.sku_master import SkuMaster
-from generation import common_image, gallery, images, inputs, regenerate, text, tools
-from generation.context import GenerationContext
+from pipelines.generation import common_image, gallery, images, inputs, regenerate, text, tools
+from pipelines.generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
 from repositories.catalog import brand as brand_repo
 from repositories.catalog import category as category_repo
@@ -1355,7 +1355,7 @@ def regenerate_attribute_value(
 
     if data_type == AttributeDataType.IMAGE:
         assert current_image_url is not None
-        # Preserve distilled common context (typography/palette/category norms) across regen.
+        # Preserve distilled common context (palette/mood/category norms) across regen.
         common = common_image.parse_common_from_prompt(previous_prompt)
         if common is None:
             common = common_image.extract(client, ctx, [name])

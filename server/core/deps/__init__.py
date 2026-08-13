@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from core.clients.db import DatabaseClient
+from core.clients.dropbox import DropboxClient
 from core.clients.gcs import GcsClient
 from core.clients.google_auth import GoogleAuthClient
 from core.clients.openrouter import OpenRouterClient
@@ -61,6 +62,16 @@ def get_gcs_client(request: Request) -> GcsClient:
 
 
 GcsDep = Annotated[GcsClient, Depends(get_gcs_client)]
+
+
+def get_dropbox_client(request: Request) -> DropboxClient:
+    client: DropboxClient | None = request.app.state.dropbox
+    if client is None:
+        raise HTTPException(status_code=503, detail="Dropbox is not configured")
+    return client
+
+
+DropboxDep = Annotated[DropboxClient, Depends(get_dropbox_client)]
 
 
 def get_workflows_client(request: Request) -> WorkflowsClient:

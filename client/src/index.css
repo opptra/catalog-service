@@ -2369,11 +2369,145 @@ a {
   padding: 0 20px;
   font-size: 12px;
   letter-spacing: 0.4px;
+  flex-shrink: 0;
 }
 
 .batch-content__export:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.listing-export {
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-navy) 3%, white);
+}
+
+.listing-export__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.listing-export__eyebrow {
+  margin: 0 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.listing-export__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-navy);
+}
+
+.listing-export__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+  max-width: 42rem;
+}
+
+.listing-export__progress {
+  margin-top: 14px;
+}
+
+.listing-export__progress-label {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.listing-export__result {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.listing-export__result-meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-navy);
+}
+
+.listing-export__link {
+  color: var(--color-orange);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.listing-export__gaps {
+  margin-top: 10px;
+}
+
+.listing-export__gaps-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-orange);
+  cursor: pointer;
+}
+
+.listing-export__gap-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.listing-export__gap-sku-id {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-navy);
+}
+
+.listing-export__gap-sku ul {
+  margin: 0;
+  padding: 0 0 0 12px;
+  list-style: disc;
+}
+
+.listing-export__gap-sku li {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+.listing-export__gap-col {
+  color: var(--color-navy);
+  font-weight: 500;
+}
+
+.listing-export__gap-reason {
+  margin-left: 6px;
+}
+
+@media (max-width: 720px) {
+  .listing-export__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .batch-content__export {
+    width: 100%;
+  }
 }
 
 .batch-content__tabs {

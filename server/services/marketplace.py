@@ -9,7 +9,5 @@ from repositories.catalog import marketplace as marketplace_repo
 def list_marketplaces(session: Session) -> MarketplaceListResponse:
     rows = marketplace_repo.list_all(session)
     return MarketplaceListResponse(
-        items=[
-            MarketplaceResponse(external_id=row.external_id, name=row.name) for row in rows
-        ]
+        items=[MarketplaceResponse(external_id=row.external_id, name=row.name) for row in rows]
     )

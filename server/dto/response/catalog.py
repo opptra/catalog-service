@@ -5,6 +5,14 @@ from pydantic import BaseModel, Field
 from dto.response.marketplace import MarketplaceResponse
 
 
+class UploadListingTemplateResponse(BaseModel):
+    """Returned after a listing template is stored for a category × marketplace."""
+
+    category_external_id: UUID = Field(description="Category the template was stored for.")
+    marketplace_external_id: UUID = Field(description="Marketplace the template was stored for.")
+    gcs_object_key: str = Field(description="GCS object key where the template is stored.")
+
+
 class MarketplaceSelectionAttributeItemResponse(BaseModel):
     """Concrete attribute under a selection group (used when creating a generation job)."""
 

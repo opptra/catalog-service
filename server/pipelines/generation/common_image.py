@@ -14,8 +14,8 @@ from typing import Any
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
-from generation import category, tools
-from generation.context import GenerationContext
+from pipelines.generation import category, tools
+from pipelines.generation.context import GenerationContext
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,10 @@ def extract(
     """Build one common image-context JSON from Brand DNA + category CI.
 
     Prefer a structured LLM extract; fall back to a deterministic parse so image
-    generation can still share typography/palette when the tool call fails.
+    generation can still share palette/mood/category norms when the tool call fails.
+
+    Named Brand DNA fonts are intentionally omitted — the image model chooses
+    typography freely (and must never print font family names on the artwork).
     """
     source = category.image_brief(ctx.category_intelligence, names)
     try:
@@ -43,9 +46,9 @@ def extract(
             max_tokens=_EXTRACT_MAX_TOKENS,
         )
         common = _normalize(parsed)
-        if common.get("typography", {}).get("primary"):
+        if common.get("mood") or common.get("category"):
             return common
-        logger.warning("Common image-context extract missing primary typography; using fallback")
+        logger.warning("Common image-context extract missing mood/category; using fallback")
     except Exception:  # noqa: BLE001 — fallback keeps the job running
         logger.exception("Common image-context extract failed; using fallback")
     return _fallback(ctx.brand_dna, source)
@@ -56,9 +59,11 @@ def format_block(common: dict[str, Any]) -> str:
     return (
         f"{COMMON_IMAGE_CONTEXT_MARKER}\n"
         f"{json.dumps(common, ensure_ascii=False, indent=2)}\n"
-        "Apply this common context on every image in the set. Do not re-pick fonts, palette, "
-        "or category visual norms per slot. Typography primary (and secondary if listed) must "
-        "stay identical across all slots."
+        "Apply this common context on every image in the set for palette, mood, and category "
+        "visual norms. Do NOT lock or name typefaces from Brand DNA — choose clean, readable "
+        "shopper typography freely and keep the set cohesive via style (weight, size hierarchy, "
+        "contrast), not by naming a font family. NEVER render font family names "
+        '(e.g. "Open Sans", "Montserrat") as text on the artwork.'
     )
 
 
@@ -106,14 +111,14 @@ def _extract_prompt(brand_dna: str, category_source: dict[str, Any]) -> str:
     return (
         "You extract a compact COMMON IMAGE CONTEXT used for EVERY image in one catalog job "
         "(gallery and enhanced-brand modules). Pull ONLY image-relevant details.\n\n"
-        "From Brand DNA: typography (pick ONE primary font; at most ONE secondary with fixed "
-        "usage — ignore unused faces), palette accents, mood/photography style, visual "
-        "guardrails / do-nots that affect pixels. Do not include voice, copy essays, or "
-        "audience prose.\n\n"
+        "From Brand DNA: palette accents, mood/photography style, visual guardrails / do-nots "
+        "that affect pixels. Do NOT extract or name typefaces / font families (primary_font, "
+        "secondary_font, Open Sans, Montserrat, etc.) — typography is left to the image model. "
+        "Do not include voice, copy essays, or audience prose.\n\n"
         "From Category Intelligence: cross-slot visual norms for this category, on-image text "
         "density rules (phone-readable, minimal SEO-useful keywords, no fluff), shared product "
         "presentation cues. Do not copy per-slot shot briefs or long topic essays.\n\n"
-        "Never invent fonts or colors not supported by the sources. When finished, call the "
+        "Never invent brand colors not supported by the sources. When finished, call the "
         "submit_common_image_context tool.\n\n"
         "=== BRAND DNA (source) ===\n"
         f"{brand_dna.strip()}\n\n"
@@ -123,19 +128,10 @@ def _extract_prompt(brand_dna: str, category_source: dict[str, Any]) -> str:
 
 
 def _normalize(raw: dict[str, Any]) -> dict[str, Any]:
-    typography_raw = raw.get("typography") if isinstance(raw.get("typography"), dict) else {}
     palette_raw = raw.get("palette") if isinstance(raw.get("palette"), dict) else {}
     category_raw = raw.get("category") if isinstance(raw.get("category"), dict) else {}
 
-    typography = {
-        "primary": str(typography_raw.get("primary") or "").strip(),
-        "secondary": str(typography_raw.get("secondary") or "").strip() or None,
-        "usage": str(typography_raw.get("usage") or "").strip()
-        or "titles/headlines=primary; labels/body=secondary when present",
-    }
-    if not typography["secondary"]:
-        typography.pop("secondary", None)
-
+    # Drop any model-supplied typography/font names — we do not force Brand DNA fonts.
     palette = {
         key: value
         for key, value in {
@@ -170,12 +166,21 @@ def _normalize(raw: dict[str, Any]) -> dict[str, Any]:
         if isinstance(guardrails, list)
         else []
     )
+    # Strip font-family bans that only make sense when we force DNA fonts; keep color bans.
+    guardrail_list = [
+        g
+        for g in guardrail_list
+        if "font" not in g.casefold() or "color" in g.casefold() or "colour" in g.casefold()
+    ]
 
     out: dict[str, Any] = {
-        "typography": typography,
         "mood": str(raw.get("mood") or "").strip() or "clean, catalog, consistent",
         "visual_guardrails": guardrail_list,
         "category": category_out,
+        "typography_note": (
+            "Do not use or name Brand DNA fonts. Choose clean readable shopper typography "
+            "freely; never print font family names on the artwork."
+        ),
     }
     if palette:
         out["palette"] = palette
@@ -183,8 +188,6 @@ def _normalize(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fallback(brand_dna: str, category_source: dict[str, Any]) -> dict[str, Any]:
-    primary = _field(brand_dna, "primary_font") or "Montserrat Bold"
-    secondary = _field(brand_dna, "secondary_font")
     mood = _field(brand_dna, "visual_mood") or _field(brand_dna, "photography_style") or "clean"
     primary_colors = _field(brand_dna, "brand_colors_primary")
     secondary_colors = _field(brand_dna, "brand_colors_secondary")
@@ -196,7 +199,7 @@ def _fallback(brand_dna: str, category_source: dict[str, Any]) -> dict[str, Any]
     plan = category_source.get("image_plan") or {}
     norms: list[str] = [
         f"Follow {category_name} marketplace visual norms from Category Intelligence.",
-        "Keep typography and palette identical across every slot.",
+        "Keep palette and mood cohesive across every slot; typography is free (no named fonts).",
     ]
     for track in plan.values() if isinstance(plan, dict) else []:
         if isinstance(track, dict) and track.get("build_rationale"):
@@ -209,25 +212,13 @@ def _fallback(brand_dna: str, category_source: dict[str, Any]) -> dict[str, Any]
 
     return _normalize(
         {
-            "typography": {
-                "primary": primary.split(" - ")[0].strip(),
-                "secondary": (secondary.split(" - ")[0].strip() if secondary else None),
-                "usage": "titles/headlines=primary; labels/body=secondary when present",
-            },
             "palette": {
                 "primary": primary_colors,
                 "secondary": secondary_colors,
                 "notes": _field(brand_dna, "accent_color_rules"),
             },
             "mood": mood,
-            "visual_guardrails": [
-                g
-                for g in [
-                    _field(brand_dna, "banned_font_styles"),
-                    _field(brand_dna, "banned_colors"),
-                ]
-                if g
-            ],
+            "visual_guardrails": [g for g in [_field(brand_dna, "banned_colors")] if g],
             "category": {
                 "visual_norms": norms,
                 "on_image_text": (

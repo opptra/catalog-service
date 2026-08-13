@@ -20,6 +20,11 @@ from core.exceptions.job import (
     SkuGenerationJobRetryConflictError,
     SkuNotFoundError,
 )
+from core.exceptions.listing import (
+    DropboxError,
+    ListingFillError,
+    ListingTemplateNotFoundError,
+)
 from core.exceptions.openrouter import OpenRouterError
 from core.exceptions.sku_generation_job import (
     BrandDnaMissingError,
@@ -51,6 +56,7 @@ __all__ = [
     "CategoryIntelligenceMissingError",
     "CategoryNotFoundError",
     "InvalidCategoryPathError",
+    "DropboxError",
     "EmailDomainNotAllowedError",
     "FlatfileUploadIncompleteError",
     "FlatfileValidationError",
@@ -59,6 +65,8 @@ __all__ = [
     "InvalidGoogleClaimsError",
     "InvalidJobAttributesError",
     "JobNotFoundError",
+    "ListingFillError",
+    "ListingTemplateNotFoundError",
     "MarketplaceNotFoundError",
     "OpenRouterError",
     "ProductNotFoundError",

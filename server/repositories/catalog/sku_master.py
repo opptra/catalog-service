@@ -21,9 +21,7 @@ def get_live_by_attribute_sku_id(session: Session, sku_id: str) -> SkuMaster | N
     )
 
 
-def list_live_by_attribute_sku_ids(
-    session: Session, sku_ids: Sequence[str]
-) -> Sequence[SkuMaster]:
+def list_live_by_attribute_sku_ids(session: Session, sku_ids: Sequence[str]) -> Sequence[SkuMaster]:
     """Return live SKUs whose ``attributes.SKU`` is in ``sku_ids``."""
     if not sku_ids:
         return []

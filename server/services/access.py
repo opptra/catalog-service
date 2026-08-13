@@ -161,15 +161,11 @@ def _require_actor_brand_access(
     actor: User,
     brand_external_id: UUID,
 ):
-    application = application_repository.get_by_name(
-        user_session, _LISTING_STUDIO_APPLICATION_NAME
-    )
+    application = application_repository.get_by_name(user_session, _LISTING_STUDIO_APPLICATION_NAME)
     if application is None:
         raise ApplicationNotFoundError(_LISTING_STUDIO_APPLICATION_NAME)
 
-    catalog_brand = catalog_brand_repository.get_by_external_id(
-        catalog_session, brand_external_id
-    )
+    catalog_brand = catalog_brand_repository.get_by_external_id(catalog_session, brand_external_id)
     if catalog_brand is None or catalog_brand.user_service_brand_id is None:
         raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
 

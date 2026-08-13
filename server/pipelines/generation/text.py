@@ -6,8 +6,8 @@ from typing import Any
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
-from generation import prompts, tools
-from generation.context import GenerationContext
+from pipelines.generation import prompts, tools
+from pipelines.generation.context import GenerationContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +27,7 @@ def generate_attribute(
 
     Step 1 derives a content strategy for this attribute. Step 2 writes the attribute via a forced
     tool call. Shared product/brand/rules context is sent as a cacheable prefix when supported.
-    Size limits are defined only on the JSON tool schema.
+    Soft length targets are on the tool descriptions; hard char caps are fitted after the call.
     """
     names = [name]
     strategy_parts = prompts.text_strategy_parts(ctx, names)
@@ -68,7 +68,7 @@ def _generate_via_tool(
     *,
     session_id: str | None,
 ) -> TextGeneration:
-    """Call the generation tool once; size criteria live on the tool schema only."""
+    """Call the generation tool once; fit oversize copy at a phrase/word boundary."""
     tool = tools.text_attributes_tool([name])
     key = name.value
     parsed = client.call_tool(
@@ -80,4 +80,7 @@ def _generate_via_tool(
     )
     if key not in parsed:
         raise ValueError(f"Text generation missing attribute: {key}")
-    return TextGeneration(values={key: parsed[key]}, prompt=generation_parts.as_sent())
+    return TextGeneration(
+        values={key: tools.apply_text_limits(name, parsed[key])},
+        prompt=generation_parts.as_sent(),
+    )
