@@ -13,8 +13,8 @@ from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from core.exceptions import GalleryPlanError
 from entities.catalog.attribute_enums import AttributeName
-from generation import common_image, prompts, tools
-from generation.context import GenerationContext
+from pipelines.generation import common_image, prompts, tools
+from pipelines.generation.context import GenerationContext
 
 logger = logging.getLogger(__name__)
 

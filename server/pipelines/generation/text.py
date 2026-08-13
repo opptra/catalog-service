@@ -6,8 +6,8 @@ from typing import Any
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
-from generation import prompts, tools
-from generation.context import GenerationContext
+from pipelines.generation import prompts, tools
+from pipelines.generation.context import GenerationContext
 
 
 @dataclass(frozen=True, slots=True)

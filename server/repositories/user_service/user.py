@@ -20,9 +20,7 @@ def get_by_google_sub(session: Session, google_sub: str) -> User | None:
 
 
 def get_by_email(session: Session, email: str) -> User | None:
-    return session.scalar(
-        select(User).where(func.lower(User.email) == email.strip().lower())
-    )
+    return session.scalar(select(User).where(func.lower(User.email) == email.strip().lower()))
 
 
 def create(

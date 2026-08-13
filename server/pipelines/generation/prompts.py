@@ -12,8 +12,8 @@ import json
 from dataclasses import dataclass
 
 from entities.catalog.attribute_enums import AttributeDataType, AttributeName
-from generation import category, common_image, tools
-from generation.context import GenerationContext
+from pipelines.generation import category, common_image, tools
+from pipelines.generation.context import GenerationContext
 
 # Single source: constraints for copy and branding drawn ON generated listing images.
 _IMAGE_RENDER_RULES_MARKER = "=== IMAGE RENDER RULES ==="
@@ -111,7 +111,6 @@ def ensure_image_render_suffix(prompt: str) -> str:
     return f"{stripped}\n\n{image_render_prompt_suffix()}"
 
 
-
 @dataclass(frozen=True, slots=True)
 class PromptParts:
     """Stable ``prefix`` (prompt-cacheable) + variable ``suffix`` for the API wire format."""
@@ -176,9 +175,7 @@ def _text_tool_instruction(names: list[AttributeName]) -> str:
 
 def _attribute_rules_block(names: list[AttributeName]) -> str:
     """ATTRIBUTE RULES section listing role guidance per requested attribute."""
-    lines = [
-        f"- {name.value}: {rules}" for name in names if (rules := attribute_rules(name))
-    ]
+    lines = [f"- {name.value}: {rules}" for name in names if (rules := attribute_rules(name))]
     if not lines:
         return ""
     return "ATTRIBUTE RULES:\n" + "\n".join(lines)

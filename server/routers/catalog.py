@@ -3,17 +3,18 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import HTTPException, Query
+from fastapi import Form, HTTPException, Query, UploadFile
 
 from core.auth import SecureAPIRouter, internal_api
-from core.deps import CatalogSessionDep, CurrentUserDep
+from core.deps import CatalogSessionDep, CurrentUserDep, GcsDep
 from core.exceptions import (
     AmbiguousCategoryError,
     CategoryNotFoundError,
     InvalidCategoryPathError,
+    MarketplaceNotFoundError,
 )
 from dto.request.category import ImportCategoryPathRequest
-from dto.response.catalog import MarketplaceSelectionResponse
+from dto.response.catalog import MarketplaceSelectionResponse, UploadListingTemplateResponse
 from dto.response.category import (
     CategoryTemplateResponse,
     ImportCategoryPathResponse,
@@ -66,6 +67,39 @@ def get_category_template(
     try:
         return catalog_service.get_category_template(catalog_session, external_id)
     except CategoryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put(
+    "/listing-template",
+    response_model=UploadListingTemplateResponse,
+    summary="Upload a listing template for a category × marketplace",
+)
+@internal_api
+def upload_listing_template(
+    category_external_id: Annotated[UUID, Form()],
+    marketplace_external_id: Annotated[UUID, Form()],
+    file: UploadFile,
+    catalog_session: CatalogSessionDep,
+    gcs: GcsDep,
+) -> UploadListingTemplateResponse:
+    """Store the Amazon listing template for the given category × marketplace in GCS.
+
+    The file is expected to be an ``.xlsx`` spreadsheet (Amazon's flat-file format).
+    Uploading again overwrites the previous template for that pair.
+    """
+    content = file.file.read()
+    try:
+        return catalog_service.upload_listing_template(
+            catalog_session,
+            gcs,
+            category_external_id=category_external_id,
+            marketplace_external_id=marketplace_external_id,
+            content=content,
+        )
+    except CategoryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except MarketplaceNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 

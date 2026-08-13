@@ -54,8 +54,8 @@ from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.sku_generation_job import SkuGenerationJob
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from entities.catalog.sku_master import SkuMaster
-from generation import common_image, gallery, images, inputs, regenerate, text, tools
-from generation.context import GenerationContext
+from pipelines.generation import common_image, gallery, images, inputs, regenerate, text, tools
+from pipelines.generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
 from repositories.catalog import brand as brand_repo
 from repositories.catalog import category as category_repo

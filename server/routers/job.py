@@ -204,9 +204,7 @@ def create_job(
             sku_ids=body.sku_ids,
             brand_external_id=body.brand_external_id,
             marketplace_external_id=body.marketplace_external_id,
-            attributes=[
-                (item.attribute_external_id, item.quantity) for item in body.attributes
-            ],
+            attributes=[(item.attribute_external_id, item.quantity) for item in body.attributes],
         )
     except BrandNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

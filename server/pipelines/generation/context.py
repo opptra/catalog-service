@@ -1,10 +1,11 @@
 """Shared value object carrying everything a generation step reasons over.
 
 The three inputs play distinct roles: ``product`` (``sku_master.attributes``) is the
-authoritative source of facts, ``category_intelligence`` (from ``category_marketplace``)
-is guidance on how to optimize the listing, and ``brand_dna`` (from ``brand.brand_dna``)
-is voice/guardrails. ``product_image_urls`` are signed GCS HTTPS URLs for the SKU's
-source photos under ``products/{sku_id}/assets/images/``.
+authoritative source of facts, ``category_intelligence`` (from the
+``category_intelligence`` table) is guidance on how to optimize the listing, and
+``brand_dna`` (from ``brand.brand_dna``) is voice/guardrails. ``product_image_urls``
+are signed GCS HTTPS URLs for the SKU's source photos under
+``products/{sku_id}/assets/images/``.
 
 For image jobs, ``common_image_context`` holds a once-per-job distill of Brand DNA +
 category visual norms (typography, palette, mood, on-image text rules) reused on every

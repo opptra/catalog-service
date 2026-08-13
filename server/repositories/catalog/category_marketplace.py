@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from entities.catalog.category_marketplace import CategoryMarketplace
+from repositories import base
 
 
 def get_by_marketplace_and_category(
@@ -15,3 +16,7 @@ def get_by_marketplace_and_category(
             CategoryMarketplace.category_id == category_id,
         )
     )
+
+
+def save(session: Session, row: CategoryMarketplace) -> CategoryMarketplace:
+    return base.save(session, row)

@@ -27,6 +27,20 @@ def template_object_key(job_external_id: UUID, filename: str) -> str:
     return f"jobs/{job_external_id}/input/template/{filename}"
 
 
+def listing_template_object_key(marketplace_external_id: UUID, category_external_id: UUID) -> str:
+    """Stable GCS key for the Amazon listing template for a given category × marketplace.
+
+    Path follows the same entity/id/asset convention as product images:
+    ``marketplaces/{marketplace_id}/categories/{category_id}/listing-template/template.xlsx``
+    """
+    return (
+        f"listing-templates"
+        f"/marketplaces/{marketplace_external_id}"
+        f"/categories/{category_external_id}"
+        f"/template.xlsx"
+    )
+
+
 def manifest_object_key(job_external_id: UUID) -> str:
     return f"jobs/{job_external_id}/input/manifest.json"
 

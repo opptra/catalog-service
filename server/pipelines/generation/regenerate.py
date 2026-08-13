@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from core.clients.openrouter import OpenRouterClient, ReferenceImage
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeDataType, AttributeName
-from generation import prompts, tools
-from generation.context import GenerationContext
-from generation.images import (
+from pipelines.generation import prompts, tools
+from pipelines.generation.context import GenerationContext
+from pipelines.generation.images import (
     _GEMINI_ASPECT_RATIOS,
     _GPT_ASPECT_RATIOS,
     ImageGeneration,

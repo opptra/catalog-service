@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from core.clients.openrouter import OpenRouterClient, ReferenceImage
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
-from generation import prompts
-from generation.context import GenerationContext
+from pipelines.generation import prompts
+from pipelines.generation.context import GenerationContext
 
 _PRODUCT_LABEL = (
     "PRODUCT REFERENCE {index} of {total} — the real product, this angle/closeup. Cross-reference "

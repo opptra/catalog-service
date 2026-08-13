@@ -53,9 +53,7 @@ _MAX_SIGNALS = 12
 
 def text_brief(category_intelligence: dict[str, Any], names: list[AttributeName]) -> dict[str, Any]:
     """Concise brief for the requested text attributes."""
-    topics = [
-        topic for name in names for topic in _TEXT_TOPICS_BY_ATTRIBUTE.get(name, ())
-    ]
+    topics = [topic for name in names for topic in _TEXT_TOPICS_BY_ATTRIBUTE.get(name, ())]
     topics.extend(_TEXT_COMMON_TOPICS)
     return _build(category_intelligence, topics)
 

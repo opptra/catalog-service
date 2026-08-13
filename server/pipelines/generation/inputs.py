@@ -1,7 +1,7 @@
 """Assemble generation context from catalog DB + GCS product images.
 
 Product facts come from ``sku_master.attributes`` (all keys, as-is). Brand DNA and
-category intelligence come from ``brand`` / ``category_marketplace``. Reference photos
+category intelligence come from ``brand`` / ``category_intelligence``. Reference photos
 are listed under ``products/{sku_id}/assets/images/`` in GCS and exposed as signed GET URLs
 for the model.
 """
@@ -21,8 +21,9 @@ from core.exceptions import (
     ProductNotFoundError,
 )
 from entities.catalog.sku_master import SkuMaster
-from generation.context import GenerationContext
+from pipelines.generation.context import GenerationContext
 from repositories.catalog import brand as brand_repo
+from repositories.catalog import category_intelligence as category_intelligence_repo
 from repositories.catalog import category_marketplace as category_marketplace_repo
 from utils import flatfile as flatfile_utils
 
@@ -82,20 +83,25 @@ def _load_category_intelligence(
     marketplace_id: int,
     category_id: int,
 ) -> dict[str, Any]:
-    row = category_marketplace_repo.get_by_marketplace_and_category(
+    junction = category_marketplace_repo.get_by_marketplace_and_category(
         session,
         marketplace_id,
         category_id,
     )
-    if row is None:
+    if junction is None:
         raise CategoryIntelligenceMissingError(
             f"No category_marketplace row for marketplace_id={marketplace_id} "
             f"category_id={category_id}"
         )
-    intelligence = row.category_intelligence
+    row = category_intelligence_repo.get_by_category_marketplace_id(session, junction.id)
+    if row is None:
+        raise CategoryIntelligenceMissingError(
+            f"No category_intelligence row for category_marketplace id={junction.id}"
+        )
+    intelligence = row.intelligence
     if not isinstance(intelligence, dict) or not intelligence:
         raise CategoryIntelligenceMissingError(
-            f"category_marketplace id={row.id} has empty category_intelligence"
+            f"category_intelligence id={row.id} has empty intelligence"
         )
     return intelligence
 

@@ -478,9 +478,7 @@ def _text_property_schema(name: AttributeName) -> dict[str, Any]:
 
 def text_attributes_tool(names: list[AttributeName]) -> dict[str, Any]:
     """Tool schema whose arguments are exactly the requested text attributes."""
-    properties: dict[str, Any] = {
-        name.value: _text_property_schema(name) for name in names
-    }
+    properties: dict[str, Any] = {name.value: _text_property_schema(name) for name in names}
     return {
         "type": "function",
         "function": {

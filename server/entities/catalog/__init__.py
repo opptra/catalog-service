@@ -11,9 +11,12 @@ from entities.catalog.base import Base
 from entities.catalog.brand import Brand
 from entities.catalog.category import Category
 from entities.catalog.category_closure import CategoryClosure
+from entities.catalog.category_intelligence import CategoryIntelligence
 from entities.catalog.category_marketplace import CategoryMarketplace
 from entities.catalog.job import Job
 from entities.catalog.job_attribute import JobAttribute
+from entities.catalog.listing_template import ListingTemplate
+from entities.catalog.listing_template_column import ListingTemplateColumn
 from entities.catalog.marketplace import Marketplace
 from entities.catalog.sku_generation_job import SkuGenerationJob
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
@@ -25,9 +28,12 @@ __all__ = [
     "Brand",
     "Category",
     "CategoryClosure",
+    "CategoryIntelligence",
     "CategoryMarketplace",
     "Job",
     "JobAttribute",
+    "ListingTemplate",
+    "ListingTemplateColumn",
     "Marketplace",
     "SkuGenerationJob",
     "SkuMarketplaceAttributeValue",

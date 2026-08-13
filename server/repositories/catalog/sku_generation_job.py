@@ -26,9 +26,7 @@ def list_by_job_id(session: Session, job_id: int) -> Sequence[SkuGenerationJob]:
     ).all()
 
 
-def list_by_job_ids(
-    session: Session, job_ids: Sequence[int]
-) -> Sequence[SkuGenerationJob]:
+def list_by_job_ids(session: Session, job_ids: Sequence[int]) -> Sequence[SkuGenerationJob]:
     if not job_ids:
         return []
     return session.scalars(

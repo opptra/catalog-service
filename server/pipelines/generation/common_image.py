@@ -14,8 +14,8 @@ from typing import Any
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
-from generation import category, tools
-from generation.context import GenerationContext
+from pipelines.generation import category, tools
+from pipelines.generation.context import GenerationContext
 
 logger = logging.getLogger(__name__)
 

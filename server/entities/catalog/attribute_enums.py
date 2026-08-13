@@ -49,3 +49,19 @@ class TaskStatus(StrEnum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+
+
+class ListingFillType(StrEnum):
+    """How listing fill resolves a template column (stored in column config only)."""
+
+    DIRECT_MAP = "DIRECT_MAP"
+    ENUM = "ENUM"
+    LLM_TEXT = "LLM_TEXT"
+    IMAGE = "IMAGE"
+    CONSTANT = "CONSTANT"
+    SKIP = "SKIP"
+
+
+class ListingRequiredness(StrEnum):
+    ALWAYS = "ALWAYS"
+    OPTIONAL = "OPTIONAL"

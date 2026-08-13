@@ -6,12 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.auth.exceptions import DefaultCredentialsError
 
 from core.clients.db import DatabaseClient
+from core.clients.dropbox import DropboxClient
 from core.clients.gcs import GcsClient
 from core.clients.google_auth import GoogleAuthClient
 from core.clients.openrouter import OpenRouterClient
 from core.clients.workflows import WorkflowsClient
 from core.config import settings
-from routers import access, auth, catalog, health, job, users
+from routers import access, auth, catalog, health, job, listing, users
 
 
 def _resolve_gcp_project() -> str | None:
@@ -46,15 +47,25 @@ async def lifespan(app: FastAPI):
         if settings.gcs_bucket
         else None
     )
+    if settings.dropbox_configured:
+        # dropbox_configured guarantees all three are non-empty.
+        app.state.dropbox = DropboxClient(
+            app_key=settings.dropbox_app_key or "",
+            app_secret=settings.dropbox_app_secret or "",
+            refresh_token=settings.dropbox_refresh_token or "",
+            root_path=settings.dropbox_root_path,
+        )
+    else:
+        app.state.dropbox = None
     gcp_project = _resolve_gcp_project()
-    app.state.workflows = (
-        WorkflowsClient(gcp_project, settings.region) if gcp_project else None
-    )
+    app.state.workflows = WorkflowsClient(gcp_project, settings.region) if gcp_project else None
     try:
         yield
     finally:
         if app.state.openrouter is not None:
             app.state.openrouter.close()
+        if app.state.dropbox is not None:
+            app.state.dropbox.close()
         catalog_db.close()
         user_db.close()
 
@@ -78,4 +89,5 @@ app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(job.router, prefix=API_PREFIX)
 app.include_router(catalog.router, prefix=API_PREFIX)
+app.include_router(listing.router, prefix=API_PREFIX)
 app.include_router(access.router, prefix=API_PREFIX)

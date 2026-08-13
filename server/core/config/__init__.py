@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     gcs_signer_service_account_email: str | None = None
     region: str
 
+    # Dropbox — optional; leave unset to disable listing IMAGE URL export.
+    # OAuth refresh flow: app key + secret + refresh token (no long-lived access token).
+    dropbox_app_key: str | None = None
+    dropbox_app_secret: str | None = None
+    dropbox_refresh_token: str | None = None
+    dropbox_root_path: str = "/catalog-service/listing-images"
+
+    @property
+    def dropbox_configured(self) -> bool:
+        return bool(self.dropbox_app_key and self.dropbox_app_secret and self.dropbox_refresh_token)
+
     @model_validator(mode="before")
     @classmethod
     def _collect_service_clients(cls, data: object) -> object:
