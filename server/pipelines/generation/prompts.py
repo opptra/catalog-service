@@ -28,6 +28,8 @@ _IMAGE_ON_CANVAS_COPY_RULES = (
     "- Planning hints (IMAGE/A_PLUS slots, CI role/kind/pattern codes) are for you only; "
     "translate them into real messaging (e.g. Features, Care instructions, King bed fit) — "
     "never print the hint labels.\n"
+    "- NEVER render font family / typeface names on the artwork (e.g. Open Sans, Montserrat, "
+    'Arial, "Font: …"). Use typography visually only; shoppers must not see font labels.\n'
     "- Factual size/fit labels are fine when shopper-facing (e.g. King Size, Fits King Bed) — "
     "not prefixed with A+ or module jargon."
 )
@@ -242,8 +244,8 @@ def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: i
     role palette from CI ``image_plan``. Aspect ratio and logo placement stay out of the
     model's job (fixed per attribute type in code; logo composited downstream).
 
-    Full Brand DNA is NOT included — use ``ctx.common_image_context`` (distilled brand +
-    category visual bits) so every plan shares the same typography/palette/norms.
+    Full Brand DNA is NOT included — use ``ctx.common_image_context`` (palette/mood +
+    category visual bits). Named Brand DNA fonts are not forced; typography stays free.
     """
     brief = category.image_brief(ctx.category_intelligence, [name])
     type_label = (
@@ -254,7 +256,8 @@ def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: i
         if ctx.common_image_context
         else (
             "=== COMMON IMAGE CONTEXT ===\n"
-            "(missing — still keep one shared typography and palette across every slot)"
+            "(missing — keep the set cohesive via mood/palette; choose typography freely; "
+            "never print font family names on the artwork)"
         )
     )
     return (
@@ -262,8 +265,9 @@ def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: i
         f"Design a COHERENT {type_label} image set for ONE product. Produce EXACTLY {quantity} "
         f"image(s) for internal type {name.value} — count is fixed by the job; do not add, drop, "
         "or replace it with recommended_build. Use COMMON IMAGE CONTEXT and the attached "
-        "product image(s) so the set forms one connected, non-redundant series with identical "
-        "typefaces.\n\n"
+        "product image(s) so the set forms one connected, non-redundant series. Choose clean "
+        "readable typography freely (do not lock Brand DNA font names); keep cohesion via "
+        "palette, mood, and hierarchy — never print typeface names on the artwork.\n\n"
         f"{_IMAGE_ON_CANVAS_COPY_RULES}\n\n"
         "ROLE PALETTE (image_plan when present):\n"
         f"- CATEGORY INTELLIGENCE.image_plan.{name.value} is the recommended role palette for "
@@ -306,8 +310,9 @@ def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: i
         "dimensions anywhere — the renderer uses a fixed ratio per image type, so compose for the "
         "subject and leave the canvas shape entirely to the system.\n\n"
         "Keep the whole set LINKED via one shared visual system that MUST incorporate COMMON "
-        "IMAGE CONTEXT typography (primary ± secondary), palette, mood, and category norms so "
-        "every image clearly belongs to the same product and brand. Use product facts ONLY from "
+        "IMAGE CONTEXT palette, mood, and category norms so every image clearly belongs to the "
+        "same product and brand. Choose typography freely (no Brand DNA font lock-in); never "
+        "print font family names on the artwork. Use product facts ONLY from "
         "PRODUCT DATA; if a helpful detail is missing, stay neutral — never fabricate. The real "
         "product reference image(s) are also supplied to the image model at render time.\n\n"
         f"{_RULES}\n\n"
@@ -382,9 +387,10 @@ def revise_generation_prompt(
             f"{image_on_canvas_copy_rules()}\n\n"
             "Preserve these on-image copy rules in the revised prompt unless the user explicitly "
             "requests internal/module labels on the artwork (they should not).\n"
-            "If the PREVIOUS PROMPT contains an === COMMON IMAGE CONTEXT === block, preserve it "
-            "verbatim (typography, palette, mood, category norms) unless the user explicitly "
-            "asks to change visual style or fonts. Do not invent new typefaces.\n"
+            "If the PREVIOUS PROMPT contains an === COMMON IMAGE CONTEXT === block, preserve "
+            "palette/mood/category norms, but do NOT reintroduce or invent named Brand DNA "
+            "typefaces. Never instruct the image model to print font family names on the "
+            "artwork.\n"
             if data_type == AttributeDataType.IMAGE
             else ""
         )

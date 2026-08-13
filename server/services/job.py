@@ -1355,7 +1355,7 @@ def regenerate_attribute_value(
 
     if data_type == AttributeDataType.IMAGE:
         assert current_image_url is not None
-        # Preserve distilled common context (typography/palette/category norms) across regen.
+        # Preserve distilled common context (palette/mood/category norms) across regen.
         common = common_image.parse_common_from_prompt(previous_prompt)
         if common is None:
             common = common_image.extract(client, ctx, [name])

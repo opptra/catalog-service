@@ -39,10 +39,11 @@ def gallery_plan_tool(name: AttributeName, quantity: int) -> dict[str, Any]:
                     "shared_style": {
                         "type": "string",
                         "description": (
-                            "One paragraph: the visual system linking every image — must honor "
-                            "COMMON IMAGE CONTEXT typography (primary ± secondary), palette, "
-                            "mood, and category visual norms; also cover product rendering and "
-                            "lighting. Do not invent alternate typefaces."
+                            "One paragraph: the visual system linking every image — honor "
+                            "COMMON IMAGE CONTEXT palette, mood, and category visual norms; "
+                            "also cover product rendering and lighting. Choose clean readable "
+                            "typography freely (do not name Brand DNA fonts or print font "
+                            "family names on the artwork)."
                         ),
                     },
                     "slots": {
@@ -121,33 +122,12 @@ COMMON_IMAGE_CONTEXT_TOOL: dict[str, Any] = {
         "name": COMMON_IMAGE_CONTEXT_TOOL_NAME,
         "description": (
             "Submit the compact common image context for every image in this job. "
-            "Call this tool with the extracted JSON — do not write free-form JSON text."
+            "Call this tool with the extracted JSON — do not write free-form JSON text. "
+            "Do not include named typefaces or Brand DNA fonts."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "typography": {
-                    "type": "object",
-                    "description": "Resolved typefaces for the whole image set.",
-                    "properties": {
-                        "primary": {
-                            "type": "string",
-                            "description": "Single primary typeface for titles/headlines.",
-                        },
-                        "secondary": {
-                            "type": "string",
-                            "description": "Optional secondary typeface for labels/body.",
-                        },
-                        "usage": {
-                            "type": "string",
-                            "description": (
-                                "Fixed hierarchy, e.g. titles=primary; labels=secondary."
-                            ),
-                        },
-                    },
-                    "required": ["primary"],
-                    "additionalProperties": False,
-                },
                 "palette": {
                     "type": "object",
                     "description": "Brand palette accents useful for pixels.",
@@ -166,7 +146,10 @@ COMMON_IMAGE_CONTEXT_TOOL: dict[str, Any] = {
                 "visual_guardrails": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Do-nots that affect image pixels.",
+                    "description": (
+                        "Do-nots that affect image pixels (colors/composition). "
+                        "Do not list font family names."
+                    ),
                 },
                 "category": {
                     "type": "object",
@@ -190,7 +173,7 @@ COMMON_IMAGE_CONTEXT_TOOL: dict[str, Any] = {
                     "additionalProperties": False,
                 },
             },
-            "required": ["typography", "mood", "category"],
+            "required": ["mood", "category"],
             "additionalProperties": False,
         },
     },
