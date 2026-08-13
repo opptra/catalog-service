@@ -11,7 +11,7 @@ No hardcoded content or image templates: strategy and image direction are derive
 import json
 from dataclasses import dataclass
 
-from entities.catalog.attribute_enums import AttributeDataType, AttributeName
+from entities.catalog.attribute_enums import AttributeName
 from generation import category, common_image, tools
 from generation.context import GenerationContext
 
@@ -25,6 +25,8 @@ _IMAGE_ON_CANVAS_COPY_RULES = (
     "- NEVER render internal or ops jargon on the image — including A+, A Plus, A+ Content, "
     "A+ Features, A+ Care, Enhanced Brand Content, EBC, PDP, gallery slot, IMAGE, A_PLUS, "
     'module names, attribute type codes, or phrases like "A plus module works included".\n'
+    "- NEVER render character limits, schema notes, tool instructions, regeneration notes, "
+    "or any meta/ops commentary on the artwork.\n"
     "- Planning hints (IMAGE/A_PLUS slots, CI role/kind/pattern codes) are for you only; "
     "translate them into real messaging (e.g. Features, Care instructions, King bed fit) — "
     "never print the hint labels.\n"
@@ -39,56 +41,23 @@ _IMAGE_LOGO_RULES = (
 )
 
 # Shared rules applied to every generation call (text and image planning).
+# Per-attribute copy format (pipes, bullet roles, title packing, etc.) comes from
+# Category Intelligence playbooks — do not hardcode ATTRIBUTE RULES that fight CI.
 _RULES = (
     "RULES:\n"
     "- Product facts (materials, dimensions, colour, pack size, care, weight, etc.) come ONLY "
     "from PRODUCT DATA. Never invent, infer, or import facts from Category Intelligence.\n"
     "- If Category Intelligence recommends a detail that PRODUCT DATA does not contain, omit it "
     "or stay neutral — never fabricate values or make unsupported claims.\n"
-    "- Use Category Intelligence for strategy, positioning, messaging, differentiators and "
-    "keywords; use Brand DNA for tone, personality and restricted claims. Do not let Brand DNA "
-    "override category best practices unless a brand guardrail requires it.\n"
+    "- Use Category Intelligence for strategy, positioning, messaging, format, differentiators "
+    "and keywords; use Brand DNA for tone, personality and restricted claims. Do not let Brand "
+    "DNA override category best practices unless a brand guardrail requires it.\n"
     "- Optimize for listing quality, customer trust, marketplace compliance and conversion — "
-    "quality over completeness."
+    "quality over completeness.\n"
+    "- NEVER leak instructions into outputs: shopper-facing text and on-image copy must never "
+    "include character limits, bounds (e.g. 'upper-bounded at 200'), schema notes, tool names, "
+    "prompt rules, regeneration notes, or any other meta/ops commentary."
 )
-
-
-# Per-attribute role guidance appended to text generation prompts. Numeric size
-# limits are NOT written here — they live only on the submit_text_attributes
-# JSON tool schema (tools.TEXT_LIMITS → text_attributes_tool).
-_ATTRIBUTE_GUIDANCE: dict[AttributeName, str] = {
-    AttributeName.TITLE: (
-        "Order: brand first, then the primary search keyword, then one real "
-        "differentiator, then a variant (colour/size/pack) if it fits. Title Case, "
-        "no promotional or subjective words, no ALL-CAPS words. Compose a COMPLETE "
-        "title that fits the character cap — never truncate mid-word or mid-phrase. "
-        "If something will not fit, drop the lowest-priority trailing element "
-        "(usually the variant) so the title still ends on a finished, natural phrase."
-    ),
-    AttributeName.ITEM_HIGHLIGHTS: (
-        "Amazon's Item Highlights field is shown directly beneath the title in search "
-        "results and on the product page. Write ONE natural phrase (not a keyword list, "
-        "not bullet style) carrying the strongest secondary facts that are NOT already "
-        "in the title: materials, use case, age range, pack size, certifications. "
-        "Never repeat the title."
-    ),
-    AttributeName.BULLET_POINTS: (
-        "Benefit-led Feature-then-Benefit sentences; lead each bullet with what buyers "
-        "care about most. No keyword stuffing."
-    ),
-    AttributeName.BACKEND_KEYWORDS: (
-        "Amazon's hidden backend search terms field — never shown to shoppers, indexed "
-        "for search only. Return an ARRAY of terms (one term or short phrase per item). "
-        "No commas or semicolons inside an item, no brand or competitor names, no words "
-        "already in the title. Prefer long-tail and regional/vernacular synonyms shoppers "
-        "search for but that do not fit natural listing copy."
-    ),
-}
-
-
-def attribute_rules(name: AttributeName) -> str:
-    """Role guidance for one text attribute ('' when none apply). Size limits are on the tool."""
-    return _ATTRIBUTE_GUIDANCE.get(name, "")
 
 
 def image_on_canvas_copy_rules() -> str:
@@ -109,7 +78,6 @@ def ensure_image_render_suffix(prompt: str) -> str:
     if not stripped:
         return image_render_prompt_suffix()
     return f"{stripped}\n\n{image_render_prompt_suffix()}"
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,9 +109,11 @@ def text_strategy_parts(ctx: GenerationContext, names: list[AttributeName]) -> P
     suffix = (
         "You are an expert marketplace listing strategist. Produce a concise, high-signal "
         f"content strategy for generating {attr_phrase}. Base it on the "
-        "Category Intelligence — positioning, differentiators, messaging, high-value keywords "
+        "Category Intelligence — positioning, differentiators, messaging, format "
+        "(e.g. pipe-separated highlights when the playbook says so), high-value keywords "
         "and customer signals (lead with what buyers praise, reassure on what they complain "
-        "about). Reference the product only to tailor the angle. Output tight strategy notes in "
+        "about). Carry format/structure actions from the playbook into the strategy notes. "
+        "Reference the product only to tailor the angle. Output tight strategy notes in "
         "bullets, NOT final copy.\n\n"
         f"{_category_block(brief)}"
     )
@@ -174,31 +144,20 @@ def _text_tool_instruction(names: list[AttributeName]) -> str:
     )
 
 
-def _attribute_rules_block(names: list[AttributeName]) -> str:
-    """ATTRIBUTE RULES section listing role guidance per requested attribute."""
-    lines = [
-        f"- {name.value}: {rules}" for name in names if (rules := attribute_rules(name))
-    ]
-    if not lines:
-        return ""
-    return "ATTRIBUTE RULES:\n" + "\n".join(lines)
-
-
 def text_generation_parts(
     ctx: GenerationContext, names: list[AttributeName], strategy: str
 ) -> PromptParts:
     """Generation prompt split for caching: rules + product + brand; strategy/tool last."""
     target = f"the final {names[0].value}" if len(names) == 1 else "the final text attributes"
     prefix = f"{_RULES}\n\n{_product_block(ctx.product)}\n\n{_brand_block(ctx.brand_dna)}"
-    rules_block = _attribute_rules_block(names)
     suffix = (
         "You are an expert marketplace copywriter. Using the STRATEGY and the authoritative "
         f"PRODUCT DATA below, write {target}. Apply the Brand DNA voice and "
-        "guardrails. Every factual claim must be supported by PRODUCT DATA; when a recommended "
-        "detail is missing, adapt gracefully with neutral, high-quality copy rather than "
-        "guessing.\n\n"
-        + (f"{rules_block}\n\n" if rules_block else "")
-        + f"STRATEGY:\n{strategy}\n\n"
+        "guardrails. Follow the STRATEGY for structure and format (including separators such as "
+        "pipes when Category Intelligence / strategy specifies them). Every factual claim must "
+        "be supported by PRODUCT DATA; when a recommended detail is missing, adapt gracefully "
+        "with neutral, high-quality copy rather than guessing.\n\n"
+        f"STRATEGY:\n{strategy}\n\n"
         f"{_text_tool_instruction(names)}"
     )
     return PromptParts(prefix=prefix, suffix=suffix)
@@ -230,7 +189,6 @@ def key_features_parts(
         "slot. Condense and rephrase the ALREADY-WRITTEN Bullet Points and Description "
         "below — do not introduce any fact that is not in them or in PRODUCT DATA, and do "
         "not simply copy a bullet verbatim.\n\n"
-        f"{_attribute_rules_block([name])}\n\n"
         f"ALREADY-WRITTEN BULLET POINTS:\n{bullets_block}\n\n"
         f"ALREADY-WRITTEN DESCRIPTION:\n{description}\n\n"
         f"{_text_tool_instruction([name])}"
@@ -359,43 +317,102 @@ def _brand_block(brand_dna: str) -> str:
     return f"=== BRAND DNA (voice, personality, guardrails, restricted claims) ===\n{brand_dna}"
 
 
-def revise_generation_prompt(
+def strip_user_edit(prompt: str) -> str:
+    """Return the stored brief without a trailing USER EDIT block."""
+    marker = "=== USER EDIT ==="
+    if marker not in prompt:
+        return prompt.rstrip()
+    head, _sep, _tail = prompt.partition(marker)
+    return head.rstrip()
+
+
+def prompt_with_user_edit(previous_prompt: str, improvement: str) -> str:
+    """Persist the original brief plus the user's edit note (no rewritten prompt)."""
+    note = improvement.strip()
+    base = strip_user_edit(previous_prompt)
+    if not note:
+        return base
+    return f"{base}\n\n=== USER EDIT ===\n{note}"
+
+
+def regeneration_text_prompt(
     *,
-    data_type: AttributeDataType,
     attribute_name: AttributeName,
     previous_prompt: str,
     current_value: str,
     improvement: str,
 ) -> str:
-    """Ask the prompt model to produce a revised generation prompt from user feedback."""
-    kind = "image" if data_type == AttributeDataType.IMAGE else "text"
-    current_block = (
-        "CURRENT OUTPUT: an image is attached as vision input (the latest generated result)."
-        if data_type == AttributeDataType.IMAGE
-        else f"CURRENT OUTPUT (text):\n{current_value}"
-    )
+    """One-shot text regen: keep the original brief, apply the user note to the current value."""
+    brief = strip_user_edit(previous_prompt)
     return (
-        f"You revise marketplace {kind}-generation prompts. Attribute: {attribute_name.value}.\n"
-        "Combine the PREVIOUS PROMPT with the USER IMPROVEMENT into one complete, standalone "
-        f"{kind}-generation prompt that will be sent to the model as-is.\n"
-        "Keep everything that still applies from the previous prompt. Apply the user's requested "
-        "changes precisely. Do not invent product facts. Do not mention aspect ratio or brand-logo "
-        "placement (those are handled elsewhere).\n"
-        + (
-            f"{image_on_canvas_copy_rules()}\n\n"
-            "Preserve these on-image copy rules in the revised prompt unless the user explicitly "
-            "requests internal/module labels on the artwork (they should not).\n"
-            "If the PREVIOUS PROMPT contains an === COMMON IMAGE CONTEXT === block, preserve it "
-            "verbatim (typography, palette, mood, category norms) unless the user explicitly "
-            "asks to change visual style or fonts. Do not invent new typefaces.\n"
-            if data_type == AttributeDataType.IMAGE
-            else ""
+        f"You are regenerating marketplace text for attribute {attribute_name.value}.\n"
+        "Use the PREVIOUS PROMPT as the full brief (category structure, brand voice, packing "
+        "order, constraints). Do NOT invent a new brief and do NOT rewrite the previous prompt.\n"
+        "Start from CURRENT OUTPUT. Apply ONLY the USER IMPROVEMENT. Keep every other word, "
+        "fact, and ordering unless changing it is required to satisfy the improvement.\n"
+        "Do not invent product facts. The result must differ from CURRENT OUTPUT whenever the "
+        "improvement asks for a visible change (spacing, wording, punctuation, structure).\n"
+        "Write complete, natural copy — do not cut mid-word or mid-phrase. "
+        "When finished, call the submit_text_attributes tool with the updated value — "
+        "do not write free-form JSON in the message body.\n\n"
+        f"PREVIOUS PROMPT:\n{brief}\n\n"
+        f"CURRENT OUTPUT:\n{current_value}\n\n"
+        f"USER IMPROVEMENT:\n{improvement.strip()}"
+    )
+
+
+def text_length_correction(
+    attribute_name: AttributeName,
+    current_value: str,
+    instructions: list[str],
+    *,
+    is_list: bool,
+) -> str:
+    """Feedback note appended on a length-retry.
+
+    ``instructions`` are concrete per-string cut targets (e.g. "item 3: 262 chars — remove
+    at least 62 to get under 200; aim for ≤180"). For list attributes the model must change
+    ONLY the flagged items and return the others unchanged, so passing items never regress.
+    """
+    instruction_lines = "\n".join(f"- {line}" for line in instructions)
+    if is_list:
+        scope = (
+            "Return the FULL array. Change ONLY the flagged items below; copy every other item "
+            "EXACTLY as it is now. For each flagged item, shorten it to the target."
         )
-        + (
-            "When finished, call the submit_revised_prompt tool with the final prompt "
-            "string — do not write the prompt as free-form JSON in the message body.\n\n"
-        )
-        + f"PREVIOUS PROMPT:\n{previous_prompt}\n\n"
-        + f"{current_block}\n\n"
-        + f"USER IMPROVEMENT:\n{improvement.strip()}"
+    else:
+        scope = "Shorten the value to the target below."
+    return (
+        "LENGTH CORRECTION: some copy is over the character maximum. "
+        f"{scope}\n"
+        "Keep the same meaning, facts, tone, and structure; compress or drop the least "
+        "important words. Every value/item must end on a complete word — never cut mid-word "
+        "or mid-phrase, never pad with filler, and do not invent product facts.\n\n"
+        f"FIX THESE:\n{instruction_lines}\n\n"
+        f"CURRENT OUTPUT:\n{current_value}\n\n"
+        "Call the submit_text_attributes tool with the corrected value."
+    )
+
+
+def regeneration_image_prompt(
+    *,
+    attribute_name: AttributeName,
+    previous_prompt: str,
+    improvement: str,
+) -> str:
+    """One-shot image regen: keep the original brief; current output is attached as reference."""
+    brief = strip_user_edit(previous_prompt)
+    return (
+        f"You are regenerating marketplace image attribute {attribute_name.value}.\n"
+        "Use the PREVIOUS PROMPT as the full brief (composition, on-canvas copy, style, "
+        "category norms). Do NOT invent a replacement brief.\n"
+        "The first attached reference image is CURRENT OUTPUT — improve that image. "
+        "Apply ONLY the USER IMPROVEMENT. Preserve product identity and everything the user "
+        "did not ask to change. Remaining references are real product photos (colour/shape/"
+        "material truth).\n"
+        f"{image_on_canvas_copy_rules()}\n"
+        "If PREVIOUS PROMPT contains === COMMON IMAGE CONTEXT ===, honour it unless the user "
+        "explicitly asks to change visual style or fonts.\n\n"
+        f"PREVIOUS PROMPT:\n{brief}\n\n"
+        f"USER IMPROVEMENT:\n{improvement.strip()}"
     )
