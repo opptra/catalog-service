@@ -126,7 +126,7 @@ def regenerate_text(
 ) -> TextRegeneration:
     """Generate a single text attribute from the revised prompt via a forced tool call.
 
-    Size limits are defined only on the submit_text_attributes JSON tool schema.
+    Soft length targets are on the tool; hard char caps are fitted after the call.
     """
     tool = tools.text_attributes_tool([name])
     parsed = client.call_tool(
@@ -137,9 +137,10 @@ def regenerate_text(
     raw = parsed.get(name.value)
     if raw is None:
         raise ValueError(f"Text regeneration missing attribute: {name.value}")
+    fitted = tools.apply_text_limits(name, raw)
     # List attributes persist as JSON arrays (same storage form as first generation).
     if name in tools.LIST_TEXT_ATTRIBUTES:
-        value = json.dumps(raw if isinstance(raw, list) else [], ensure_ascii=False)
+        value = json.dumps(fitted if isinstance(fitted, list) else [], ensure_ascii=False)
     else:
-        value = str(raw)
+        value = str(fitted)
     return TextRegeneration(value=value, prompt=revised_prompt)

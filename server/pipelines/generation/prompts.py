@@ -53,24 +53,24 @@ _RULES = (
 )
 
 
-# Per-attribute role guidance appended to text generation prompts. Numeric size
-# limits are NOT written here — they live only on the submit_text_attributes
-# JSON tool schema (tools.TEXT_LIMITS → text_attributes_tool).
+# Per-attribute role guidance. Soft length targets live on the tool property
+# descriptions (tools.TEXT_LIMITS); hard oversize is fitted in Python after the call.
 _ATTRIBUTE_GUIDANCE: dict[AttributeName, str] = {
     AttributeName.TITLE: (
         "Order: brand first, then the primary search keyword, then one real "
         "differentiator, then a variant (colour/size/pack) if it fits. Title Case, "
-        "no promotional or subjective words, no ALL-CAPS words. Compose a COMPLETE "
-        "title that fits the character cap — never truncate mid-word or mid-phrase. "
-        "If something will not fit, drop the lowest-priority trailing element "
-        "(usually the variant) so the title still ends on a finished, natural phrase."
+        "no promotional or subjective words, no ALL-CAPS words. Plan the title to "
+        "land a few characters under the ceiling as a finished phrase — never cut "
+        "mid-word or mid-phrase. If the full stack will not fit, drop the "
+        "lowest-priority trailing element (usually the variant) before you submit."
     ),
     AttributeName.ITEM_HIGHLIGHTS: (
         "Amazon's Item Highlights field is shown directly beneath the title in search "
         "results and on the product page. Write ONE natural phrase (not a keyword list, "
         "not bullet style) carrying the strongest secondary facts that are NOT already "
         "in the title: materials, use case, age range, pack size, certifications. "
-        "Never repeat the title."
+        "Never repeat the title. End on a complete clause — if length is tight, drop "
+        "the least important trailing fact rather than truncating mid-phrase."
     ),
     AttributeName.BULLET_POINTS: (
         "Benefit-led Feature-then-Benefit sentences; lead each bullet with what buyers "
@@ -87,7 +87,7 @@ _ATTRIBUTE_GUIDANCE: dict[AttributeName, str] = {
 
 
 def attribute_rules(name: AttributeName) -> str:
-    """Role guidance for one text attribute ('' when none apply). Size limits are on the tool."""
+    """Role guidance for one text attribute ('' when none apply)."""
     return _ATTRIBUTE_GUIDANCE.get(name, "")
 
 
