@@ -119,10 +119,6 @@ class OpenRouterClient:
 
         Used for structured outputs: the tool is never executed — its JSON Schema parameters
         *are* the payload. Prefer this over free-form ``response_format: json_object`` strings.
-
-        When the tool sets ``function.strict: true``, OpenAI-compatible providers constrain
-        arguments to the schema. ``provider.require_parameters`` steers OpenRouter toward
-        endpoints that advertise structured outputs / tools.
         """
         if not model:
             raise ValueError("model is required")
@@ -147,8 +143,6 @@ class OpenRouterClient:
         )
         body["tools"] = [tool]
         body["tool_choice"] = {"type": "function", "function": {"name": tool_name}}
-        # Prefer providers that actually support constrained tool / structured outputs.
-        body["provider"] = {"require_parameters": True}
         return self._tool_arguments(self.chat_completions(body), tool_name=tool_name)
 
     def _chat_body(

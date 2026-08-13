@@ -12,6 +12,7 @@ from entities.catalog.attribute_enums import AttributeName
 
 GALLERY_PLAN_TOOL_NAME = "submit_gallery_plan"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
+REVISE_PROMPT_TOOL_NAME = "submit_revised_prompt"
 COMMON_IMAGE_CONTEXT_TOOL_NAME = "submit_common_image_context"
 
 
@@ -87,6 +88,31 @@ def gallery_plan_tool(name: AttributeName, quantity: int) -> dict[str, Any]:
         },
     }
 
+
+REVISE_PROMPT_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": REVISE_PROMPT_TOOL_NAME,
+        "description": (
+            "Submit the revised generation prompt after applying the user's improvement notes. "
+            "Call this tool with the final prompt — do not write it as free-form JSON text."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": (
+                        "Complete standalone generation prompt that incorporates the previous "
+                        "prompt and the user's requested changes."
+                    ),
+                },
+            },
+            "required": ["prompt"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 COMMON_IMAGE_CONTEXT_TOOL: dict[str, Any] = {
     "type": "function",
@@ -170,16 +196,13 @@ COMMON_IMAGE_CONTEXT_TOOL: dict[str, Any] = {
 }
 
 
-# --- Amazon text-attribute limits (single source of truth) --------------------
+# --- Amazon text-attribute limits (single source of truth for the JSON tool) --
 #
-# Character maximums are Amazon caps. They are enforced in CODE, never as JSON
-# schema ``maxLength``: constrained decoding treats ``maxLength`` as advisory and
-# tends to close the string early, causing mid-word cuts (e.g. "…Insu"). The
-# schema only fixes SHAPE (fields, types, item counts); length is validated after
-# the call and, if exceeded, corrected via a bounded feedback retry (see
-# ``generation.text.submit_text_attribute``). Never deterministically truncate copy.
+# TEXT_LIMITS exists only to build ``text_attributes_tool`` schema constraints
+# (minLength/maxLength/minItems/maxItems + property descriptions). Do not
+# restate these numbers in prompts or re-check them in Python — the JSON tool
+# is the criteria definition the model must satisfy.
 #
-# Soft minimums are description-only guidance (never JSON ``minLength``).
 # ``item_count`` means exactly N items (minItems = maxItems = N).
 # ``min_items`` / ``max_items`` allow a range (e.g. backend keywords 10–15).
 
@@ -195,15 +218,16 @@ class TextLimit:
     per_item_min_chars: int | None = None
 
 
-# Amazon marketplace limits (title policy effective 2026-07-27).
+# Amazon marketplace limits (title policy effective 2026-07-27). Maximums are
+# Amazon's hard caps; minimums are ours — copy should fill the available space.
 TEXT_LIMITS: dict[AttributeName, TextLimit] = {
     AttributeName.TITLE: TextLimit(max_chars=75, min_chars=60),
     AttributeName.ITEM_HIGHLIGHTS: TextLimit(max_chars=125, min_chars=100),
     AttributeName.BULLET_POINTS: TextLimit(
-        item_count=5, per_item_max_chars=200, per_item_min_chars=120
+        item_count=5, per_item_max_chars=200, per_item_min_chars=180
     ),
     AttributeName.KEY_FEATURES: TextLimit(
-        item_count=5, per_item_max_chars=100, per_item_min_chars=40
+        item_count=5, per_item_max_chars=100, per_item_min_chars=80
     ),
     AttributeName.BACKEND_KEYWORDS: TextLimit(min_items=10, max_items=15),
 }
@@ -218,72 +242,16 @@ LIST_TEXT_ATTRIBUTES = frozenset(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class LengthIssue:
-    """One over-limit string. ``index`` is the 0-based list position, or None for a scalar."""
-
-    index: int | None
-    length: int
-    max_chars: int
-
-    @property
-    def excess(self) -> int:
-        return self.length - self.max_chars
-
-
-def over_limit_report(name: AttributeName, value: Any) -> list[LengthIssue]:
-    """Structured over-cap report used by the length-correction loop (empty if within caps)."""
-    limit = TEXT_LIMITS.get(name)
-    if limit is None:
-        return []
-
-    issues: list[LengthIssue] = []
-    if name in LIST_TEXT_ATTRIBUTES:
-        if not isinstance(value, list) or limit.per_item_max_chars is None:
-            return []
-        for index, item in enumerate(value):
-            length = len("" if item is None else str(item))
-            if length > limit.per_item_max_chars:
-                issues.append(
-                    LengthIssue(index=index, length=length, max_chars=limit.per_item_max_chars)
-                )
-        return issues
-
-    if limit.max_chars is None:
-        return []
-    length = len("" if value is None else str(value))
-    if length > limit.max_chars:
-        issues.append(LengthIssue(index=None, length=length, max_chars=limit.max_chars))
-    return issues
-
-
-def char_limit_violations(name: AttributeName, value: Any) -> list[str]:
-    """Human-readable hard-max character violations (empty if within caps)."""
-    if name in LIST_TEXT_ATTRIBUTES and not isinstance(value, list):
-        return [f"{name.value} must be an array of strings"]
-    violations: list[str] = []
-    for issue in over_limit_report(name, value):
-        if issue.index is None:
-            violations.append(f"{issue.length} characters (HARD MAX {issue.max_chars})")
-        else:
-            violations.append(
-                f"item {issue.index + 1}: {issue.length} characters "
-                f"(HARD MAX {issue.max_chars})"
-            )
-    return violations
-
-
 def _limit_description(limit: TextLimit) -> str:
-    """Human-readable limit summary embedded in the tool property description.
-
-    Character maximums are stated as instructions (not schema ``maxLength``) so the
-    model aims for them without the decoder forcing a mid-word cut.
-    """
+    """Human-readable limit summary embedded in the tool property description."""
     parts: list[str] = []
     if limit.max_chars is not None:
-        parts.append(f"at most {limit.max_chars} characters including spaces")
         if limit.min_chars is not None:
-            parts.append(f"soft target around {limit.min_chars}+ when real facts support it")
+            parts.append(
+                f"between {limit.min_chars} and {limit.max_chars} characters including spaces"
+            )
+        else:
+            parts.append(f"at most {limit.max_chars} characters including spaces")
     if limit.item_count is not None:
         parts.append(f"exactly {limit.item_count} items")
     elif limit.min_items is not None or limit.max_items is not None:
@@ -297,29 +265,31 @@ def _limit_description(limit: TextLimit) -> str:
         else:
             parts.append(f"at least {limit.min_items} items")
     if limit.per_item_max_chars is not None:
-        parts.append(f"each item at most {limit.per_item_max_chars} characters including spaces")
         if limit.per_item_min_chars is not None:
             parts.append(
-                f"each item soft target around {limit.per_item_min_chars}+ when "
-                "real facts support it"
+                f"each item between {limit.per_item_min_chars} and "
+                f"{limit.per_item_max_chars} characters"
             )
+        else:
+            parts.append(f"each item at most {limit.per_item_max_chars} characters")
     if not parts:
         return ""
-    return (
-        "LIMITS: "
-        + "; ".join(parts)
-        + ". Stay within the character maximum AND finish on a complete word — never cut "
-        "mid-word or mid-phrase, never pad with filler, and never mention character counts, "
-        "bounds, schema notes, or these instructions in the output value."
+    sentence = "HARD LIMIT: " + ", ".join(parts) + "."
+    has_minimum = (
+        limit.min_chars is not None
+        or limit.per_item_min_chars is not None
+        or (limit.min_items is not None and limit.item_count is None)
     )
+    if has_minimum:
+        sentence += (
+            " Fill the available space — landing just under the maximum is ideal; "
+            "finishing below the minimum is a failure."
+        )
+    return sentence
 
 
 def _text_property_schema(name: AttributeName) -> dict[str, Any]:
-    """JSON-schema property for one text attribute.
-
-    Shape only: types + item counts. Character maximums live in the description and
-    are enforced in code — never as ``maxLength`` (avoids constrained-decoding mid-word cuts).
-    """
+    """JSON-schema property for one text attribute, with limit criteria on the tool."""
     limit = TEXT_LIMITS.get(name)
     if name in LIST_TEXT_ATTRIBUTES:
         items: dict[str, Any] = {"type": "string"}
@@ -347,6 +317,10 @@ def _text_property_schema(name: AttributeName) -> dict[str, Any]:
                     schema["minItems"] = limit.min_items
                 if limit.max_items is not None:
                     schema["maxItems"] = limit.max_items
+            if limit.per_item_max_chars is not None:
+                items["maxLength"] = limit.per_item_max_chars
+            if limit.per_item_min_chars is not None:
+                items["minLength"] = limit.per_item_min_chars
         return schema
 
     description = f"Final copy for {name.value}."
@@ -355,26 +329,164 @@ def _text_property_schema(name: AttributeName) -> dict[str, Any]:
         limit_note = _limit_description(limit)
         if limit_note:
             schema["description"] = f"{description} {limit_note}"
+        if limit.max_chars is not None:
+            schema["maxLength"] = limit.max_chars
+        if limit.min_chars is not None:
+            schema["minLength"] = limit.min_chars
+    return schema
+
+
+# --- Amazon text-attribute limits (single source of truth for the JSON tool) --
+#
+# TEXT_LIMITS exists only to build ``text_attributes_tool`` schema constraints
+# (minLength/maxLength/minItems/maxItems + property descriptions). Do not
+# restate these numbers in prompts or re-check them in Python — the JSON tool
+# is the criteria definition the model must satisfy.
+#
+# ``item_count`` means exactly N items (minItems = maxItems = N).
+# ``min_items`` / ``max_items`` allow a range (e.g. backend keywords 10–15).
+
+
+@dataclass(frozen=True, slots=True)
+class TextLimit:
+    max_chars: int | None = None
+    min_chars: int | None = None
+    item_count: int | None = None
+    min_items: int | None = None
+    max_items: int | None = None
+    per_item_max_chars: int | None = None
+    per_item_min_chars: int | None = None
+
+
+# Amazon marketplace limits (title policy effective 2026-07-27). Maximums are
+# Amazon's hard caps; minimums are ours — copy should fill the available space.
+TEXT_LIMITS: dict[AttributeName, TextLimit] = {
+    AttributeName.TITLE: TextLimit(max_chars=75, min_chars=60),
+    AttributeName.ITEM_HIGHLIGHTS: TextLimit(max_chars=125, min_chars=100),
+    AttributeName.BULLET_POINTS: TextLimit(
+        item_count=5, per_item_max_chars=200, per_item_min_chars=180
+    ),
+    AttributeName.KEY_FEATURES: TextLimit(
+        item_count=5, per_item_max_chars=100, per_item_min_chars=80
+    ),
+    AttributeName.BACKEND_KEYWORDS: TextLimit(min_items=10, max_items=15),
+}
+
+# Attributes whose value is a list of strings (schema + persistence).
+LIST_TEXT_ATTRIBUTES = frozenset(
+    {
+        AttributeName.BULLET_POINTS,
+        AttributeName.KEY_FEATURES,
+        AttributeName.BACKEND_KEYWORDS,
+    }
+)
+
+
+def _limit_description(limit: TextLimit) -> str:
+    """Human-readable limit summary embedded in the tool property description."""
+    parts: list[str] = []
+    if limit.max_chars is not None:
+        if limit.min_chars is not None:
+            parts.append(
+                f"between {limit.min_chars} and {limit.max_chars} characters including spaces"
+            )
+        else:
+            parts.append(f"at most {limit.max_chars} characters including spaces")
+    if limit.item_count is not None:
+        parts.append(f"exactly {limit.item_count} items")
+    elif limit.min_items is not None or limit.max_items is not None:
+        if limit.min_items is not None and limit.max_items is not None:
+            if limit.min_items == limit.max_items:
+                parts.append(f"exactly {limit.min_items} items")
+            else:
+                parts.append(f"between {limit.min_items} and {limit.max_items} items")
+        elif limit.max_items is not None:
+            parts.append(f"at most {limit.max_items} items")
+        else:
+            parts.append(f"at least {limit.min_items} items")
+    if limit.per_item_max_chars is not None:
+        if limit.per_item_min_chars is not None:
+            parts.append(
+                f"each item between {limit.per_item_min_chars} and "
+                f"{limit.per_item_max_chars} characters"
+            )
+        else:
+            parts.append(f"each item at most {limit.per_item_max_chars} characters")
+    if not parts:
+        return ""
+    sentence = "HARD LIMIT: " + ", ".join(parts) + "."
+    has_minimum = (
+        limit.min_chars is not None
+        or limit.per_item_min_chars is not None
+        or (limit.min_items is not None and limit.item_count is None)
+    )
+    if has_minimum:
+        sentence += (
+            " Fill the available space — landing just under the maximum is ideal; "
+            "finishing below the minimum is a failure."
+        )
+    return sentence
+
+
+def _text_property_schema(name: AttributeName) -> dict[str, Any]:
+    """JSON-schema property for one text attribute, with limit criteria on the tool."""
+    limit = TEXT_LIMITS.get(name)
+    if name in LIST_TEXT_ATTRIBUTES:
+        items: dict[str, Any] = {"type": "string"}
+        if name == AttributeName.BACKEND_KEYWORDS:
+            description = (
+                f"{name.value} as an array of search-term strings "
+                "(one term or short phrase per item; no commas inside an item)."
+            )
+        else:
+            description = f"{name.value} as an array of strings."
+        schema: dict[str, Any] = {
+            "type": "array",
+            "items": items,
+            "description": description,
+        }
+        if limit is not None:
+            limit_note = _limit_description(limit)
+            if limit_note:
+                schema["description"] = f"{description} {limit_note}"
+            if limit.item_count is not None:
+                schema["minItems"] = limit.item_count
+                schema["maxItems"] = limit.item_count
+            else:
+                if limit.min_items is not None:
+                    schema["minItems"] = limit.min_items
+                if limit.max_items is not None:
+                    schema["maxItems"] = limit.max_items
+            if limit.per_item_max_chars is not None:
+                items["maxLength"] = limit.per_item_max_chars
+            if limit.per_item_min_chars is not None:
+                items["minLength"] = limit.per_item_min_chars
+        return schema
+
+    description = f"Final copy for {name.value}."
+    schema = {"type": "string", "description": description}
+    if limit is not None:
+        limit_note = _limit_description(limit)
+        if limit_note:
+            schema["description"] = f"{description} {limit_note}"
+        if limit.max_chars is not None:
+            schema["maxLength"] = limit.max_chars
+        if limit.min_chars is not None:
+            schema["minLength"] = limit.min_chars
     return schema
 
 
 def text_attributes_tool(names: list[AttributeName]) -> dict[str, Any]:
-    """Tool schema whose arguments are exactly the requested text attributes.
-
-    ``strict: true`` constrains SHAPE (fields, types, item counts) on OpenAI-compatible
-    providers. Character maximums are NOT schema ``maxLength`` — they are validated in
-    code and corrected via a bounded feedback retry.
-    """
-    properties: dict[str, Any] = {name.value: _text_property_schema(name) for name in names}
+    """Tool schema whose arguments are exactly the requested text attributes."""
+    properties: dict[str, Any] = {
+        name.value: _text_property_schema(name) for name in names
+    }
     return {
         "type": "function",
         "function": {
             "name": TEXT_ATTRIBUTES_TOOL_NAME,
-            "strict": True,
             "description": (
-                "Submit the final marketplace text attributes for shoppers. "
-                "Values must be clean listing copy only — never include character limits, "
-                "schema notes, tool instructions, or meta commentary. "
+                "Submit the final marketplace text attributes. "
                 "Call this tool with the finished copy — do not write JSON in the message body."
             ),
             "parameters": {
