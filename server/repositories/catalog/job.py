@@ -18,12 +18,16 @@ def get_by_external_id(session: Session, external_id: UUID) -> Job | None:
 
 
 def list_generation_by_brand(session: Session, brand_id: UUID) -> Sequence[Job]:
-    """Newest generation jobs first for the given brand.external_id (all creators)."""
+    """Newest generation jobs first for the given brand.external_id (all creators).
+
+    Soft-deleted jobs (``deleted_at`` set) are excluded from the UI history list.
+    """
     return session.scalars(
         select(Job)
         .where(
             Job.brand_id == brand_id,
             Job.job_type == JobType.GENERATION.value,
+            Job.deleted_at.is_(None),
         )
         .order_by(Job.created_at.desc())
     ).all()
