@@ -14,6 +14,7 @@ import ContentImageGrid from '../components/batch-content/ContentImageGrid'
 import AttributeRegenModal, {
   type AttributeRegenTarget,
 } from '../components/batch-content/AttributeRegenModal'
+import ListingExportPanel from '../components/batch-content/ListingExportPanel'
 import PipelineProgressBar from '../components/batch-content/PipelineProgressBar'
 import AppHeader from '../components/AppHeader'
 import type { ContentImage } from '../components/batch-content/types'
@@ -629,6 +630,14 @@ function BatchContent() {
               </p>
             </div>
           </header>
+
+          {status ? (
+            <ListingExportPanel
+              key={jobExternalId}
+              jobExternalId={jobExternalId}
+              enabled={status.status === 'COMPLETED'}
+            />
+          ) : null}
 
           <nav className="batch-content__tabs" aria-label="Batch sections">
             <span className="batch-content__tab batch-content__tab--active">Content</span>
