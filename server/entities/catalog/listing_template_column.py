@@ -12,7 +12,7 @@ from entities.catalog.base import Base
 class ListingTemplateColumn(Base):
     """One Excel column rule for a listing template.
 
-    Query/sort spine only: column_index + display_order. All type/mapping details
+    Query/sort spine only: column_index + resolve_stage. All type/mapping details
     live in ``config`` (no redundant SQL columns for fill_type/requiredness/etc.).
     """
 
@@ -31,7 +31,7 @@ class ListingTemplateColumn(Base):
         nullable=False,
     )
     column_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    display_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    resolve_stage: Mapped[int] = mapped_column(Integer, nullable=False)
     config: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,

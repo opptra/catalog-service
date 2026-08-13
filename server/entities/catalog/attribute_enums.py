@@ -52,14 +52,31 @@ class TaskStatus(StrEnum):
 
 
 class ListingFillType(StrEnum):
-    """How listing fill resolves a template column (stored in column config only)."""
+    """How listing fill resolves a template column (stored in column config only).
 
-    DIRECT_MAP = "DIRECT_MAP"
-    ENUM = "ENUM"
-    LLM_TEXT = "LLM_TEXT"
-    IMAGE = "IMAGE"
-    CONSTANT = "CONSTANT"
+    - SKIP: leave cell blank
+    - CONSTANT: write ``constant_value``
+    - ENUM: pick from valid_values (fill-time AI / exact match)
+    - DIRECT_MAP: copy an existing value from ``source`` (GENERATION or SKU_MASTER)
+    - AI_TEXT: fill-time free-text generation (batched; PIM + product images)
+    - IMAGE: copy a generated image from ``source``, expose as Dropbox HTTPS URL
+    """
+
     SKIP = "SKIP"
+    CONSTANT = "CONSTANT"
+    ENUM = "ENUM"
+    DIRECT_MAP = "DIRECT_MAP"
+    AI_TEXT = "AI_TEXT"
+    IMAGE = "IMAGE"
+    # Legacy alias for DIRECT_MAP + source.from=GENERATION (text attributes).
+    LLM_TEXT = "LLM_TEXT"
+
+
+class ListingValueSourceFrom(StrEnum):
+    """Where a DIRECT_MAP / IMAGE / ENUM-hint value is read from."""
+
+    GENERATION = "GENERATION"  # sku_marketplace_attribute_value for this job
+    SKU_MASTER = "SKU_MASTER"  # sku_master.attributes (PIM bag)
 
 
 class ListingRequiredness(StrEnum):

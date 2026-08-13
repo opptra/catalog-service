@@ -11,12 +11,12 @@ def list_by_listing_template_id(
     session: Session,
     listing_template_id: int,
 ) -> Sequence[ListingTemplateColumn]:
-    """Columns for a template, ordered by display_order then column_index."""
+    """Columns for a template, ordered by resolve_stage then column_index."""
     return session.scalars(
         select(ListingTemplateColumn)
         .where(ListingTemplateColumn.listing_template_id == listing_template_id)
         .order_by(
-            ListingTemplateColumn.display_order.asc(),
+            ListingTemplateColumn.resolve_stage.asc(),
             ListingTemplateColumn.column_index.asc(),
         )
     ).all()

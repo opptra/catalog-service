@@ -314,12 +314,17 @@ class OpenRouterClient:
     @staticmethod
     def _tool_arguments(data: dict[str, Any], *, tool_name: str) -> dict[str, Any]:
         try:
-            tool_calls = data["choices"][0]["message"]["tool_calls"]
+            choice = data["choices"][0]
+            message = choice["message"]
+            tool_calls = message["tool_calls"]
         except (KeyError, IndexError, TypeError) as exc:
             raise OpenRouterError("OpenRouter response missing tool_calls") from exc
 
+        finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+        finish_note = f" finish_reason={finish_reason!r}" if finish_reason is not None else ""
+
         if not isinstance(tool_calls, list) or not tool_calls:
-            raise OpenRouterError("OpenRouter returned empty tool_calls")
+            raise OpenRouterError(f"OpenRouter returned empty tool_calls{finish_note}")
 
         chosen: dict[str, Any] | None = None
         for call in tool_calls:
@@ -330,24 +335,44 @@ class OpenRouterClient:
             except (KeyError, TypeError):
                 continue
         if chosen is None:
-            raise OpenRouterError(f"OpenRouter did not call required tool {tool_name!r}")
+            names: list[str] = []
+            for call in tool_calls:
+                try:
+                    names.append(str(call["function"]["name"]))
+                except (KeyError, TypeError):
+                    names.append("<unreadable>")
+            raise OpenRouterError(
+                f"OpenRouter did not call required tool {tool_name!r}; got {names!r}{finish_note}"
+            )
 
         try:
             raw_args = chosen["function"]["arguments"]
         except (KeyError, TypeError) as exc:
-            raise OpenRouterError("OpenRouter tool call missing arguments") from exc
+            raise OpenRouterError(
+                f"OpenRouter tool call missing arguments tool={tool_name!r}{finish_note}"
+            ) from exc
 
         if isinstance(raw_args, dict):
             return raw_args
         if not isinstance(raw_args, str) or not raw_args.strip():
-            raise OpenRouterError("OpenRouter tool arguments were empty")
+            raise OpenRouterError(
+                f"OpenRouter tool arguments were empty tool={tool_name!r}{finish_note}"
+            )
 
         try:
             parsed = json.loads(raw_args)
         except json.JSONDecodeError as exc:
-            raise OpenRouterError("OpenRouter tool arguments were not valid JSON") from exc
+            raise OpenRouterError(
+                "OpenRouter tool arguments were not valid JSON "
+                f"tool={tool_name!r}{finish_note}; "
+                f"{_tool_args_debug(raw_args, decode_error=exc)}"
+            ) from exc
         if not isinstance(parsed, dict):
-            raise OpenRouterError("OpenRouter tool arguments were not a JSON object")
+            raise OpenRouterError(
+                "OpenRouter tool arguments were not a JSON object "
+                f"tool={tool_name!r} type={type(parsed).__name__}{finish_note}; "
+                f"{_tool_args_debug(raw_args)}"
+            )
         return parsed
 
     @staticmethod
@@ -393,3 +418,24 @@ class OpenRouterClient:
             raise OpenRouterError("OpenRouter returned empty image data")
 
         return GeneratedImage(content=content, content_type=content_type)
+
+
+def _tool_args_debug(
+    raw_args: str,
+    *,
+    decode_error: json.JSONDecodeError | None = None,
+) -> str:
+    """Compact, log-safe detail for malformed tool argument strings."""
+    parts = [f"args_len={len(raw_args)}"]
+    stripped = raw_args.rstrip()
+    if stripped and stripped[-1] not in ("}", "]"):
+        parts.append("looks_truncated=true")
+    if decode_error is not None:
+        parts.append(f"json_msg={decode_error.msg!r}")
+        parts.append(f"json_pos={decode_error.pos}")
+        start = max(0, decode_error.pos - 120)
+        end = min(len(raw_args), decode_error.pos + 120)
+        parts.append(f"near={raw_args[start:end]!r}")
+    else:
+        parts.append(f"preview={raw_args[:400]!r}")
+    return "; ".join(parts)

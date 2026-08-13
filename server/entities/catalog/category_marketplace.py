@@ -8,7 +8,11 @@ from entities.catalog.base import Base
 
 
 class CategoryMarketplace(Base):
-    """Junction: one row per category × marketplace."""
+    """Junction: one row per category × marketplace.
+
+    ``category_intelligence`` stays as a DB column for production readers; this
+    branch loads intelligence from the ``category_intelligence`` table instead.
+    """
 
     __tablename__ = "category_marketplace"
     __table_args__ = (

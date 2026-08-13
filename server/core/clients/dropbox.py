@@ -65,6 +65,40 @@ class DropboxClient:
     def close(self) -> None:
         self._http.close()
 
+    def existing_shared_url(self, relative_dir: str) -> str | None:
+        """Return a ``dl=1`` shared URL if ``relative_dir`` already has an image file.
+
+        Looks under ``{root_path}/{relative_dir}/`` for ``image.*``. Missing folder
+        or empty folder is not an error — caller should upload.
+        """
+        if not relative_dir:
+            raise ValueError("relative_dir is required")
+        folder = f"{self._root_path}/{relative_dir.lstrip('/')}"
+        listed = self._request(
+            "POST",
+            f"{_API_BASE}/files/list_folder",
+            json_body={"path": folder},
+        )
+        if listed.status_code == 409:
+            return None
+        try:
+            listed.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise DropboxError(f"Dropbox list_folder failed for {folder!r}: {exc}") from exc
+
+        entries: list[dict[str, Any]] = listed.json().get("entries") or []
+        for entry in entries:
+            if entry.get(".tag") != "file":
+                continue
+            name = str(entry.get("name") or "")
+            if not name.lower().startswith("image."):
+                continue
+            path = str(entry.get("path_display") or entry.get("path_lower") or "")
+            if not path:
+                path = f"{folder}/{name}"
+            return self._as_direct_url(self._ensure_shared_url(path))
+        return None
+
     def upload_bytes(
         self,
         data: bytes,
@@ -95,13 +129,19 @@ class DropboxClient:
         except httpx.HTTPError as exc:
             raise DropboxError(f"Dropbox upload failed for {path!r}: {exc}") from exc
 
-        shared_url = self._ensure_shared_url(path)
-        # Prefer a direct-download form Amazon can fetch without a preview page.
+        return DropboxUploadedObject(
+            path=path,
+            shared_url=self._as_direct_url(self._ensure_shared_url(path)),
+        )
+
+    @staticmethod
+    def _as_direct_url(shared_url: str) -> str:
+        """Prefer a direct-download form Amazon can fetch without a preview page."""
         direct = shared_url.replace("?dl=0", "?dl=1")
         if "dl=" not in direct:
             sep = "&" if "?" in direct else "?"
             direct = f"{direct}{sep}dl=1"
-        return DropboxUploadedObject(path=path, shared_url=direct)
+        return direct
 
     def _ensure_shared_url(self, path: str) -> str:
         """Create or reuse a public shared link for ``path``."""

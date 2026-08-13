@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from entities.catalog.attribute_enums import AttributeName, ListingFillType, ListingRequiredness
+from entities.catalog.attribute_enums import (
+    AttributeName,
+    ListingFillType,
+    ListingRequiredness,
+    ListingValueSourceFrom,
+)
 
 
 class ListingTemplateMetadata(BaseModel):
@@ -19,8 +26,46 @@ class ListingTemplateMetadata(BaseModel):
     data_start_row: int = 7
 
 
+class ListingValueSource(BaseModel):
+    """Where fill reads a value from (GENERATION job bag or SKU master PIM).
+
+    For list-valued generation attributes (e.g. BULLET_POINTS stored as one JSON
+    array on slot 1), ``index`` selects the 1-based array element. Without
+    ``index``, a JSON array is joined with spaces (e.g. BACKEND_KEYWORDS →
+    Generic Keyword).
+
+    For SKU_MASTER, ``key`` is the exact ``sku_master.attributes`` field name.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    # ``from`` is reserved in Python; JSON key remains ``"from"``.
+    from_: ListingValueSourceFrom = Field(alias="from")
+    attribute_name: AttributeName | None = None
+    slot: int | None = Field(default=None, ge=1)
+    index: int | None = Field(default=None, ge=1)
+    key: str | None = None
+
+    @model_validator(mode="after")
+    def _check_source_fields(self) -> ListingValueSource:
+        if self.from_ == ListingValueSourceFrom.GENERATION:
+            if self.attribute_name is None or self.slot is None:
+                raise ValueError("source.from=GENERATION requires attribute_name and slot")
+            if self.key:
+                raise ValueError("source.from=GENERATION must not set key")
+        elif self.from_ == ListingValueSourceFrom.SKU_MASTER:
+            if not self.key or not self.key.strip():
+                raise ValueError("source.from=SKU_MASTER requires key")
+            if self.attribute_name is not None or self.slot is not None or self.index is not None:
+                raise ValueError("source.from=SKU_MASTER must not set attribute_name/slot/index")
+        return self
+
+
 class ListingColumnConfig(BaseModel):
-    """Per-column fill rules — all type/mapping facts live here (not as SQL columns)."""
+    """Per-column fill rules — all type/mapping facts live here (not as SQL columns).
+
+    ``fill_type`` = how to fill. ``source`` = where to read (when copying / imaging).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -28,38 +73,90 @@ class ListingColumnConfig(BaseModel):
     requiredness: ListingRequiredness = ListingRequiredness.OPTIONAL
     label: str
     machine_key: str | None = None
+
+    constant_value: str | None = None
+    source: ListingValueSource | None = None
+
+    # ENUM
+    valid_values: list[str] | None = None
+    depends_on: str | None = None
+    valid_values_by_parent: dict[str, list[str]] | None = None
+
+    # Legacy flat fields — accepted on read, normalized into ``source``.
     attribute_name: AttributeName | None = None
     slot: int | None = Field(default=None, ge=1)
     source_key: str | None = None
-    constant_value: str | None = None
-    valid_values: list[str] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_legacy_source(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        fill = out.get("fill_type")
+        if out.get("source") is None:
+            attr = out.get("attribute_name")
+            slot = out.get("slot")
+            key = out.get("source_key")
+            if attr is not None and slot is not None:
+                out["source"] = {
+                    "from": ListingValueSourceFrom.GENERATION.value,
+                    "attribute_name": attr,
+                    "slot": slot,
+                }
+            elif key:
+                out["source"] = {
+                    "from": ListingValueSourceFrom.SKU_MASTER.value,
+                    "key": key,
+                }
+        # LLM_TEXT is the old name for "copy generated text".
+        if fill == ListingFillType.LLM_TEXT.value and out.get("source") is None:
+            pass
+        return out
 
     @model_validator(mode="after")
     def _check_mapping_keys(self) -> ListingColumnConfig:
-        has_attr = self.attribute_name is not None
-        has_source = bool(self.source_key)
-        if (
-            has_attr
-            and has_source
-            and self.fill_type
-            in (
-                ListingFillType.LLM_TEXT,
-                ListingFillType.IMAGE,
-                ListingFillType.DIRECT_MAP,
-            )
-        ):
-            raise ValueError(
-                "attribute_name and source_key cannot both be set for job/PIM copy fill types"
-            )
-        if self.fill_type in (
-            ListingFillType.LLM_TEXT,
-            ListingFillType.IMAGE,
-        ) and (self.attribute_name is None or self.slot is None):
-            raise ValueError(f"{self.fill_type} requires attribute_name and slot")
-        if self.fill_type == ListingFillType.DIRECT_MAP and not self.source_key:
-            raise ValueError("DIRECT_MAP requires source_key")
-        if self.fill_type == ListingFillType.CONSTANT and self.constant_value is None:
-            raise ValueError("CONSTANT requires constant_value")
-        if self.fill_type == ListingFillType.ENUM and not self.valid_values:
-            raise ValueError("ENUM requires non-empty valid_values")
+        fill = self.fill_type
+
+        if fill == ListingFillType.SKIP:
+            return self
+
+        if fill == ListingFillType.CONSTANT:
+            if self.constant_value is None:
+                raise ValueError("CONSTANT requires constant_value")
+            return self
+
+        if fill == ListingFillType.ENUM:
+            has_flat = bool(self.valid_values)
+            has_by_parent = bool(self.valid_values_by_parent)
+            if not has_flat and not has_by_parent:
+                raise ValueError("ENUM requires valid_values and/or valid_values_by_parent")
+            if self.valid_values_by_parent is not None and not self.depends_on:
+                raise ValueError("valid_values_by_parent requires depends_on")
+            if self.source is not None and self.source.from_ != ListingValueSourceFrom.SKU_MASTER:
+                raise ValueError("ENUM source (exact-match hint) must be from=SKU_MASTER")
+            return self
+
+        if fill in (ListingFillType.DIRECT_MAP, ListingFillType.LLM_TEXT):
+            if self.source is None:
+                raise ValueError(f"{fill} requires source")
+            return self
+
+        if fill == ListingFillType.AI_TEXT:
+            # Free-text fill-time generation — label/machine_key are the prompt hints.
+            if self.source is not None:
+                raise ValueError("AI_TEXT must not set source")
+            if self.constant_value is not None:
+                raise ValueError("AI_TEXT must not set constant_value")
+            return self
+
+        if fill == ListingFillType.IMAGE:
+            if self.source is None:
+                raise ValueError("IMAGE requires source")
+            if self.source.from_ != ListingValueSourceFrom.GENERATION:
+                raise ValueError("IMAGE source must be from=GENERATION")
+            if self.source.attribute_name != AttributeName.IMAGE:
+                raise ValueError("IMAGE source.attribute_name must be IMAGE")
+            return self
+
         return self
