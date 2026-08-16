@@ -56,6 +56,11 @@ from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttri
 from entities.catalog.sku_master import SkuMaster
 from pipelines.generation import common_image, gallery, images, inputs, regenerate, text, tools
 from pipelines.generation.context import GenerationContext
+from pipelines.generation.localize import (
+    LOCALIZE_FAIL_MESSAGE,
+    LocalizationImpossibleError,
+    localize_image,
+)
 from repositories.catalog import attribute_master as attribute_master_repo
 from repositories.catalog import brand as brand_repo
 from repositories.catalog import category as category_repo
@@ -111,6 +116,16 @@ def _gcs_image_object_name(
         f"jobs/{job_external_id}/sku_generation_jobs/{sku_generation_job_external_id}/images/"
         f"{name.value}_{slot}{extension}"
     )
+
+
+def _localized_regenerate_bytes(
+    gcs: GcsClient, source_gs_uri: str, candidate_bytes: bytes
+) -> bytes:
+    """Download the source raster and composite the candidate; I/O stays out of localize.py."""
+    object_name = gcs.object_name_from_gs_uri(source_gs_uri)
+    if object_name is None:
+        raise LocalizationImpossibleError("source image URI is not a GCS object")
+    return localize_image(gcs.download_bytes(object_name), candidate_bytes)
 
 
 def _persist_attribute_value(
@@ -1368,15 +1383,19 @@ def regenerate_attribute_value(
                 aspect_ratio=_aspect_ratio_for(name),
                 current_image_url=current_image_url,
             )
+            try:
+                composite = _localized_regenerate_bytes(gcs, latest.value, generation.content)
+            except LocalizationImpossibleError as exc:
+                raise AttributeValueRegenerationError(LOCALIZE_FAIL_MESSAGE) from exc
             uploaded = gcs.upload_bytes(
-                generation.content,
+                composite,
                 (
                     f"jobs/{job.external_id}/sku_generation_jobs/"
                     f"{sku_generation_job.external_id}/images/"
                     f"{name.value}_{latest.slot}_v{latest.version + 1}"
-                    f"{files.extension_for_image_content_type(generation.content_type)}"
+                    f"{files.extension_for_image_content_type('image/png')}"
                 ),
-                content_type=generation.content_type,
+                content_type="image/png",
             )
             persisted = _persist_attribute_value(
                 session,
