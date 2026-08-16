@@ -23,17 +23,13 @@ export async function listAccessibleBrands(): Promise<AccessibleBrand[]> {
   return data
 }
 
-export async function listBrandUsers(brandExternalId: string): Promise<BrandUser[]> {
-  const { data } = await api.get<BrandUser[]>(`/access/brands/${brandExternalId}/users`)
+export async function listBrandUsers(): Promise<BrandUser[]> {
+  const { data } = await api.get<BrandUser[]>('/access/brand/users')
   return data
 }
 
-export async function inviteBrandUser(
-  brandExternalId: string,
-  email: string,
-): Promise<InviteBrandUserResponse> {
+export async function inviteBrandUser(email: string): Promise<InviteBrandUserResponse> {
   const { data } = await api.post<InviteBrandUserResponse>('/access/brands/users/invite', {
-    brand_external_id: brandExternalId,
     email,
   })
   return data

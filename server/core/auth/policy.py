@@ -6,7 +6,9 @@ _INTERNAL_SUFFIX_ATTR = "_catalog_internal_suffix"
 
 
 class AuthPolicy(StrEnum):
-    """Which authenticator a route requires. Default (no annotation) is GOOGLE_USER."""
+    """Which authenticator a route requires. Default (no annotation) is GOOGLE_USER
+    (browser session cookie via ``SessionAuthenticator``).
+    """
 
     GOOGLE_USER = "google_user"
     INTERNAL_CLIENT = "internal_client"
@@ -17,7 +19,7 @@ def internal_api[F: Callable[..., object]](handler: F) -> F:
     """Mark a handler as an internal (service-to-service) API.
 
     The route is authenticated with ``client-id`` + ``client-token`` headers
-    (see ``InternalClientAuthenticator``) instead of a Google user token, and
+    (see ``InternalClientAuthenticator``) instead of a browser session cookie, and
     ``SecureAPIRouter`` automatically appends ``/internal`` to its path.
     """
     setattr(handler, _POLICY_ATTR, AuthPolicy.INTERNAL_CLIENT)

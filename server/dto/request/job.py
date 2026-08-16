@@ -10,7 +10,6 @@ class CreateJobAttribute(BaseModel):
 
 class CreateJobRequest(BaseModel):
     sku_ids: list[str] = Field(min_length=1)
-    brand_external_id: UUID
     marketplace_external_id: UUID
     attributes: list[CreateJobAttribute] = Field(min_length=1)
 
@@ -22,7 +21,6 @@ class FlatfileImageFile(BaseModel):
 
 
 class CreateFlatfileJobRequest(BaseModel):
-    brand_external_id: UUID
     category_external_id: UUID
     template_filename: str = Field(min_length=1)
     template_content_type: str = Field(min_length=1)

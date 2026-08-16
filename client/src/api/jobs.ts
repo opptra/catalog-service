@@ -7,7 +7,6 @@ export interface CreateJobAttribute {
 
 export interface CreateJobRequest {
   sku_ids: string[]
-  brand_external_id: string
   marketplace_external_id: string
   attributes: CreateJobAttribute[]
 }
@@ -133,15 +132,14 @@ export interface SkuGenerationJobContentResponse {
 }
 
 export async function listJobs(brandExternalId: string): Promise<JobListResponse> {
+  // brandExternalId is only used for in-flight dedupe; Brand-Id is set by axios.
   const existing = listJobsInflight.get(brandExternalId)
   if (existing) {
     return existing
   }
 
   const request = api
-    .get<JobListResponse>('/jobs', {
-      params: { brand_external_id: brandExternalId },
-    })
+    .get<JobListResponse>('/jobs')
     .then(({ data }) => data)
     .finally(() => {
       if (listJobsInflight.get(brandExternalId) === request) {

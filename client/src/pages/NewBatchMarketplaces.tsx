@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import type { MarketplaceSelectionMarketplace } from '../api/catalog'
 import { createJob } from '../api/jobs'
 import iconInfo from '../assets/icon-info.svg'
@@ -25,11 +25,14 @@ const ATTRIBUTE_DEPENDENCIES: Record<string, string[]> = {
   KEY_FEATURES: ['BULLET_POINTS', 'DESCRIPTION'],
 }
 
+/** Stable empty snapshot — `?? []` inline would allocate every getSnapshot and loop forever. */
+const EMPTY_SKU_IMAGES: { sku_id: string }[] = []
+
 function NewBatchMarketplaces() {
   const navigate = useNavigate()
   const subcategory = getBatchSubcategory()
   const { selectedBrand } = useBrands()
-  const skuImages = useBatchUploadStore((state) => state.result?.skuImages ?? [])
+  const skuImages = useBatchUploadStore((state) => state.result?.skuImages ?? EMPTY_SKU_IMAGES)
   const skuCount = skuImages.length
 
   const status = useMarketplaceSelectionStore((state) => state.status)
@@ -47,9 +50,19 @@ function NewBatchMarketplaces() {
     document.title = 'Listing Studio · Marketplaces'
   }, [])
 
+  // Wizard draft is tab-memory + sessionStorage. If either required piece is gone
+  // (refresh, new deploy, deep-link), send the user back to the batch start.
+  const draftMissing = !subcategory || skuCount === 0
   useEffect(() => {
+    if (draftMissing) {
+      navigate('/workspace/new', { replace: true })
+    }
+  }, [draftMissing, navigate])
+
+  useEffect(() => {
+    if (draftMissing) return
     void ensureLoaded()
-  }, [ensureLoaded])
+  }, [draftMissing, ensureLoaded])
 
   // Seed checkbox state once per successful load payload (not on every render).
   const payloadKey =
@@ -58,7 +71,7 @@ function NewBatchMarketplaces() {
       : null
 
   useEffect(() => {
-    if (payloadKey == null || payloadKey === selectionSeed) return
+    if (draftMissing || payloadKey == null || payloadKey === selectionSeed) return
     setSelectionSeed(payloadKey)
     const attributeIds = attributes.map((attribute) => attribute.id)
     setSelected(
@@ -66,15 +79,19 @@ function NewBatchMarketplaces() {
         marketplaces.map((marketplace) => [marketplace.external_id, new Set(attributeIds)]),
       ),
     )
-  }, [payloadKey, selectionSeed, marketplaces, attributes])
+  }, [draftMissing, payloadKey, selectionSeed, marketplaces, attributes])
 
   const selectedMarketplaceCount = useMemo(
     () => Object.values(selected).filter((set) => set.size > 0).length,
     [selected],
   )
 
-  if (!subcategory) {
-    return <Navigate to="/workspace/new" replace />
+  if (draftMissing) {
+    return (
+      <div className="app-loading">
+        <p>Returning to start a new batch…</p>
+      </div>
+    )
   }
 
   const loading = status === 'idle' || status === 'loading'
@@ -151,7 +168,6 @@ function NewBatchMarketplaces() {
 
       const response = await createJob({
         sku_ids: skuIds,
-        brand_external_id: selectedBrand.id,
         marketplace_external_id: marketplace.external_id,
         attributes: jobAttributes,
       })

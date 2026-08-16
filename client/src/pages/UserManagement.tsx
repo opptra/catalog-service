@@ -34,14 +34,13 @@ function UserManagement() {
   useEffect(() => {
     if (!brand) return
 
-    const brandExternalId = brand.id
     let cancelled = false
 
     async function load() {
       setLoading(true)
       setError(null)
       try {
-        const rows = await listBrandUsers(brandExternalId)
+        const rows = await listBrandUsers()
         if (cancelled) return
         setUsers(rows)
       } catch {
@@ -63,7 +62,6 @@ function UserManagement() {
     return <Navigate to="/brands" replace />
   }
 
-  const brandId = brand.id
   const brandName = brand.name
 
   async function handleInvite(event: FormEvent<HTMLFormElement>) {
@@ -79,14 +77,14 @@ function UserManagement() {
 
     setInviting(true)
     try {
-      const invited = await inviteBrandUser(brandId, trimmed)
+      const invited = await inviteBrandUser(trimmed)
       setEmail('')
       setInviteMessage(
         invited.created
           ? `Invited ${invited.email}. They can sign in with Google to join.`
           : `${invited.email} already has access.`,
       )
-      const rows = await listBrandUsers(brandId)
+      const rows = await listBrandUsers()
       setUsers(rows)
     } catch (err) {
       if (axios.isAxiosError(err)) {

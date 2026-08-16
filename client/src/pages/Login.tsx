@@ -6,7 +6,7 @@ import { useAuth } from '../auth/useAuth'
 import { useBrands } from '../brands/useBrands'
 
 function Login() {
-  const { user, loading } = useAuth()
+  const { user, loading, loginError } = useAuth()
   const { selectedBrand } = useBrands()
 
   useEffect(() => {
@@ -34,6 +34,7 @@ function Login() {
         <div className="login-card__google">
           <GoogleSignInButton width={380} />
         </div>
+        {loginError ? <p className="login-card__error">{loginError}</p> : null}
         <p className="login-card__footnote">Accounts are provisioned by your account manager.</p>
       </div>
     </main>

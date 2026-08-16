@@ -40,10 +40,3 @@ def upsert_google_user(session: Session, claims: dict[str, Any]) -> User:
             )
 
     return user
-
-
-def get_user_by_google_sub(session: Session, google_sub: str) -> User:
-    user = user_repository.get_by_google_sub(session, google_sub)
-    if user is None:
-        raise UserNotFoundError(google_sub)
-    return user

@@ -3,12 +3,8 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from core.exceptions import (
-    ApplicationNotFoundError,
-    BrandAccessDeniedError,
-    BrandNotFoundError,
     EmailDomainNotAllowedError,
     RoleNotFoundError,
-    UserServiceBrandNotFoundError,
 )
 from dto.response.access import (
     AccessibleBrandResponse,
@@ -18,14 +14,11 @@ from dto.response.access import (
 from entities.user_service.user import User
 from entities.user_service.user_access_grant import UserAccessGrant
 from repositories.catalog import brand as catalog_brand_repository
-from repositories.user_service import application as application_repository
-from repositories.user_service import brand as user_brand_repository
 from repositories.user_service import role as role_repository
 from repositories.user_service import user as user_repository
 from repositories.user_service import user_access_grant as grant_repository
+from services import authorization
 
-# Product name in UI is Listing Studio; the applications.name row is catalog-service.
-_LISTING_STUDIO_APPLICATION_NAME = "catalog-service"
 _DEFAULT_ROLE_NAME = "USER"
 _ALLOWED_EMAIL_DOMAIN = "opptra.com"
 
@@ -68,7 +61,7 @@ def list_brand_users(
     actor: User,
     brand_external_id: UUID,
 ) -> list[BrandUserResponse]:
-    application, user_brand = _require_actor_brand_access(
+    application, user_brand = authorization.assert_brand_access(
         user_session,
         catalog_session,
         actor=actor,
@@ -103,7 +96,7 @@ def invite_brand_user(
     if not _is_allowed_email(normalized_email):
         raise EmailDomainNotAllowedError(normalized_email)
 
-    application, user_brand = _require_actor_brand_access(
+    application, user_brand = authorization.assert_brand_access(
         user_session,
         catalog_session,
         actor=actor,
@@ -152,39 +145,6 @@ def invite_brand_user(
         has_signed_in=invitee.google_sub is not None,
         created=created_user or created_grant,
     )
-
-
-def _require_actor_brand_access(
-    user_session: Session,
-    catalog_session: Session,
-    *,
-    actor: User,
-    brand_external_id: UUID,
-):
-    application = application_repository.get_by_name(user_session, _LISTING_STUDIO_APPLICATION_NAME)
-    if application is None:
-        raise ApplicationNotFoundError(_LISTING_STUDIO_APPLICATION_NAME)
-
-    catalog_brand = catalog_brand_repository.get_by_external_id(catalog_session, brand_external_id)
-    if catalog_brand is None or catalog_brand.user_service_brand_id is None:
-        raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
-
-    user_brand = user_brand_repository.get_by_external_id(
-        user_session, catalog_brand.user_service_brand_id
-    )
-    if user_brand is None:
-        raise UserServiceBrandNotFoundError(str(brand_external_id))
-
-    actor_grant = grant_repository.get_grant(
-        user_session,
-        user_id=actor.id,
-        brand_id=user_brand.id,
-        application_id=application.id,
-    )
-    if actor_grant is None:
-        raise BrandAccessDeniedError(str(brand_external_id))
-
-    return application, user_brand
 
 
 def _is_allowed_email(email: str) -> bool:

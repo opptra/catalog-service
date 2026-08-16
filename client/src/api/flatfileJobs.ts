@@ -7,7 +7,6 @@ export interface FlatfileImageFile {
 }
 
 export interface CreateFlatfileJobRequest {
-  brand_external_id: string
   category_external_id: string
   template_filename: string
   template_content_type: string

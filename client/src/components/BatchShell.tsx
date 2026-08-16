@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { useEffect, type ReactNode } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useBrands } from '../brands/useBrands'
 import AppHeader from './AppHeader'
 import BatchStepper from './BatchStepper'
@@ -21,10 +21,27 @@ function BatchShell({
   footer,
   bodyClassName,
 }: BatchShellProps) {
-  const { selectedBrand: brand } = useBrands()
+  const { selectedBrand: brand, loading: brandsLoading } = useBrands()
+  const navigate = useNavigate()
 
+  useEffect(() => {
+    if (!brandsLoading && !brand) {
+      navigate('/brands', { replace: true })
+    }
+  }, [brandsLoading, brand, navigate])
+
+  // Avoid a blank screen: <Navigate> renders null while redirecting.
   if (!brand) {
-    return <Navigate to="/brands" replace />
+    return (
+      <div className="app-loading">
+        <p>{brandsLoading ? 'Loading…' : 'Select a brand to continue.'}</p>
+        {!brandsLoading ? (
+          <p>
+            <Link to="/brands">Choose a brand</Link>
+          </p>
+        ) : null}
+      </div>
+    )
   }
 
   return (

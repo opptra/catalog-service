@@ -4,6 +4,7 @@ import google.auth
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from google.auth.exceptions import DefaultCredentialsError
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from core.clients.db import DatabaseClient
 from core.clients.dropbox import DropboxClient
@@ -72,12 +73,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Catalog Service", lifespan=lifespan)
 
+# Trust X-Forwarded-Proto from the load balancer so Secure cookies and URL
+# scheme reflect the original client request (not the internal http hop).
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 # Auth is enforced per-route by AuthAPIRoute (see core.auth), not middleware.
 # CORS still needs to be outermost so it attaches headers to 401 responses too.
 if settings.cors_origin_list:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
