@@ -3044,6 +3044,12 @@ a {
   cursor: not-allowed;
 }
 
+.attr-regen__hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
 .attr-regen__status {
   margin: 12px 0 0;
   font-size: 13px;

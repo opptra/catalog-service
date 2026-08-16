@@ -298,7 +298,7 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                 onChange={(event) => setImprovement(event.target.value)}
                 placeholder={
                   isImage
-                    ? 'describe what to change: “brighter background, side angle”'
+                    ? 'describe what to change: “make the pillow navy”'
                     : 'describe what to change: “shorter, more benefit-led”'
                 }
                 disabled={phase === 'loading'}
@@ -320,6 +320,11 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                 <RefreshIcon />
               </button>
             </div>
+            {isImage ? (
+              <p className="attr-regen__hint">
+                Only the requested change should move; everything else stays as-is.
+              </p>
+            ) : null}
 
             {phase === 'loading' ? (
               <p className="attr-regen__status">Generating a new version…</p>
