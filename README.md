@@ -100,6 +100,8 @@ Create a single secret named `catalog-service`. Payload shape:
     "USER_SERVICE_DB_NAME": "user_service",
     "API_KEY": "...",
     "GOOGLE_CLIENT_ID": "your-google-client-id.apps.googleusercontent.com",
+    "SESSION_JWT_SECRET": "replace-with-a-long-random-secret",
+    "SESSION_TTL_HOURS": "24",
     "GCS_BUCKET": "your-bucket",
     "REGION": "asia-south1",
     "SERVICE_CLIENTS": {

@@ -1,32 +1,39 @@
 import { create } from 'zustand'
-import { loginWithGoogle, type User } from '../api/auth'
-import { setCredentialListener } from './google'
-import { clearIdToken, getIdToken, setIdToken } from './tokenStore'
+import { loginWithGoogle, logout, type User } from '../api/auth'
+import { getCurrentUser } from '../api/users'
+import { setUnauthorizedHandler } from '../api/axios'
+import { disableAutoSelect, setCredentialListener } from './google'
 
 interface AuthState {
   user: User | null
   loading: boolean
-  signOut: () => void
+  loginError: string | null
+  signOut: () => Promise<void>
   handleCredential: (idToken: string) => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   loading: true,
+  loginError: null,
 
-  signOut: () => {
-    clearIdToken()
-    set({ user: null })
+  signOut: async () => {
+    set({ user: null, loginError: null })
+    void disableAutoSelect()
+    try {
+      await logout()
+    } catch {
+      // Cookie may already be gone; local sign-out still succeeds.
+    }
   },
 
   handleCredential: async (idToken: string) => {
-    setIdToken(idToken)
+    set({ loginError: null })
     try {
       const user = await loginWithGoogle(idToken)
-      set({ user })
+      set({ user, loginError: null })
     } catch {
-      clearIdToken()
-      set({ user: null })
+      set({ user: null, loginError: 'Sign-in failed, try again' })
     }
   },
 }))
@@ -42,14 +49,17 @@ export function bootstrapAuth(): void {
     void useAuthStore.getState().handleCredential(idToken)
   })
 
-  const existingToken = getIdToken()
-  if (!existingToken) {
-    useAuthStore.setState({ loading: false })
-    return
-  }
+  setUnauthorizedHandler(() => {
+    const { user } = useAuthStore.getState()
+    if (user !== null) {
+      void useAuthStore.getState().signOut()
+    } else {
+      useAuthStore.setState({ user: null })
+    }
+  })
 
-  loginWithGoogle(existingToken)
+  getCurrentUser()
     .then((user) => useAuthStore.setState({ user }))
-    .catch(() => clearIdToken())
+    .catch(() => useAuthStore.setState({ user: null }))
     .finally(() => useAuthStore.setState({ loading: false }))
 }

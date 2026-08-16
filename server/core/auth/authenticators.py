@@ -1,14 +1,17 @@
 import secrets
 from typing import Protocol
+from uuid import UUID
 
-from google.auth.exceptions import GoogleAuthError
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 
+from core.auth.cookies import SESSION_COOKIE_NAME
 from core.auth.policy import AuthPolicy
 from core.config import settings
 from core.exceptions import UserNotFoundError
+from services import session_jwt
 from services import users as user_service
+from services.session_jwt import SessionJwtError
 
 _CLIENT_ID_HEADER = "client-id"
 _CLIENT_TOKEN_HEADER = "client-token"
@@ -32,22 +35,30 @@ class Authenticator(Protocol):
         ...
 
 
-class GoogleUserAuthenticator:
-    """Verifies ``Authorization: Bearer <google-id-token>`` and binds the user."""
+class SessionAuthenticator:
+    """Verifies the ``catalog_session`` httpOnly JWT and binds the user."""
 
     async def authenticate(self, request: Request) -> None:
-        token = _extract_bearer_token(request)
-        if token is None:
-            raise AuthError(401, "Missing bearer token")
-
-        google_client = request.app.state.google_auth
-        try:
-            claims = await run_in_threadpool(google_client.verify_id_token, token)
-        except (ValueError, GoogleAuthError) as exc:
-            raise AuthError(401, "Invalid Google ID token") from exc
+        cookie_token = (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+        if not cookie_token:
+            raise AuthError(401, "Missing session cookie")
 
         try:
-            user = await run_in_threadpool(_lookup_user, request, claims["sub"])
+            claims = session_jwt.decode(cookie_token)
+        except SessionJwtError as exc:
+            raise AuthError(401, "Invalid session token") from exc
+
+        sub = claims.get("sub")
+        if not sub or not isinstance(sub, str):
+            raise AuthError(401, "Invalid session token")
+
+        try:
+            user_external_id = UUID(sub)
+        except ValueError as exc:
+            raise AuthError(401, "Invalid session token") from exc
+
+        try:
+            user = await run_in_threadpool(_lookup_user_by_external_id, request, user_external_id)
         except UserNotFoundError as exc:
             raise AuthError(401, str(exc)) from exc
 
@@ -76,25 +87,15 @@ class NoAuthAuthenticator:
 
 
 AUTHENTICATORS: dict[AuthPolicy, Authenticator] = {
-    AuthPolicy.GOOGLE_USER: GoogleUserAuthenticator(),
+    AuthPolicy.GOOGLE_USER: SessionAuthenticator(),
     AuthPolicy.INTERNAL_CLIENT: InternalClientAuthenticator(),
     AuthPolicy.PUBLIC: NoAuthAuthenticator(),
 }
 
 
-def _extract_bearer_token(request: Request) -> str | None:
-    header = request.headers.get("Authorization")
-    if not header:
-        return None
-    scheme, _, credentials = header.partition(" ")
-    if scheme.lower() != "bearer" or not credentials.strip():
-        return None
-    return credentials.strip()
-
-
-def _lookup_user(request: Request, google_sub: str):
+def _lookup_user_by_external_id(request: Request, external_id: UUID):
     session = request.app.state.user_db.session_factory()
     try:
-        return user_service.get_user_by_google_sub(session, google_sub)
+        return user_service.get_user_by_external_id(session, external_id)
     finally:
         session.close()

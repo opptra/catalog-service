@@ -2,18 +2,13 @@ interface GoogleCredentialResponse {
   credential: string
 }
 
-interface GoogleNotification {
-  isNotDisplayed?: () => boolean
-  isSkippedMoment?: () => boolean
-}
-
 interface GoogleAccountsId {
   initialize: (config: {
     client_id: string
     callback: (response: GoogleCredentialResponse) => void
   }) => void
-  prompt: (momentListener?: (notification: GoogleNotification) => void) => void
   renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void
+  disableAutoSelect: () => void
 }
 
 declare global {
@@ -32,7 +27,6 @@ const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string
 
 let initialized = false
 let credentialListener: CredentialListener | null = null
-let pendingSilentResolvers: Array<(token: string | null) => void> = []
 
 // The GIS script is loaded `async defer`, so `window.google` may not exist yet
 // when our components mount. Resolve once it becomes available (or give up).
@@ -59,9 +53,6 @@ function ensureInitialized(): void {
   window.google.accounts.id.initialize({
     client_id: CLIENT_ID,
     callback: (response) => {
-      const resolvers = pendingSilentResolvers
-      pendingSilentResolvers = []
-      resolvers.forEach((resolve) => resolve(response.credential))
       credentialListener?.(response.credential)
     },
   })
@@ -87,25 +78,8 @@ export async function renderSignInButton(
   })
 }
 
-export async function requestSilentIdToken(): Promise<string | null> {
-  if (!(await whenGoogleReady())) return null
+export async function disableAutoSelect(): Promise<void> {
+  if (!(await whenGoogleReady())) return
   ensureInitialized()
-  if (!window.google) return null
-
-  return new Promise((resolve) => {
-    const settle = (token: string | null) => {
-      pendingSilentResolvers = pendingSilentResolvers.filter((r) => r !== settle)
-      resolve(token)
-    }
-    pendingSilentResolvers.push(settle)
-
-    const timeoutId = setTimeout(() => settle(null), 5000)
-
-    window.google!.accounts.id.prompt((notification) => {
-      if (notification.isNotDisplayed?.() || notification.isSkippedMoment?.()) {
-        clearTimeout(timeoutId)
-        settle(null)
-      }
-    })
-  })
+  window.google?.accounts.id.disableAutoSelect()
 }

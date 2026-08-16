@@ -105,8 +105,7 @@ export interface RunFlatfileUploadInput {
 
 /** Runs the flatfile upload pipeline once. Progress is reported via ``onSteps``. */
 export async function runFlatfileUpload(input: RunFlatfileUploadInput): Promise<void> {
-  const { brandExternalId, categoryExternalId, productFile, imagesFile, result, onSteps } =
-    input
+  const { categoryExternalId, productFile, imagesFile, result, onSteps } = input
 
   let steps = INITIAL_UPLOAD_STEPS.map((step) => ({ ...step }))
   const report = (next: UploadStatusStep[]) => {
@@ -131,7 +130,6 @@ export async function runFlatfileUpload(input: RunFlatfileUploadInput): Promise<
   }
 
   const created = await createFlatfileJob({
-    brand_external_id: brandExternalId,
     category_external_id: categoryExternalId,
     template_filename: productFile.name,
     template_content_type: guessTemplateContentType(productFile.name),

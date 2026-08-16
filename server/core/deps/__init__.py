@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -10,6 +11,12 @@ from core.clients.gcs import GcsClient
 from core.clients.google_auth import GoogleAuthClient
 from core.clients.openrouter import OpenRouterClient
 from core.clients.workflows import WorkflowsClient
+from core.exceptions import (
+    ApplicationNotFoundError,
+    BrandAccessDeniedError,
+    BrandNotFoundError,
+    UserServiceBrandNotFoundError,
+)
 from entities.user_service.user import User
 
 
@@ -85,16 +92,58 @@ WorkflowsDep = Annotated[WorkflowsClient, Depends(get_workflows_client)]
 
 
 def get_current_user(request: Request) -> User:
-    """The authenticated user resolved by ``GoogleUserAuthenticator``.
+    """The authenticated user resolved by ``SessionAuthenticator``.
 
     ``AuthAPIRoute`` runs the authenticator before any handler, which verifies
-    the Google token, looks up the user, and binds it to ``request.state.user``,
+    the session cookie, looks up the user, and binds it to ``request.state.user``,
     so this is just an accessor — it never verifies tokens or hits the database.
     """
     return request.state.user
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+_BRAND_ID_HEADER = "Brand-Id"
+
+
+def require_brand_access(
+    request: Request,
+    user: CurrentUserDep,
+    user_session: UserSessionDep,
+    catalog_session: CatalogSessionDep,
+) -> UUID:
+    """Read ``Brand-Id``, verify the caller has a grant, return brand_external_id."""
+    from services import authorization
+
+    raw = (request.headers.get(_BRAND_ID_HEADER) or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Missing Brand-Id header")
+    try:
+        brand_external_id = UUID(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid Brand-Id header") from exc
+
+    try:
+        authorization.assert_brand_access(
+            user_session,
+            catalog_session,
+            actor=user,
+            brand_external_id=brand_external_id,
+        )
+    except BrandAccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except BrandNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UserServiceBrandNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ApplicationNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return brand_external_id
+
+
+BrandAccessDep = Annotated[UUID, Depends(require_brand_access)]
 
 
 def get_service_client_id(request: Request) -> str:

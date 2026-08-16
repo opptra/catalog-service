@@ -3,7 +3,7 @@
 - ``@internal_api`` — service-to-service route, authenticated via ``client-id`` /
   ``client-token`` headers, automatically exposed with a ``/internal`` path suffix.
 - ``@no_auth`` — route is exempt from authentication entirely.
-- no annotation — default, authenticated via a Google user ID token.
+- no annotation — default, authenticated via the ``catalog_session`` httpOnly JWT.
 
 Routers must use ``SecureAPIRouter`` (not the plain ``fastapi.APIRouter``) for
 these annotations to take effect.

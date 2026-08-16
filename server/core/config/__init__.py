@@ -25,6 +25,12 @@ class Settings(BaseSettings):
 
     google_client_id: str
 
+    # HS256 secret for catalog-issued session JWTs (httpOnly cookie). Required — no default.
+    session_jwt_secret: str
+    session_ttl_hours: int = 24
+    # None = derive Secure from the request scheme (HTTPS / X-Forwarded-Proto).
+    cookie_secure: bool | None = None
+
     # Machine callers for @internal_api routes: { "catalog-workflows": "<token>", ... }.
     # Secret Manager stores these nested as server.SERVICE_CLIENTS; scripts flatten to
     # SERVICE_CLIENT_<ID> env vars. Settings collects those flat keys here (see

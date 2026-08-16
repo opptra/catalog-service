@@ -1,49 +1,42 @@
-import axios, { type InternalAxiosRequestConfig } from 'axios'
-import { requestSilentIdToken } from '../auth/google'
-import { clearIdToken, getIdToken, setIdToken } from '../auth/tokenStore'
-
-interface RetryableConfig extends InternalAxiosRequestConfig {
-  _retried?: boolean
-}
+import axios from 'axios'
+import { getSelectedBrandId } from '../data/brands'
 
 const api = axios.create({
   // Same-origin `/api` locally (Vite proxy) and in prod (nginx).
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 })
 
+let onUnauthorized: (() => void) | null = null
+
+/** Registered by auth bootstrap to avoid a circular import with the auth store. */
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler
+}
+
 api.interceptors.request.use((config) => {
-  const token = getIdToken()
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  const brandId = getSelectedBrandId()
+  if (brandId) {
+    config.headers['Brand-Id'] = brandId
   }
   return config
 })
 
 api.interceptors.response.use(
   (response) => response,
-  async (error: unknown) => {
-    if (!axios.isAxiosError(error) || error.response?.status !== 401 || !error.config) {
-      throw error
+  (error: unknown) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      const url = error.config?.url ?? ''
+      const isAuthExchange =
+        url.includes('/auth/google') || url.includes('/auth/logout')
+      if (!isAuthExchange) {
+        onUnauthorized?.()
+      }
     }
-
-    const config = error.config as RetryableConfig
-    if (config._retried) {
-      clearIdToken()
-      throw error
-    }
-    config._retried = true
-
-    const newToken = await requestSilentIdToken()
-    if (!newToken) {
-      clearIdToken()
-      throw error
-    }
-
-    setIdToken(newToken)
-    return api(config)
+    return Promise.reject(error)
   },
 )
 

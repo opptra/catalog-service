@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
+import axios from 'axios'
 import {
+  getJobContentExport,
   getJobStatus,
   getSkuGenerationJobContent,
   retrySkuGenerationJob,
@@ -18,6 +20,7 @@ import ListingExportPanel from '../components/batch-content/ListingExportPanel'
 import PipelineProgressBar from '../components/batch-content/PipelineProgressBar'
 import AppHeader from '../components/AppHeader'
 import type { ContentImage } from '../components/batch-content/types'
+import { downloadJobContentExport } from '../lib/downloadJobContentExport'
 
 const STATUS_POLL_MS = 4000
 const CONTENT_POLL_MS = 5000
@@ -196,6 +199,8 @@ function BatchContent() {
   const [regenTarget, setRegenTarget] = useState<AttributeRegenTarget | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [contentRefreshKey, setContentRefreshKey] = useState(0)
+  const [contentExporting, setContentExporting] = useState(false)
+  const [contentExportError, setContentExportError] = useState<string | null>(null)
 
   useEffect(() => {
     document.title = status
@@ -461,6 +466,28 @@ function BatchContent() {
     }
   }
 
+  async function handleContentDownload() {
+    if (!jobExternalId || contentExporting || status?.status !== 'COMPLETED') return
+    setContentExporting(true)
+    setContentExportError(null)
+    try {
+      const payload = await getJobContentExport(jobExternalId)
+      await downloadJobContentExport(payload)
+    } catch (error) {
+      let message = 'Could not download content. Please try again.'
+      if (axios.isAxiosError(error)) {
+        const detail = error.response?.data?.detail
+        if (typeof detail === 'string' && detail.trim()) message = detail
+        else if (error.message) message = error.message
+      } else if (error instanceof Error && error.message) {
+        message = error.message
+      }
+      setContentExportError(message)
+    } finally {
+      setContentExporting(false)
+    }
+  }
+
   function renderTextSection(attr: JobExpectedAttribute) {
     const slot = contentReady ? slotsByName(attributes, attr.name)[0] : undefined
     const rawValue = slot?.value ?? null
@@ -649,7 +676,33 @@ function BatchContent() {
                 {marketplaceName}
               </span>
             </div>
+            <button
+              type="button"
+              className="batch-content__content-download"
+              disabled={status?.status !== 'COMPLETED' || contentExporting}
+              onClick={() => void handleContentDownload()}
+            >
+              <svg
+                className="batch-content__content-download-icon"
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M8 2v8.5M8 10.5 5 7.5M8 10.5 11 7.5M3 13.5h10"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              {contentExporting ? 'Preparing…' : 'Download content'}
+            </button>
           </div>
+
+          {contentExportError ? <p className="batch-content__error">{contentExportError}</p> : null}
 
           <div className="batch-content__sku-bar">
             <div className="batch-content__sku-label">
