@@ -1,0 +1,126 @@
+# Cloud Build: fetch catalog-service secret → build/push images → deploy
+# Cloud Workflows → restart MIG VMs (startup pulls :latest).
+#
+# Secret (JSON with client + server sections), latest version:
+#   catalog-service
+#     .client → baked into client image via client/.env (build-time)
+#     .server → read on VM by instance startup (not SCP'd by deploy)
+#     .server.REGION is required — used for Artifact Registry, MIG, workflows,
+#     and the running server (no region hardcoded in this file).
+#     Do not put GOOGLE_CLOUD_PROJECT in the secret — ADC resolves it on GCE.
+#
+# Bash vars that are not Cloud Build substitutions must use $$ (e.g. $$REGION)
+# so the YAML substituter does not treat them as build.substitutions keys.
+#
+# Substitutions:
+#   _AR_REPO, _MIG_NAME
+#   _SECRET_NAME  (optional override; default catalog-service)
+#   Workflow executions use the default Compute Engine SA (grant it Secret Manager access).
+
+substitutions:
+  _AR_REPO: catalog-service
+  _MIG_NAME: catalog-service
+  _SECRET_NAME: catalog-service
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # 1) Pull env JSON from Secret Manager (must include server.REGION)
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: fetch-secrets
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        chmod +x scripts/fetch-secrets.sh scripts/read-dotenv-value.sh
+        export SECRET_NAME="${_SECRET_NAME}"
+        ./scripts/fetch-secrets.sh
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        echo "Using REGION=$${REGION} from Secret Manager"
+
+  # 2) Build client (Vite reads client/.env from secrets)
+  - name: gcr.io/cloud-builders/docker
+    id: build-client
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        IMAGE="$${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client"
+        docker build \
+          -t "$${IMAGE}:${SHORT_SHA}" \
+          -t "$${IMAGE}:latest" \
+          ./client
+    waitFor: [fetch-secrets]
+
+  # 3) Build server (runtime secrets are NOT baked into the image)
+  - name: gcr.io/cloud-builders/docker
+    id: build-server
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        IMAGE="$${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server"
+        docker build \
+          -t "$${IMAGE}:${SHORT_SHA}" \
+          -t "$${IMAGE}:latest" \
+          ./server
+    waitFor: [fetch-secrets]
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-client
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        docker push --all-tags \
+          "$${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-client"
+    waitFor: [build-client]
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-server
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        docker push --all-tags \
+          "$${REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/catalog-server"
+    waitFor: [build-server]
+
+  # 4) Deploy Cloud Workflows
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: deploy-workflows
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        chmod +x scripts/deploy-workflows.sh scripts/read-dotenv-value.sh
+        export PROJECT_ID="${PROJECT_ID}"
+        export REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        ./scripts/deploy-workflows.sh
+    waitFor: [fetch-secrets]
+
+  # 5) Restart MIG VMs; startup pulls :latest and loads server section of secret
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: deploy
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        chmod +x scripts/deploy-gce.sh scripts/read-dotenv-value.sh
+        export PROJECT_ID="${PROJECT_ID}"
+        export MIG_NAME="${_MIG_NAME}"
+        export REGION="$$(./scripts/read-dotenv-value.sh server/.env REGION)"
+        ./scripts/deploy-gce.sh
+    waitFor: [push-client, push-server]

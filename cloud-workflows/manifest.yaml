@@ -1,0 +1,10 @@
+# Explicit deploy list for scripts/deploy-workflows.sh.
+#
+# A YAML file sitting in cloud-workflows/ is NOT deployed until it has an entry
+# here — add one only when the workflow is ready to ship. This keeps a WIP or
+# experimental workflow file in this folder from being deployed by accident.
+#
+# id must match the corresponding _*_WORKFLOW constant in server/services/*.py.
+workflows:
+  - id: job-pipeline
+    source: job-pipeline.yaml

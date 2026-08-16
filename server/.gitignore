@@ -3,6 +3,14 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
-.env
 .mypy_cache/
 .ruff_cache/
+
+# Env (keep .env.example tracked)
+.env
+.env.local
+.env.*.local
+
+# Local generation run outputs (versioned comparison folders)
+output_latest/
+output/
