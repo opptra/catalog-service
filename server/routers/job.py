@@ -8,6 +8,7 @@ from core.deps import (
     BrandAccessDep,
     CatalogSessionDep,
     CurrentUserDep,
+    DropboxDep,
     GcsDep,
     OpenRouterDep,
     UserSessionDep,
@@ -24,6 +25,7 @@ from core.exceptions import (
     BrandNotFoundError,
     CategoryIntelligenceMissingError,
     CategoryNotFoundError,
+    DropboxError,
     FlatfileUploadIncompleteError,
     FlatfileValidationError,
     GcsError,
@@ -44,6 +46,7 @@ from dto.request.job import (
     RegenerateAttributeValueRequest,
     RestoreAttributeValueRequest,
 )
+from dto.response.content_export import JobContentExportResponse
 from dto.response.job import (
     CompleteFlatfileJobResponse,
     CompleteJobResponse,
@@ -59,6 +62,7 @@ from dto.response.job_status import (
 from dto.response.sku_generation_job import SkuGenerationJobExecutionResponse
 from entities.user_service.user import User
 from services import authorization
+from services import content_export as content_export_service
 from services import job as job_service
 
 # All job kinds live here. Kind-specific routes use a sub-prefix
@@ -317,6 +321,37 @@ def get_job_status(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return JobStatusResponse.model_validate(status)
+
+
+@router.get("/{external_id}/content-export", response_model=JobContentExportResponse)
+def export_job_content(
+    external_id: UUID,
+    user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+    user_session: UserSessionDep,
+    gcs: GcsDep,
+    dropbox: DropboxDep,
+) -> JobContentExportResponse:
+    """Export generated content for all SKUs (dynamic columns; images as Dropbox URLs)."""
+    _require_job_access(
+        user_session,
+        catalog_session,
+        actor=user,
+        job_external_id=external_id,
+    )
+    try:
+        payload = content_export_service.export_job_content(
+            catalog_session,
+            gcs,
+            dropbox,
+            external_id,
+        )
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (GcsError, DropboxError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return JobContentExportResponse.model_validate(payload)
 
 
 @router.post("", response_model=CreateJobResponse)

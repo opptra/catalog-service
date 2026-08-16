@@ -12,7 +12,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from core.clients.dropbox import DropboxClient
+from core.clients.dropbox import MAX_CONCURRENT_OPS, DropboxClient
 from core.clients.gcs import GcsClient
 from core.clients.openrouter import OpenRouterClient
 from core.exceptions import (
@@ -45,7 +45,9 @@ from utils import listing_workbook as workbook_utils
 
 logger = logging.getLogger(__name__)
 
-_LISTING_FILL_WORKERS = 10
+# SKU-level parallelism within a resolve stage (AI / enums / IMAGE). Dropbox
+# traffic is additionally hard-capped by DropboxClient.MAX_CONCURRENT_OPS (8).
+_LISTING_FILL_WORKERS = MAX_CONCURRENT_OPS
 _FILLED_FILE_SIGNED_URL_TTL_SECONDS = 3600
 _REFERENCE_IMAGE_URL_TTL_SECONDS = 3600
 _MAX_PRODUCT_IMAGE_URLS = 7
@@ -678,24 +680,26 @@ def _gs_to_dropbox_url(
 ) -> str:
     """Return a Dropbox URL for this attribute-value image.
 
-    Reuses an existing ``{external_id}/image.*`` file when present; otherwise
-    downloads from GCS and uploads.
+    Uses ``ensure_shared_url`` (shared-link lookup → upload on miss).
+    Folder key is the attribute-value external id.
     """
     folder = str(attribute_value_external_id)
-    existing = dropbox.existing_shared_url(folder)
-    if existing:
-        return existing
-
     object_name = gcs.object_name_from_gs_uri(gs_uri)
     if object_name is None:
         raise ListingFillError(f"Invalid image GCS URI: {gs_uri!r}")
-    data = gcs.download_bytes(object_name)
+
     ext = "png"
     lower = object_name.lower()
     for candidate in ("png", "jpg", "jpeg", "webp", "gif"):
         if lower.endswith(f".{candidate}"):
             ext = "jpg" if candidate == "jpeg" else candidate
             break
-    relative = f"{folder}/image.{ext}"
-    uploaded = dropbox.upload_bytes(data, relative)
-    return uploaded.shared_url
+
+    def _load() -> bytes:
+        return gcs.download_bytes(object_name)
+
+    return dropbox.ensure_shared_url(
+        relative_dir=folder,
+        filename=f"image.{ext}",
+        load_bytes=_load,
+    )

@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +21,10 @@ _CONTENT_BASE = "https://content.dropboxapi.com/2"
 _TOKEN_URL = "https://api.dropbox.com/oauth2/token"
 # Refresh a bit before Dropbox's expires_in so in-flight calls don't race expiry.
 _EXPIRY_SKEW_SECONDS = 60.0
+
+# Cap concurrent ensure/upload work across listing fill + content export.
+# Warm path is one list_shared_links; cold is upload + share.
+MAX_CONCURRENT_OPS = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +45,10 @@ class DropboxClient:
 
     Upload path is under ``root_path``; shared links are converted to direct
     ``dl=1`` URLs suitable for Amazon flat-file image cells.
+
+    ``ensure_shared_url`` is the product entry point: ``list_shared_links`` on the
+    deterministic path → upload only on miss. Concurrent ensures are capped by
+    ``max_concurrent_ops``.
     """
 
     def __init__(
@@ -50,9 +59,12 @@ class DropboxClient:
         refresh_token: str,
         root_path: str = "/catalog-service/listing-images",
         timeout: float = 120.0,
+        max_concurrent_ops: int = MAX_CONCURRENT_OPS,
     ) -> None:
         if not app_key or not app_secret or not refresh_token:
             raise ValueError("Dropbox app_key, app_secret, and refresh_token are required")
+        if max_concurrent_ops < 1:
+            raise ValueError("max_concurrent_ops must be >= 1")
         self._app_key = app_key
         self._app_secret = app_secret
         self._refresh_token = refresh_token
@@ -61,53 +73,61 @@ class DropboxClient:
         self._token_lock = threading.Lock()
         self._access_token: str | None = None
         self._access_token_expires_at: float = 0.0
+        self.max_concurrent_ops = max_concurrent_ops
+        self._op_semaphore = threading.Semaphore(max_concurrent_ops)
 
     def close(self) -> None:
         self._http.close()
 
-    def existing_shared_url(self, relative_dir: str) -> str | None:
-        """Return a ``dl=1`` shared URL if ``relative_dir`` already has an image file.
+    def ensure_shared_url(
+        self,
+        *,
+        relative_dir: str,
+        filename: str,
+        load_bytes: Callable[[], bytes],
+    ) -> str:
+        """Return a durable ``dl=1`` URL for ``{relative_dir}/{filename}``.
 
-        Looks under ``{root_path}/{relative_dir}/`` for ``image.*``. Missing folder
-        or empty folder is not an error — caller should upload.
+        Warm path (file+link already on Dropbox): one ``list_shared_links``.
+        Cold path: upload bytes, then create (or reuse) a shared link.
+
+        Dropbox does not return a shared URL from upload alone — link creation is
+        separate — but we do not ``list_folder`` first; the path is deterministic.
         """
         if not relative_dir:
             raise ValueError("relative_dir is required")
-        folder = f"{self._root_path}/{relative_dir.lstrip('/')}"
-        listed = self._request(
-            "POST",
-            f"{_API_BASE}/files/list_folder",
-            json_body={"path": folder},
-        )
-        if listed.status_code == 409:
-            return None
-        try:
-            listed.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise DropboxError(f"Dropbox list_folder failed for {folder!r}: {exc}") from exc
+        if not filename:
+            raise ValueError("filename is required")
+        path = f"{self._root_path}/{relative_dir.lstrip('/')}/{filename.lstrip('/')}"
 
-        entries: list[dict[str, Any]] = listed.json().get("entries") or []
-        for entry in entries:
-            if entry.get(".tag") != "file":
-                continue
-            name = str(entry.get("name") or "")
-            if not name.lower().startswith("image."):
-                continue
-            path = str(entry.get("path_display") or entry.get("path_lower") or "")
-            if not path:
-                path = f"{folder}/{name}"
-            return self._as_direct_url(self._ensure_shared_url(path))
-        return None
+        with self._op_semaphore:
+            existing = self._list_shared_link_url(path)
+            if existing:
+                return self._as_direct_url(existing)
+
+            data = load_bytes()
+            self._upload_bytes_at(path, data)
+            return self._as_direct_url(self._create_or_get_shared_link(path))
 
     def upload_bytes(
         self,
         data: bytes,
         relative_path: str,
     ) -> DropboxUploadedObject:
-        """Upload ``data`` and return a durable shared HTTPS URL (``dl=1``)."""
+        """Upload ``data`` and return a durable shared HTTPS URL (``dl=1``).
+
+        Prefer ``ensure_shared_url`` from product flows so existence is checked
+        without re-uploading.
+        """
         if not relative_path:
             raise ValueError("relative_path is required")
         path = f"{self._root_path}/{relative_path.lstrip('/')}"
+        with self._op_semaphore:
+            self._upload_bytes_at(path, data)
+            url = self._as_direct_url(self._create_or_get_shared_link(path))
+            return DropboxUploadedObject(path=path, shared_url=url)
+
+    def _upload_bytes_at(self, path: str, data: bytes) -> None:
         response = self._request(
             "POST",
             f"{_CONTENT_BASE}/files/upload",
@@ -129,11 +149,6 @@ class DropboxClient:
         except httpx.HTTPError as exc:
             raise DropboxError(f"Dropbox upload failed for {path!r}: {exc}") from exc
 
-        return DropboxUploadedObject(
-            path=path,
-            shared_url=self._as_direct_url(self._ensure_shared_url(path)),
-        )
-
     @staticmethod
     def _as_direct_url(shared_url: str) -> str:
         """Prefer a direct-download form Amazon can fetch without a preview page."""
@@ -143,50 +158,56 @@ class DropboxClient:
             direct = f"{direct}{sep}dl=1"
         return direct
 
-    def _ensure_shared_url(self, path: str) -> str:
-        """Create or reuse a public shared link for ``path``."""
-        try:
-            created = self._request(
-                "POST",
-                f"{_API_BASE}/sharing/create_shared_link_with_settings",
-                json_body={
-                    "path": path,
-                    "settings": {
-                        "requested_visibility": "public",
-                        "audience": "public",
-                        "access": "viewer",
-                    },
+    def _create_or_get_shared_link(self, path: str) -> str:
+        """Create a public shared link, or return the existing one on conflict."""
+        created = self._request(
+            "POST",
+            f"{_API_BASE}/sharing/create_shared_link_with_settings",
+            json_body={
+                "path": path,
+                "settings": {
+                    "requested_visibility": "public",
+                    "audience": "public",
+                    "access": "viewer",
                 },
-            )
-            if created.status_code == 200:
-                body = created.json()
-                url = body.get("url")
-                if isinstance(url, str) and url:
-                    return url
-            # already_exists → list existing links
-            if created.status_code == 409:
-                return self._existing_shared_url(path)
+            },
+        )
+        if created.status_code == 200:
+            body = created.json()
+            url = body.get("url")
+            if isinstance(url, str) and url:
+                return url
+        if created.status_code == 409:
+            existing = self._list_shared_link_url(path)
+            if existing:
+                return existing
+            raise DropboxError(f"No existing Dropbox shared link for {path!r}")
+        try:
             created.raise_for_status()
         except httpx.HTTPError as exc:
             raise DropboxError(f"Dropbox shared link failed for {path!r}: {exc}") from exc
         raise DropboxError(f"Dropbox shared link missing url for {path!r}")
 
-    def _existing_shared_url(self, path: str) -> str:
+    def _list_shared_link_url(self, path: str) -> str | None:
+        """Return an existing shared-link URL for ``path``, or None if missing."""
+        listed = self._request(
+            "POST",
+            f"{_API_BASE}/sharing/list_shared_links",
+            json_body={"path": path, "direct_only": True},
+        )
+        if listed.status_code == 409:
+            # path not found / not shared
+            return None
         try:
-            listed = self._request(
-                "POST",
-                f"{_API_BASE}/sharing/list_shared_links",
-                json_body={"path": path, "direct_only": True},
-            )
             listed.raise_for_status()
-            links: list[dict[str, Any]] = listed.json().get("links") or []
         except httpx.HTTPError as exc:
             raise DropboxError(f"Dropbox list_shared_links failed for {path!r}: {exc}") from exc
+        links: list[dict[str, Any]] = listed.json().get("links") or []
         for link in links:
             url = link.get("url")
             if isinstance(url, str) and url:
                 return url
-        raise DropboxError(f"No existing Dropbox shared link for {path!r}")
+        return None
 
     def _request(
         self,

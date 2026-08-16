@@ -82,6 +82,21 @@ function ListingExportPanel({ jobExternalId, enabled }: ListingExportPanelProps)
           disabled={!enabled || filling}
           onClick={() => void handleFill()}
         >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M8 2v8.5M8 10.5 5 7.5M8 10.5 11 7.5M3 13.5h10"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
           {filling ? 'Filling listing…' : result ? 'Download again' : 'Download listing file'}
         </button>
       </div>

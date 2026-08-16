@@ -166,6 +166,29 @@ export async function getJobStatus(jobExternalId: string): Promise<JobStatusResp
   return data
 }
 
+export interface JobContentExportColumn {
+  key: string
+  label: string
+  data_type: string
+}
+
+export interface JobContentExportResponse {
+  job_external_id: string
+  marketplace_external_id: string | null
+  marketplace_name: string | null
+  columns: JobContentExportColumn[]
+  rows: Array<Record<string, string | null>>
+}
+
+export async function getJobContentExport(
+  jobExternalId: string,
+): Promise<JobContentExportResponse> {
+  const { data } = await api.get<JobContentExportResponse>(
+    `/jobs/${jobExternalId}/content-export`,
+  )
+  return data
+}
+
 export async function getSkuGenerationJobContent(
   skuGenerationJobExternalId: string,
 ): Promise<SkuGenerationJobContentResponse> {
