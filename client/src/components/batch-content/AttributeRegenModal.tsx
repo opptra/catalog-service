@@ -93,6 +93,22 @@ function UndoIcon() {
   )
 }
 
+function PromptIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M5 6.25 7.25 8 5 9.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M8.5 10.25H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function parseBulletList(raw: string): string[] {
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -192,6 +208,18 @@ function ImagePreview({
   )
 }
 
+function PromptLog({ text }: { text: string }) {
+  return (
+    <aside className="attr-regen__prompt-log" aria-label="Regeneration prompt">
+      <div className="attr-regen__prompt-log-head">
+        <PromptIcon />
+        <p className="attr-regen__prompt-log-label">Prompt</p>
+      </div>
+      <blockquote className="attr-regen__prompt-log-text">{text}</blockquote>
+    </aside>
+  )
+}
+
 function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRegenModalProps) {
   const [phase, setPhase] = useState<Phase>('edit')
   const [improvement, setImprovement] = useState('')
@@ -265,6 +293,7 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
 
   const isImage = target.dataType === 'IMAGE'
   const dialogWide = phase === 'compare'
+  const promptLog = (generated?.prompt ?? improvement).trim()
 
   return (
     <div className="img-modal" role="presentation">
@@ -369,6 +398,7 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
             <p className="attr-regen__compare-lede">
               The new version is now current. Keep the previous version if you want to undo.
             </p>
+            {promptLog ? <PromptLog text={promptLog} /> : null}
             <div className={`attr-regen__compare${isImage ? '' : ' attr-regen__compare--text'}`}>
               {isImage ? (
                 <>
