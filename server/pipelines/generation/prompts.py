@@ -11,7 +11,7 @@ No hardcoded content or image templates: strategy and image direction are derive
 import json
 from dataclasses import dataclass
 
-from entities.catalog.attribute_enums import AttributeDataType, AttributeName
+from entities.catalog.attribute_enums import AttributeName
 from pipelines.generation import category, common_image, tools
 from pipelines.generation.context import GenerationContext
 
@@ -94,7 +94,7 @@ def attribute_rules(name: AttributeName) -> str:
 
 
 def image_on_canvas_copy_rules() -> str:
-    """Single source for shopper-facing on-image copy rules (plan + revise prompts)."""
+    """Single source for shopper-facing on-image copy rules (plan + regenerate prompts)."""
     return _IMAGE_ON_CANVAS_COPY_RULES
 
 
@@ -244,8 +244,9 @@ def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: i
     role palette from CI ``image_plan``. Aspect ratio and logo placement stay out of the
     model's job (fixed per attribute type in code; logo composited downstream).
 
-    Full Brand DNA is NOT included — use ``ctx.common_image_context`` (palette/mood +
-    category visual bits). Named Brand DNA fonts are not forced; typography stays free.
+    Full Brand DNA is NOT included — use ``ctx.common_image_context`` (chrome palette,
+    mood, look-to-match typography, category visual bits). Product color stays
+    authoritative; overlay slots honor type looks; heroes stay product-first.
     """
     brief = category.image_brief(ctx.category_intelligence, [name])
     type_label = (
@@ -256,8 +257,9 @@ def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: i
         if ctx.common_image_context
         else (
             "=== COMMON IMAGE CONTEXT ===\n"
-            "(missing — keep the set cohesive via mood/palette; choose typography freely; "
-            "never print font family names on the artwork)"
+            "(missing — keep the set cohesive via mood/palette; overlay slots use clean "
+            "readable sans; never print font family names on the artwork; never recolor "
+            "the product)"
         )
     )
     return (
@@ -265,9 +267,16 @@ def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: i
         f"Design a COHERENT {type_label} image set for ONE product. Produce EXACTLY {quantity} "
         f"image(s) for internal type {name.value} — count is fixed by the job; do not add, drop, "
         "or replace it with recommended_build. Use COMMON IMAGE CONTEXT and the attached "
-        "product image(s) so the set forms one connected, non-redundant series. Choose clean "
-        "readable typography freely (do not lock Brand DNA font names); keep cohesion via "
-        "palette, mood, and hierarchy — never print typeface names on the artwork.\n\n"
+        "product image(s) so the set forms one connected, non-redundant series. Product "
+        "color, pattern, material, and shape are authoritative — never recolor the SKU to "
+        "the brand palette. Brand palette is chrome only (panels, badges, icon chips, "
+        "headlines, captions, dividers), not every scene prop. Overlay slots (infographic, "
+        "features, care, fabric, size/fit) must match COMMON IMAGE CONTEXT typography "
+        "looks: headline on titles, supporting on body/callouts, dimension look only on "
+        "measurement numbers. Hero / packshot / primary images stay product-first with "
+        "little or no type. Do not put font family names in slot prompts — type lives in "
+        "COMMON IMAGE CONTEXT and is applied at render time; never print typeface names "
+        "on the artwork.\n\n"
         f"{_IMAGE_ON_CANVAS_COPY_RULES}\n\n"
         "ROLE PALETTE (image_plan when present):\n"
         f"- CATEGORY INTELLIGENCE.image_plan.{name.value} is the recommended role palette for "
@@ -310,9 +319,10 @@ def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: i
         "dimensions anywhere — the renderer uses a fixed ratio per image type, so compose for the "
         "subject and leave the canvas shape entirely to the system.\n\n"
         "Keep the whole set LINKED via one shared visual system that MUST incorporate COMMON "
-        "IMAGE CONTEXT palette, mood, and category norms so every image clearly belongs to the "
-        "same product and brand. Choose typography freely (no Brand DNA font lock-in); never "
-        "print font family names on the artwork. Use product facts ONLY from "
+        "IMAGE CONTEXT chrome palette, mood, typography looks, and category norms so every "
+        "image clearly belongs to the same product and brand. Overlay slots use those type "
+        "looks; heroes stay product-first. Never print font family names on the artwork. "
+        "Use product facts ONLY from "
         "PRODUCT DATA; if a helpful detail is missing, stay neutral — never fabricate. The real "
         "product reference image(s) are also supplied to the image model at render time.\n\n"
         f"{_RULES}\n\n"
@@ -361,44 +371,53 @@ def _brand_block(brand_dna: str) -> str:
     return f"=== BRAND DNA (voice, personality, guardrails, restricted claims) ===\n{brand_dna}"
 
 
-def revise_generation_prompt(
+def text_regeneration_parts(
+    ctx: GenerationContext,
+    name: AttributeName,
     *,
-    data_type: AttributeDataType,
-    attribute_name: AttributeName,
-    previous_prompt: str,
+    origin_brief: str,
     current_value: str,
     improvement: str,
-) -> str:
-    """Ask the prompt model to produce a revised generation prompt from user feedback."""
-    kind = "image" if data_type == AttributeDataType.IMAGE else "text"
-    current_block = (
-        "CURRENT OUTPUT: an image is attached as vision input (the latest generated result)."
-        if data_type == AttributeDataType.IMAGE
-        else f"CURRENT OUTPUT (text):\n{current_value}"
+) -> PromptParts:
+    """Regenerate from v1 brief + current copy + this user note. Product/brand are reloaded.
+
+    Does not send full category intelligence — v1 already translated that into the brief.
+    Does not stack older user notes; current_value already reflects them.
+    """
+    prefix = f"{_RULES}\n\n{_product_block(ctx.product)}\n\n{_brand_block(ctx.brand_dna)}"
+    rules_block = _attribute_rules_block([name])
+    suffix = (
+        "You are an expert marketplace copywriter. Regenerate this attribute in place.\n"
+        "Keep the ORIGINAL BRIEF as the creative direction. Apply ONLY the REQUESTED CHANGE "
+        "to the CURRENT OUTPUT. Leave everything else that still fits the brief unchanged. "
+        "Do not invent product facts — PRODUCT DATA is the only source of facts. "
+        "Do not rewrite the original brief; produce the new attribute value.\n\n"
+        + (f"{rules_block}\n\n" if rules_block else "")
+        + f"ORIGINAL BRIEF:\n{origin_brief}\n\n"
+        f"CURRENT OUTPUT:\n{current_value}\n\n"
+        f"REQUESTED CHANGE:\n{improvement.strip()}\n\n"
+        f"{_text_tool_instruction([name])}"
     )
+    return PromptParts(prefix=prefix, suffix=suffix)
+
+
+def image_regeneration_addendum(
+    ctx: GenerationContext,
+    *,
+    improvement: str,
+) -> str:
+    """User note + product facts appended at regen. Original slot brief is passed separately.
+
+    Common image context and render rules are attached to the v1 brief at send time.
+    """
     return (
-        f"You revise marketplace {kind}-generation prompts. Attribute: {attribute_name.value}.\n"
-        "Combine the PREVIOUS PROMPT with the USER IMPROVEMENT into one complete, standalone "
-        f"{kind}-generation prompt that will be sent to the model as-is.\n"
-        "Keep everything that still applies from the previous prompt. Apply the user's requested "
-        "changes precisely. Do not invent product facts. Do not mention aspect ratio or brand-logo "
-        "placement (those are handled elsewhere).\n"
-        + (
-            f"{image_on_canvas_copy_rules()}\n\n"
-            "Preserve these on-image copy rules in the revised prompt unless the user explicitly "
-            "requests internal/module labels on the artwork (they should not).\n"
-            "If the PREVIOUS PROMPT contains an === COMMON IMAGE CONTEXT === block, preserve "
-            "palette/mood/category norms, but do NOT reintroduce or invent named Brand DNA "
-            "typefaces. Never instruct the image model to print font family names on the "
-            "artwork.\n"
-            if data_type == AttributeDataType.IMAGE
-            else ""
-        )
-        + (
-            "When finished, call the submit_revised_prompt tool with the final prompt "
-            "string — do not write the prompt as free-form JSON in the message body.\n\n"
-        )
-        + f"PREVIOUS PROMPT:\n{previous_prompt}\n\n"
-        + f"{current_block}\n\n"
-        + f"USER IMPROVEMENT:\n{improvement.strip()}"
+        "=== REGENERATION (apply this change; do not ignore the original brief) ===\n"
+        "The first attached image is the CURRENT OUTPUT. Keep its composition, product "
+        "identity, and everything that still matches the original brief. Apply ONLY the "
+        "requested change below. Remaining attached images are the real product "
+        "(colour/shape/material truth). Product facts come ONLY from PRODUCT DATA — "
+        "never invent details.\n\n"
+        f"REQUESTED CHANGE:\n{improvement.strip()}\n\n"
+        f"{_product_block(ctx.product)}\n\n"
+        f"{_reference_photos_note(ctx.product_image_urls)}"
     )

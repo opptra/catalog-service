@@ -8,9 +8,10 @@ are signed GCS HTTPS URLs for the SKU's source photos under
 ``products/{sku_id}/assets/images/``.
 
 For image jobs, ``common_image_context`` holds a once-per-job distill of Brand DNA +
-category visual norms (palette, mood, on-image text rules) reused on every
-plan/render/regenerate call — never a full DNA/CI dump. Named Brand DNA fonts are
-not included; typography stays free for the image model.
+category visual norms reused on every plan/render/regenerate call — never a full
+DNA/CI dump. Product owns SKU color/pattern; DNA owns overlay chrome (type looks,
+panel/badge colors); category intelligence owns slot recipe. Font family names are
+look-to-match only and must never be printed on the artwork.
 """
 
 from dataclasses import dataclass, field
@@ -23,7 +24,7 @@ class GenerationContext:
     category_intelligence: dict[str, Any]
     brand_dna: str
     product_image_urls: list[str] = field(default_factory=list)
-    # Distilled once for image jobs: palette/mood + category visual norms.
-    # Named Brand DNA fonts are not forced — typography stays free for the image model.
+    # Distilled once for image jobs: chrome palette/mood/typography + category visual norms.
+    # Product color is authoritative; DNA type is look-to-match on overlays only.
     # Never a dump of full Brand DNA or full Category Intelligence.
     common_image_context: dict[str, Any] | None = None
