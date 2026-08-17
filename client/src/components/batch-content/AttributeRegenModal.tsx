@@ -27,7 +27,7 @@ interface AttributeRegenModalProps {
   open: boolean
   target: AttributeRegenTarget | null
   onClose: () => void
-  /** Called after a successful use-new or keep-previous so the page can refresh content. */
+  /** Called after keep-previous or when leaving compare so the page can refresh content. */
   onApplied: () => void
 }
 
@@ -63,6 +63,27 @@ function RefreshIcon() {
       />
       <path
         d="M13.2 6A5.5 5.5 0 1 0 12.4 11.2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function UndoIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M2.5 5v4h4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13.5 11.5A5.5 5.5 0 0 0 8 6a5.5 5.5 0 0 0-4.2 1.9L2.5 9"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
@@ -228,12 +249,6 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
     }
   }
 
-  function handleUseNew() {
-    setChoosing(false)
-    onApplied()
-    onClose()
-  }
-
   async function handleKeepPrevious() {
     if (target == null || previous == null) return
     setChoosing(true)
@@ -352,7 +367,7 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
         {phase === 'compare' && previous != null && generated != null ? (
           <>
             <p className="attr-regen__compare-lede">
-              Side-by-side comparison. Choose which version should stay as current.
+              The new version is now current. Keep the previous version if you want to undo.
             </p>
             <div className={`attr-regen__compare${isImage ? '' : ' attr-regen__compare--text'}`}>
               {isImage ? (
@@ -398,15 +413,8 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                 onClick={() => void handleKeepPrevious()}
                 disabled={choosing}
               >
+                <UndoIcon />
                 Keep previous
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleUseNew}
-                disabled={choosing}
-              >
-                Use new
               </button>
             </div>
           </>
