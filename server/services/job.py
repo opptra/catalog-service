@@ -124,7 +124,7 @@ def _localized_regenerate_bytes(
     """Download the source raster and composite the candidate; I/O stays out of localize.py."""
     object_name = gcs.object_name_from_gs_uri(source_gs_uri)
     if object_name is None:
-        raise LocalizationImpossibleError("source image URI is not a GCS object")
+        raise AttributeValueRegenerationError("source image URI is not a GCS object")
     return localize_image(gcs.download_bytes(object_name), candidate_bytes)
 
 

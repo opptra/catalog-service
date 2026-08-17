@@ -7,6 +7,8 @@ from PIL import Image, ImageChops, ImageFilter
 _MAX_CHANNEL_DELTA = 20
 _ON_FRACTION_CEILING = 0.35
 _MORPH_SIZE = 3
+_THRESHOLD_LUT = [255 if i >= _MAX_CHANNEL_DELTA else 0 for i in range(256)]
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 LOCALIZE_FAIL_MESSAGE = (
     "This change could not be kept local to your notes. Try a more specific object "
@@ -34,7 +36,11 @@ def localize_image(source_bytes: bytes, candidate_bytes: bytes) -> bytes:
     if on_fraction > _ON_FRACTION_CEILING:
         raise LocalizationImpossibleError(LOCALIZE_FAIL_MESSAGE)
     if on_fraction == 0.0:
-        return source_bytes
+        # Identity PNG can keep original bytes; JPEG (and other) sources must
+        # still be PNG because regenerate always uploads image/png.
+        if source_bytes.startswith(_PNG_MAGIC):
+            return source_bytes
+        return _encode_png(source)
 
     composited = Image.composite(candidate, source, mask)
     return _encode_png(composited)
@@ -54,15 +60,16 @@ def _binary_mask(source: Image.Image, candidate: Image.Image) -> Image.Image:
     max_delta = bands[0]
     for band in bands[1:]:
         max_delta = ImageChops.lighter(max_delta, band)
-    thresholded = max_delta.point(lambda value: 255 if value >= _MAX_CHANNEL_DELTA else 0)
+    thresholded = max_delta.point(_THRESHOLD_LUT)
+    if _on_fraction(thresholded) == 0.0:
+        return thresholded
     # Close then open to drop speckle without feathering the seam.
     closed = thresholded.filter(ImageFilter.MaxFilter(_MORPH_SIZE)).filter(
         ImageFilter.MinFilter(_MORPH_SIZE)
     )
-    opened = closed.filter(ImageFilter.MinFilter(_MORPH_SIZE)).filter(
+    return closed.filter(ImageFilter.MinFilter(_MORPH_SIZE)).filter(
         ImageFilter.MaxFilter(_MORPH_SIZE)
     )
-    return opened.convert("L")
 
 
 def _on_fraction(mask: Image.Image) -> float:

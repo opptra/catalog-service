@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from core.exceptions import AttributeValueRegenerationError
-from entities.catalog.attribute_enums import AttributeDataType, AttributeName
+from entities.catalog.attribute_enums import AttributeDataType, AttributeName, JobType
 from pipelines.generation import prompts, regenerate
 from pipelines.generation.images import ImageGeneration
 from pipelines.generation.localize import LOCALIZE_FAIL_MESSAGE, LocalizationImpossibleError
@@ -17,6 +17,14 @@ from services import job as job_service
 def _png(color: tuple[int, int, int], size: tuple[int, int] = (16, 16)) -> bytes:
     buffer = BytesIO()
     Image.new("RGB", size, color).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _png_local_rect() -> bytes:
+    candidate = Image.new("RGB", (16, 16), (200, 50, 40))
+    candidate.paste((20, 20, 180), (4, 4, 12, 12))
+    buffer = BytesIO()
+    candidate.save(buffer, format="PNG")
     return buffer.getvalue()
 
 
@@ -43,11 +51,7 @@ class _FakeGcs:
 
 def test_localized_regenerate_bytes_returns_composite_not_candidate():
     source = _png((200, 40, 40))
-    candidate_image = Image.new("RGB", (16, 16), (200, 50, 40))
-    candidate_image.paste((20, 20, 180), (4, 4, 12, 12))
-    candidate_buf = BytesIO()
-    candidate_image.save(candidate_buf, format="PNG")
-    candidate = candidate_buf.getvalue()
+    candidate = _png_local_rect()
 
     gcs = _FakeGcs({"images/source.png": source})
     result = job_service._localized_regenerate_bytes(
@@ -111,11 +115,7 @@ def test_regenerate_image_prompt_gets_keep_frame_not_via_shared_suffix(monkeypat
 
 def test_regenerate_attribute_value_persists_composite_and_skips_on_fail(monkeypatch):
     source = _png((200, 40, 40))
-    local_candidate = Image.new("RGB", (16, 16), (200, 50, 40))
-    local_candidate.paste((20, 20, 180), (4, 4, 12, 12))
-    candidate_buf = BytesIO()
-    local_candidate.save(candidate_buf, format="PNG")
-    local_bytes = candidate_buf.getvalue()
+    local_bytes = _png_local_rect()
     global_bytes = _png((10, 200, 10))
 
     latest = SimpleNamespace(
@@ -136,7 +136,7 @@ def test_regenerate_attribute_value_persists_composite_and_skips_on_fail(monkeyp
     )
     sku_job = SimpleNamespace(id=2, job_id=4, sku_id=5, external_id=uuid4())
     job = SimpleNamespace(
-        job_type="GENERATION",
+        job_type=JobType.GENERATION.value,
         marketplace_id=uuid4(),
         brand_id=uuid4(),
         external_id=uuid4(),
@@ -179,6 +179,7 @@ def test_regenerate_attribute_value_persists_composite_and_skips_on_fail(monkeyp
     )
     assert persist.call_count == 1
     assert gcs.uploads[0][2] == "image/png"
+    assert gcs.uploads[0][0].startswith(b"\x89PNG")
     assert gcs.uploads[0][0] != local_bytes
     assert result["version"] == 2
 
@@ -189,7 +190,7 @@ def test_regenerate_attribute_value_persists_composite_and_skips_on_fail(monkeyp
         return ImageGeneration(content=global_bytes, content_type="image/jpeg", prompt="revised")
 
     monkeypatch.setattr(job_service.regenerate, "regenerate_image", _regen_global)
-    with pytest.raises(AttributeValueRegenerationError, match="could not be kept local"):
+    with pytest.raises(AttributeValueRegenerationError, match=LOCALIZE_FAIL_MESSAGE):
         job_service.regenerate_attribute_value(
             MagicMock(),
             client,
@@ -220,7 +221,7 @@ def test_text_regenerate_does_not_call_localize(monkeypatch):
     )
     sku_job = SimpleNamespace(id=2, job_id=4, sku_id=5, external_id=uuid4())
     job = SimpleNamespace(
-        job_type="GENERATION",
+        job_type=JobType.GENERATION.value,
         marketplace_id=uuid4(),
         brand_id=uuid4(),
         external_id=uuid4(),
@@ -263,4 +264,3 @@ def test_text_regenerate_does_not_call_localize(monkeypatch):
     localize.assert_not_called()
     persist.assert_called_once()
     assert result["value"] == "New title"
-    assert LOCALIZE_FAIL_MESSAGE

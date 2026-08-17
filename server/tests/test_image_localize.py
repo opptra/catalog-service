@@ -49,6 +49,18 @@ def test_identical_images_return_original_source_bytes():
     assert localize_image(source_bytes, source_bytes) == source_bytes
 
 
+def test_identical_jpeg_source_returns_png_bytes():
+    buffer = BytesIO()
+    _solid((16, 16), (12, 34, 56)).save(buffer, format="JPEG", quality=90)
+    jpeg_bytes = buffer.getvalue()
+    assert jpeg_bytes[:2] == b"\xff\xd8"
+
+    result = localize_image(jpeg_bytes, jpeg_bytes)
+    assert result.startswith(b"\x89PNG")
+    with Image.open(BytesIO(jpeg_bytes)) as source:
+        assert _pixels(result) == list(source.convert("RGB").getdata())
+
+
 def test_size_mismatch_resizes_candidate_then_localizes_rectangle():
     source = _solid((32, 32), (10, 10, 10))
     candidate = _solid((16, 16), (10, 10, 10))
