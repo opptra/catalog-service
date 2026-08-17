@@ -72,7 +72,7 @@ from utils import flatfile as flatfile_utils
 logger = logging.getLogger(__name__)
 
 # Cloud Workflows resource id — must match the id in cloud-workflows/manifest.yaml.
-_JOB_PIPELINE_WORKFLOW = "workflow-1"
+_JOB_PIPELINE_WORKFLOW = "job-pipeline"
 
 # Cap concurrent OpenRouter image calls. Slots are independent after planning; text + gallery
 # planning stay sequential.
