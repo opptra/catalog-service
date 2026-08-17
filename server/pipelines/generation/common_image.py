@@ -28,6 +28,8 @@ def extract(
     client: OpenRouterClient,
     ctx: GenerationContext,
     names: list[AttributeName],
+    *,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Build one common image-context JSON from Brand DNA + category CI.
 
@@ -44,6 +46,7 @@ def extract(
             model=settings.openrouter_prompt_model,
             tool=tools.COMMON_IMAGE_CONTEXT_TOOL,
             max_tokens=_EXTRACT_MAX_TOKENS,
+            session_id=session_id,
         )
         common = _normalize(parsed)
         if common.get("mood") or common.get("category"):
