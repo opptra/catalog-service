@@ -1,7 +1,8 @@
 """Regenerate a single attribute value from user improvement notes.
 
-Flow: load previous prompt + current value → revise prompt → re-render (image or text)
-→ persist a new version under the same value ``external_id``.
+v1 stored prompt is the unique brief (slot render brief or text strategy). Later versions
+store only this regen's user note. Each regen sends: reloaded product context + v1 brief +
+current output + this note — never a stack of older notes.
 """
 
 import json
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 
 from core.clients.openrouter import OpenRouterClient, ReferenceImage
 from core.config import settings
-from entities.catalog.attribute_enums import AttributeDataType, AttributeName
+from entities.catalog.attribute_enums import AttributeName
 from pipelines.generation import prompts, tools
 from pipelines.generation.context import GenerationContext
 from pipelines.generation.images import (
@@ -18,13 +19,9 @@ from pipelines.generation.images import (
     ImageGeneration,
     _normalize_aspect_ratio,
     _references,
+    render_prompt_from_brief,
     resolve_image_model,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class RevisedPrompt:
-    prompt: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,55 +30,26 @@ class TextRegeneration:
     prompt: str
 
 
-def revise_prompt(
-    client: OpenRouterClient,
-    *,
-    data_type: AttributeDataType,
-    attribute_name: AttributeName,
-    previous_prompt: str,
-    current_value: str,
-    improvement: str,
-    image_urls: list[str] | None = None,
-    session_id: str | None = None,
-) -> RevisedPrompt:
-    """Calibrate ``previous_prompt`` with the user's improvement into a new generation prompt."""
-    revision_prompt = prompts.revise_generation_prompt(
-        data_type=data_type,
-        attribute_name=attribute_name,
-        previous_prompt=previous_prompt,
-        current_value=current_value,
-        improvement=improvement,
-    )
-    parsed = client.call_tool(
-        revision_prompt,
-        model=settings.openrouter_prompt_model,
-        tool=tools.REVISE_PROMPT_TOOL,
-        image_urls=image_urls or None,
-        session_id=session_id,
-    )
-    prompt = parsed.get("prompt")
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError("Prompt revision returned an empty prompt")
-    return RevisedPrompt(prompt=prompt.strip())
-
-
 def regenerate_image(
     client: OpenRouterClient,
     ctx: GenerationContext,
     *,
-    image_prompt: str,
+    origin_brief: str,
+    improvement: str,
     aspect_ratio: str,
     current_image_url: str,
     session_id: str | None = None,
 ) -> ImageGeneration:
-    """Re-render with the revised prompt, using the current output as a primary reference."""
-    image_prompt = prompts.ensure_image_render_suffix(image_prompt)
+    """Re-render from v1 brief + current image + this user note + product refs."""
+    base = render_prompt_from_brief(ctx, origin_brief)
+    addendum = prompts.image_regeneration_addendum(ctx, improvement=improvement)
+    image_prompt = f"{base}\n\n{addendum}"
     references = [
         ReferenceImage(
             url=current_image_url,
             label=(
                 "CURRENT OUTPUT — the image the user wants improved. Preserve product identity "
-                "and overall composition unless the revised prompt explicitly changes them."
+                "and overall composition unless the requested change explicitly requires it."
             ),
         ),
         *_references(ctx),
@@ -89,7 +57,6 @@ def regenerate_image(
     model = settings.openrouter_image_model
     render_fn = resolve_image_model(model)
 
-    # GPT Images API ignores per-reference labels; fold role context into the prompt.
     if render_fn.__name__ == "render_gpt":
         labeled_prompt = (
             f"{image_prompt}\n\n"
@@ -106,7 +73,7 @@ def regenerate_image(
         return ImageGeneration(
             content=image.content,
             content_type=image.content_type,
-            prompt=image_prompt,
+            prompt=improvement.strip(),
         )
 
     image = client.generate_gemini_image(
@@ -119,35 +86,42 @@ def regenerate_image(
     return ImageGeneration(
         content=image.content,
         content_type=image.content_type,
-        prompt=image_prompt,
+        prompt=improvement.strip(),
     )
 
 
 def regenerate_text(
     client: OpenRouterClient,
+    ctx: GenerationContext,
     *,
     name: AttributeName,
-    revised_prompt: str,
+    origin_brief: str,
+    current_value: str,
+    improvement: str,
     session_id: str | None = None,
 ) -> TextRegeneration:
-    """Generate a single text attribute from the revised prompt via a forced tool call.
-
-    Soft length targets are on the tool; hard char caps are fitted after the call.
-    """
+    """Regenerate from v1 brief + current copy + this user note. Persist the note only."""
+    parts = prompts.text_regeneration_parts(
+        ctx,
+        name,
+        origin_brief=origin_brief,
+        current_value=current_value,
+        improvement=improvement,
+    )
     tool = tools.text_attributes_tool([name])
     parsed = client.call_tool(
-        revised_prompt,
+        parts.suffix,
         model=settings.openrouter_text_model,
         tool=tool,
+        cache_prefix=parts.prefix,
         session_id=session_id,
     )
     raw = parsed.get(name.value)
     if raw is None:
         raise ValueError(f"Text regeneration missing attribute: {name.value}")
     fitted = tools.apply_text_limits(name, raw)
-    # List attributes persist as JSON arrays (same storage form as first generation).
     if name in tools.LIST_TEXT_ATTRIBUTES:
         value = json.dumps(fitted if isinstance(fitted, list) else [], ensure_ascii=False)
     else:
         value = str(fitted)
-    return TextRegeneration(value=value, prompt=revised_prompt)
+    return TextRegeneration(value=value, prompt=improvement.strip())

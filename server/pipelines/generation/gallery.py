@@ -13,7 +13,7 @@ from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from core.exceptions import GalleryPlanError
 from entities.catalog.attribute_enums import AttributeName
-from pipelines.generation import common_image, prompts, tools
+from pipelines.generation import prompts, tools
 from pipelines.generation.context import GenerationContext
 
 logger = logging.getLogger(__name__)
@@ -63,12 +63,7 @@ def plan(
             max_tokens=_plan_max_tokens(quantity),
             session_id=session_id,
         )
-        planned = _index_plan(
-            parsed,
-            name=name,
-            quantity=quantity,
-            common_image_context=ctx.common_image_context,
-        )
+        planned = _index_plan(parsed, name=name, quantity=quantity)
     except GalleryPlanError:
         raise
     except Exception as exc:
@@ -96,13 +91,15 @@ def _index_plan(
     *,
     name: AttributeName,
     quantity: int,
-    common_image_context: dict[str, Any] | None = None,
 ) -> dict[tuple[AttributeName, int], SlotPlan]:
     """Index slots 1..quantity for a single attribute type from the tool payload.
 
     Prefer the model's ``slot`` when it is a unique int in 1..quantity; otherwise assign by
     order of appearance so a slight numbering slip does not orphan the plan. Entries for any
     other type are ignored (the tool schema already locks type).
+
+    Stored prompt is the unique slot brief (+ shared style). Common image context and
+    render-rule suffix are applied at render time, not persisted.
     """
     shared_style = parsed.get("shared_style") or ""
     raw_slots = parsed.get("slots")
@@ -146,9 +143,6 @@ def _index_plan(
         full_prompt = entry["prompt"].strip()
         if shared_style:
             full_prompt = f"{full_prompt}\n\nShared visual system (keep consistent): {shared_style}"
-        full_prompt = common_image.ensure_in_prompt(full_prompt, common_image_context)
-        # Single source for logo ban + shopper-facing copy rules (prompts.py).
-        full_prompt = prompts.ensure_image_render_suffix(full_prompt)
         indexed[(name, slot)] = SlotPlan(
             name=name,
             slot=slot,

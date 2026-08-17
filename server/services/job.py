@@ -1283,6 +1283,13 @@ def get_sku_generation_job_content(
     }
 
 
+def _origin_brief(session: Session, value_external_id: UUID, latest_prompt: str) -> str:
+    """v1 stored prompt is the unique generation brief; later rows are user notes only."""
+    origin = attribute_value_repo.get_by_external_id_and_version(session, value_external_id, 1)
+    brief = (origin.prompt or "").strip() if origin is not None else ""
+    return brief or latest_prompt
+
+
 def regenerate_attribute_value(
     session: Session,
     client: OpenRouterClient,
@@ -1291,19 +1298,19 @@ def regenerate_attribute_value(
     value_external_id: UUID,
     improvement: str,
 ) -> dict[str, Any]:
-    """Revise the stored prompt with user notes, regenerate, and insert a new version.
+    """Regenerate from v1 brief + current output + this user note; insert a new version.
 
-    Keeps the same ``external_id`` and bumps ``version``. IMAGE regenerations attach the
-    current output (plus product references); TEXT regenerations use the current copy.
+    Persists only the user note as this version's prompt. Reloads product context;
+    does not stack older notes. Keeps the same ``external_id`` and bumps ``version``.
     """
     latest = attribute_value_repo.get_latest_by_external_id(session, value_external_id)
     if latest is None:
         raise AttributeValueNotFoundError(f"attribute value not found: {value_external_id}")
 
-    previous_prompt = (latest.prompt or "").strip()
-    if not previous_prompt:
+    origin_brief = _origin_brief(session, value_external_id, (latest.prompt or "").strip())
+    if not origin_brief:
         raise AttributeValuePromptMissingError(
-            f"attribute value {value_external_id} has no stored prompt to revise"
+            f"attribute value {value_external_id} has no stored v1 prompt to regenerate"
         )
 
     improvement_text = improvement.strip()
@@ -1349,10 +1356,6 @@ def regenerate_attribute_value(
         else None
     )
 
-    current_image_url: str | None = None
-    current_value_for_revision = latest.value
-    revision_image_urls: list[str] | None = None
-
     if data_type == AttributeDataType.IMAGE:
         if not latest.value.startswith("gs://"):
             raise AttributeValueRegenerationError(
@@ -1361,35 +1364,16 @@ def regenerate_attribute_value(
         current_image_url = gcs.signed_url_for_gs_uri(
             latest.value, expiration_seconds=_SIGNED_URL_TTL_SECONDS
         )
-        current_value_for_revision = "(current generated image attached)"
-        revision_image_urls = [current_image_url]
-
-    try:
-        revised = regenerate.revise_prompt(
-            client,
-            data_type=data_type,
-            attribute_name=name,
-            previous_prompt=previous_prompt,
-            current_value=current_value_for_revision,
-            improvement=improvement_text,
-            image_urls=revision_image_urls,
-            session_id=session_id,
-        )
-    except Exception as exc:  # noqa: BLE001 — surface as domain error
-        raise AttributeValueRegenerationError(f"prompt revision failed: {exc}") from exc
-
-    if data_type == AttributeDataType.IMAGE:
-        assert current_image_url is not None
-        # Preserve distilled common context (palette/mood/category norms) across regen.
-        common = common_image.parse_common_from_prompt(previous_prompt)
+        common = common_image.parse_common_from_prompt(origin_brief)
         if common is None:
             common = common_image.extract(client, ctx, [name], session_id=session_id)
-        image_prompt = common_image.ensure_in_prompt(revised.prompt, common)
+        ctx = replace(ctx, common_image_context=common)
         try:
             generation = regenerate.regenerate_image(
                 client,
                 ctx,
-                image_prompt=image_prompt,
+                origin_brief=origin_brief,
+                improvement=improvement_text,
                 aspect_ratio=_aspect_ratio_for(name),
                 current_image_url=current_image_url,
                 session_id=session_id,
@@ -1412,7 +1396,7 @@ def regenerate_attribute_value(
                 name=name.value,
                 slot=latest.slot,
                 value=uploaded.gs_uri,
-                prompt=image_prompt,
+                prompt=generation.prompt,
             )
             signed = gcs.signed_url_for_gs_uri(
                 uploaded.gs_uri, expiration_seconds=_SIGNED_URL_TTL_SECONDS
@@ -1426,7 +1410,7 @@ def regenerate_attribute_value(
                 "version": persisted["version"],
                 "value": signed,
                 "value_is_signed_url": True,
-                "prompt": image_prompt,
+                "prompt": generation.prompt,
             }
         except AttributeValueRegenerationError:
             raise
@@ -1436,8 +1420,11 @@ def regenerate_attribute_value(
     try:
         text_result = regenerate.regenerate_text(
             client,
+            ctx,
             name=name,
-            revised_prompt=revised.prompt,
+            origin_brief=origin_brief,
+            current_value=latest.value,
+            improvement=improvement_text,
             session_id=session_id,
         )
         persisted = _persist_attribute_value(

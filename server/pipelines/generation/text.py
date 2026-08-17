@@ -13,7 +13,13 @@ from pipelines.generation.context import GenerationContext
 @dataclass(frozen=True, slots=True)
 class TextGeneration:
     values: dict[str, Any]
-    prompt: str  # full generation prompt as sent to the model
+    prompt: str  # unique brief persisted as v1 (strategy, not product/brand prefix)
+
+
+_KEY_FEATURES_V1_BRIEF = (
+    "Condense this SKU's already-written Description and Bullet Points into Amazon "
+    "Key Product Features."
+)
 
 
 def generate_attribute(
@@ -23,11 +29,12 @@ def generate_attribute(
     *,
     session_id: str | None = None,
 ) -> TextGeneration:
-    """Generate a single text attribute and return its value with the as-sent generation prompt.
+    """Generate a single text attribute and return its value with the unique v1 brief.
 
     Step 1 derives a content strategy for this attribute. Step 2 writes the attribute via a forced
-    tool call. Shared product/brand/rules context is sent as a cacheable prefix when supported.
-    Soft length targets are on the tool descriptions; hard char caps are fitted after the call.
+    tool call. Shared product/brand/rules context is sent as a cacheable prefix when supported
+    and is not persisted. Soft length targets are on the tool descriptions; hard char caps are
+    fitted after the call.
     """
     names = [name]
     strategy_parts = prompts.text_strategy_parts(ctx, names)
@@ -39,7 +46,8 @@ def generate_attribute(
     )
 
     generation_parts = prompts.text_generation_parts(ctx, names, strategy)
-    return _generate_via_tool(client, name, generation_parts, session_id=session_id)
+    result = _generate_via_tool(client, name, generation_parts, session_id=session_id)
+    return TextGeneration(values=result.values, prompt=strategy.strip())
 
 
 def generate_key_features(
@@ -58,7 +66,8 @@ def generate_key_features(
     generation_parts = prompts.key_features_parts(
         ctx, description=description, bullet_points=bullet_points
     )
-    return _generate_via_tool(client, name, generation_parts, session_id=session_id)
+    result = _generate_via_tool(client, name, generation_parts, session_id=session_id)
+    return TextGeneration(values=result.values, prompt=_KEY_FEATURES_V1_BRIEF)
 
 
 def _generate_via_tool(

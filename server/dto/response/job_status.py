@@ -71,7 +71,7 @@ class SkuGenerationJobAttributeSlotResponse(BaseModel):
     # Text content, or a signed HTTPS URL for IMAGE attributes.
     value: str | None = None
     value_is_signed_url: bool = False
-    # Exact generation prompt for this value version (null for older rows).
+    # Unique brief for this version (v1 = slot/strategy brief; later = this regen's user note).
     prompt: str | None = None
 
 
