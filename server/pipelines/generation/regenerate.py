@@ -73,6 +73,7 @@ def regenerate_image(
 ) -> ImageGeneration:
     """Re-render with the revised prompt, using the current output as a primary reference."""
     image_prompt = prompts.ensure_image_render_suffix(image_prompt)
+    image_prompt = prompts.ensure_image_edit_keep_frame(image_prompt)
     references = [
         ReferenceImage(
             url=current_image_url,

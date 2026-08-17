@@ -113,6 +113,29 @@ def ensure_image_render_suffix(prompt: str) -> str:
     return f"{stripped}\n\n{image_render_prompt_suffix()}"
 
 
+_IMAGE_EDIT_KEEP_FRAME_MARKER = "=== IMAGE EDIT KEEP FRAME ==="
+_IMAGE_EDIT_KEEP_FRAME_RULES = (
+    "Change only the user-requested region. Do not restyle, resharpen, or otherwise "
+    "alter the rest of the frame."
+)
+
+
+def image_edit_keep_frame_instruction() -> str:
+    """Operator-edit instruction. Not part of first-generate render suffix."""
+    return f"{_IMAGE_EDIT_KEEP_FRAME_MARKER}\n{_IMAGE_EDIT_KEEP_FRAME_RULES}"
+
+
+def ensure_image_edit_keep_frame(prompt: str) -> str:
+    """Attach keep-frame instruction on the IMAGE regenerate path only."""
+    if _IMAGE_EDIT_KEEP_FRAME_MARKER in prompt:
+        return prompt
+    stripped = prompt.strip()
+    instruction = image_edit_keep_frame_instruction()
+    if not stripped:
+        return instruction
+    return f"{stripped}\n\n{instruction}"
+
+
 @dataclass(frozen=True, slots=True)
 class PromptParts:
     """Stable ``prefix`` (prompt-cacheable) + variable ``suffix`` for the API wire format."""
@@ -384,6 +407,8 @@ def revise_generation_prompt(
         "changes precisely. Do not invent product facts. Do not mention aspect ratio or brand-logo "
         "placement (those are handled elsewhere).\n"
         + (
+            "The revised image prompt must tell the model to change only the user-requested "
+            "region and not restyle or resharpen the rest of the frame.\n"
             f"{image_on_canvas_copy_rules()}\n\n"
             "Preserve these on-image copy rules in the revised prompt unless the user explicitly "
             "requests internal/module labels on the artwork (they should not).\n"
