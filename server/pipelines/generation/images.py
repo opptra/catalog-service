@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from core.clients.openrouter import OpenRouterClient, ReferenceImage
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
-from pipelines.generation import prompts
+from pipelines.generation import common_image, prompts
 from pipelines.generation.context import GenerationContext
 
 _PRODUCT_LABEL = (
@@ -27,7 +27,7 @@ class ImageGeneration:
 
     content: bytes
     content_type: str
-    prompt: str  # the image-generation prompt actually sent to the image model
+    prompt: str  # unique slot brief persisted as v1 (not the full wire payload)
 
 
 # Model ID from OPENROUTER_IMAGE_MODEL → render fn.
@@ -36,6 +36,12 @@ RenderFn = Callable[
     [OpenRouterClient, GenerationContext, str, AttributeName, int, str | None, str | None],
     ImageGeneration,
 ]
+
+
+def render_prompt_from_brief(ctx: GenerationContext, brief: str) -> str:
+    """Attach reconstructable common-image context and render rules to a stored slot brief."""
+    with_common = common_image.ensure_in_prompt(brief, ctx.common_image_context)
+    return prompts.ensure_image_render_suffix(with_common)
 
 
 def render(
@@ -48,9 +54,9 @@ def render(
     session_id: str | None = None,
 ) -> ImageGeneration:
     """Render one planned image via Gemini (chat + modalities)."""
-    image_prompt = prompts.ensure_image_render_suffix(image_prompt)
+    sent = render_prompt_from_brief(ctx, image_prompt)
     image = client.generate_gemini_image(
-        image_prompt,
+        sent,
         model=settings.openrouter_image_model,
         references=_references(ctx) or None,
         aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GEMINI_ASPECT_RATIOS),
@@ -73,9 +79,9 @@ def render_gpt(
     session_id: str | None = None,
 ) -> ImageGeneration:
     """Render the same planned prompt via GPT Image (dedicated Images API)."""
-    image_prompt = prompts.ensure_image_render_suffix(image_prompt)
+    sent = render_prompt_from_brief(ctx, image_prompt)
     image = client.generate_gpt_image(
-        image_prompt,
+        sent,
         model=settings.openrouter_image_model,
         references=_references(ctx) or None,
         aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GPT_ASPECT_RATIOS),

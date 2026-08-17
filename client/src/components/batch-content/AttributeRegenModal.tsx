@@ -27,7 +27,7 @@ interface AttributeRegenModalProps {
   open: boolean
   target: AttributeRegenTarget | null
   onClose: () => void
-  /** Called after a successful use-new or keep-previous so the page can refresh content. */
+  /** Called after keep-previous or when leaving compare so the page can refresh content. */
   onApplied: () => void
 }
 
@@ -68,6 +68,43 @@ function RefreshIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  )
+}
+
+function UndoIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M2.5 5v4h4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13.5 11.5A5.5 5.5 0 0 0 8 6a5.5 5.5 0 0 0-4.2 1.9L2.5 9"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function PromptIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M5 6.25 7.25 8 5 9.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M8.5 10.25H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   )
 }
@@ -171,6 +208,18 @@ function ImagePreview({
   )
 }
 
+function PromptLog({ text }: { text: string }) {
+  return (
+    <aside className="attr-regen__prompt-log" aria-label="Regeneration prompt">
+      <div className="attr-regen__prompt-log-head">
+        <PromptIcon />
+        <p className="attr-regen__prompt-log-label">Prompt</p>
+      </div>
+      <blockquote className="attr-regen__prompt-log-text">{text}</blockquote>
+    </aside>
+  )
+}
+
 function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRegenModalProps) {
   const [phase, setPhase] = useState<Phase>('edit')
   const [improvement, setImprovement] = useState('')
@@ -228,12 +277,6 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
     }
   }
 
-  function handleUseNew() {
-    setChoosing(false)
-    onApplied()
-    onClose()
-  }
-
   async function handleKeepPrevious() {
     if (target == null || previous == null) return
     setChoosing(true)
@@ -250,6 +293,7 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
 
   const isImage = target.dataType === 'IMAGE'
   const dialogWide = phase === 'compare'
+  const promptLog = (generated?.prompt ?? improvement).trim()
 
   return (
     <div className="img-modal" role="presentation">
@@ -352,8 +396,9 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
         {phase === 'compare' && previous != null && generated != null ? (
           <>
             <p className="attr-regen__compare-lede">
-              Side-by-side comparison. Choose which version should stay as current.
+              The new version is now current. Keep the previous version if you want to undo.
             </p>
+            {promptLog ? <PromptLog text={promptLog} /> : null}
             <div className={`attr-regen__compare${isImage ? '' : ' attr-regen__compare--text'}`}>
               {isImage ? (
                 <>
@@ -398,15 +443,8 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                 onClick={() => void handleKeepPrevious()}
                 disabled={choosing}
               >
+                <UndoIcon />
                 Keep previous
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleUseNew}
-                disabled={choosing}
-              >
-                Use new
               </button>
             </div>
           </>
