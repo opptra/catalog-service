@@ -39,10 +39,14 @@ def gallery_plan_tool(name: AttributeName, quantity: int) -> dict[str, Any]:
                         "type": "string",
                         "description": (
                             "One paragraph: the visual system linking every image — honor "
-                            "COMMON IMAGE CONTEXT palette, mood, and category visual norms; "
-                            "also cover product rendering and lighting. Choose clean readable "
-                            "typography freely (do not name Brand DNA fonts or print font "
-                            "family names on the artwork)."
+                            "COMMON IMAGE CONTEXT palette (chrome only: panels, badges, type, "
+                            "icons), mood, typography looks, and category visual norms; also "
+                            "cover product rendering and lighting. Product color/pattern is "
+                            "authoritative — never recolor the SKU. Do not name font families "
+                            "in this paragraph or print them on the artwork; type lives in "
+                            "COMMON IMAGE CONTEXT and is applied at render time. Overlay slots "
+                            "use headline/supporting/dimension looks; heroes stay product-first "
+                            "with little or no type."
                         ),
                     },
                     "slots": {
@@ -90,6 +94,28 @@ def gallery_plan_tool(name: AttributeName, quantity: int) -> dict[str, Any]:
     }
 
 
+_TYPE_ROLE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "family": {
+            "type": "string",
+            "description": (
+                "Optional art-direction family name (e.g. Montserrat). Never instruct "
+                "printing this name on the artwork."
+            ),
+        },
+        "look": {
+            "type": "string",
+            "description": (
+                "Visual look to match: weight, serif vs sans, geometric vs humanist "
+                "(e.g. geometric sans, bold). Prefer this over family alone."
+            ),
+        },
+    },
+}
+
+
 COMMON_IMAGE_CONTEXT_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -97,32 +123,73 @@ COMMON_IMAGE_CONTEXT_TOOL: dict[str, Any] = {
         "description": (
             "Submit the compact common image context for every image in this job. "
             "Call this tool with the extracted JSON — do not write free-form JSON text. "
-            "Do not include named typefaces or Brand DNA fonts."
+            "Typography is look-to-match (at most headline, supporting, dimension). "
+            "Palette is chrome-only — never recolor the product."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "palette": {
                     "type": "object",
-                    "description": "Brand palette accents useful for pixels.",
+                    "description": (
+                        "Brand colors for image chrome only (panels, badges, icon chips, "
+                        "headlines, captions, dividers). Never apply these to the product "
+                        "itself. Omit if DNA is silent on color."
+                    ),
                     "properties": {
                         "primary": {"type": "string"},
                         "secondary": {"type": "string"},
                         "accents": {"type": "string"},
-                        "notes": {"type": "string"},
+                        "notes": {
+                            "type": "string",
+                            "description": (
+                                "Where each color is used on chrome (e.g. charcoal = "
+                                "headlines; white = panel; beige = badge fill)."
+                            ),
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                "typography": {
+                    "type": "object",
+                    "description": (
+                        "At most three type roles from Brand DNA. Ignore extra families. "
+                        "Omit the whole object if DNA is silent on fonts. Never instruct "
+                        "printing family names on the artwork."
+                    ),
+                    "properties": {
+                        "headline": {
+                            **_TYPE_ROLE_SCHEMA,
+                            "description": "Primary / heading face (titles on overlays).",
+                        },
+                        "supporting": {
+                            **_TYPE_ROLE_SCHEMA,
+                            "description": "Body / callout / detail face.",
+                        },
+                        "dimension": {
+                            **_TYPE_ROLE_SCHEMA,
+                            "description": (
+                                "Measurement / size-fit numbers only. Omit unless DNA "
+                                "names a distinct measurement face."
+                            ),
+                        },
                     },
                     "additionalProperties": False,
                 },
                 "mood": {
                     "type": "string",
-                    "description": "Photography/mood summary for all slots.",
+                    "description": (
+                        "Short frame mood (clean catalog, lighting). Do not rewrite the "
+                        "product scene from DNA if category + product already set it."
+                    ),
                 },
                 "visual_guardrails": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "Do-nots that affect image pixels (colors/composition). "
-                        "Do not list font family names."
+                        "Do-nots that affect image pixels: banned type styles "
+                        "(script/cursive/brush/comic), banned colors, no overcrowding. "
+                        "Always include: never recolor the product to the brand palette."
                     ),
                 },
                 "category": {
