@@ -18,7 +18,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from core.clients.gcs import GcsClient
-from core.clients.openrouter import OpenRouterClient
+from core.clients.openrouter import OpenRouterClient, attribution_session_id
 from core.clients.workflows import WorkflowsClient
 from core.config import settings
 from core.exceptions import (
@@ -81,7 +81,7 @@ _IMAGE_RENDER_WORKERS = 6
 _EXECUTABLE_TASK_STATUSES = frozenset({TaskStatus.PENDING, TaskStatus.FAILED})
 
 RenderFn = Callable[
-    [OpenRouterClient, GenerationContext, str, AttributeName, int, str | None],
+    [OpenRouterClient, GenerationContext, str, AttributeName, int, str | None, str | None],
     images.ImageGeneration,
 ]
 
@@ -363,13 +363,25 @@ def execute_sku_generation_job(
         marketplace_id=job.marketplace_id,
     )
     render_fn = images.resolve_image_model(settings.openrouter_image_model)
+    session_id = (
+        attribution_session_id(user_external_id=job.created_by, brand_external_id=job.brand_id)
+        if job.brand_id is not None
+        else None
+    )
 
     # Pre-created task map — never seeded or extended with new attribute keys here.
     tasks: dict[str, Any] = dict(sku_generation_job.tasks or {})
     persisted: list[dict[str, Any]] = []
 
     text_persisted = _run_text(
-        session, sku_generation_job, job.marketplace_id, client, ctx, text_attrs, tasks
+        session,
+        sku_generation_job,
+        job.marketplace_id,
+        client,
+        ctx,
+        text_attrs,
+        tasks,
+        session_id=session_id,
     )
     persisted.extend(text_persisted)
 
@@ -384,6 +396,7 @@ def execute_sku_generation_job(
         quantities,
         tasks,
         render_fn,
+        session_id=session_id,
     )
     persisted.extend(image_persisted)
 
@@ -481,6 +494,8 @@ def _run_text(
     ctx: GenerationContext,
     text_attrs: list[AttributeMaster],
     tasks: dict[str, Any],
+    *,
+    session_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Generate incomplete text attributes; persist value and task status per attr.
 
@@ -506,7 +521,6 @@ def _run_text(
         if AttributeName(attribute.name) == AttributeName.KEY_FEATURES
     ]
 
-    session_id = str(sku_generation_job.external_id)
     persisted: list[dict[str, Any]] = []
     raw_values: dict[str, Any] = {}
 
@@ -657,6 +671,8 @@ def _run_images(
     quantities: dict[int, int],
     tasks: dict[str, Any],
     render_fn: RenderFn,
+    *,
+    session_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Plan and render incomplete image tasks; upload to GCS and persist gs:// links."""
     pending_attrs = [
@@ -671,7 +687,9 @@ def _run_images(
     pending_names = [AttributeName(attribute.name) for attribute in pending_attrs]
     ctx = replace(
         ctx,
-        common_image_context=common_image.extract(client, ctx, pending_names),
+        common_image_context=common_image.extract(
+            client, ctx, pending_names, session_id=session_id
+        ),
     )
 
     # Plan IMAGE and A_PLUS separately — one tool call per attribute type.
@@ -683,7 +701,7 @@ def _run_images(
         quantity = quantities.get(attribute.id, 1)
         attribute_id_by_name[name] = attribute.id
         try:
-            slot_plans.update(gallery.plan(client, ctx, name, quantity))
+            slot_plans.update(gallery.plan(client, ctx, name, quantity, session_id=session_id))
         except Exception:  # noqa: BLE001 — fail this type only; other types still plan/render
             logger.exception("Gallery plan failed for %s", name.value)
             tasks[name.value] = TaskStatus.FAILED
@@ -710,6 +728,7 @@ def _run_images(
                 name,
                 slot,
                 _aspect_ratio_for(name),
+                session_id,
             ): (name, slot)
             for name, slot in jobs
         }
@@ -1324,6 +1343,11 @@ def regenerate_attribute_value(
         brand_id=brand.id,
         marketplace_id=job.marketplace_id,
     )
+    session_id = (
+        attribution_session_id(user_external_id=job.created_by, brand_external_id=job.brand_id)
+        if job.brand_id is not None
+        else None
+    )
 
     current_image_url: str | None = None
     current_value_for_revision = latest.value
@@ -1349,6 +1373,7 @@ def regenerate_attribute_value(
             current_value=current_value_for_revision,
             improvement=improvement_text,
             image_urls=revision_image_urls,
+            session_id=session_id,
         )
     except Exception as exc:  # noqa: BLE001 — surface as domain error
         raise AttributeValueRegenerationError(f"prompt revision failed: {exc}") from exc
@@ -1358,7 +1383,7 @@ def regenerate_attribute_value(
         # Preserve distilled common context (palette/mood/category norms) across regen.
         common = common_image.parse_common_from_prompt(previous_prompt)
         if common is None:
-            common = common_image.extract(client, ctx, [name])
+            common = common_image.extract(client, ctx, [name], session_id=session_id)
         image_prompt = common_image.ensure_in_prompt(revised.prompt, common)
         try:
             generation = regenerate.regenerate_image(
@@ -1367,6 +1392,7 @@ def regenerate_attribute_value(
                 image_prompt=image_prompt,
                 aspect_ratio=_aspect_ratio_for(name),
                 current_image_url=current_image_url,
+                session_id=session_id,
             )
             uploaded = gcs.upload_bytes(
                 generation.content,
@@ -1412,6 +1438,7 @@ def regenerate_attribute_value(
             client,
             name=name,
             revised_prompt=revised.prompt,
+            session_id=session_id,
         )
         persisted = _persist_attribute_value(
             session,
