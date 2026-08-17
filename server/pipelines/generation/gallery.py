@@ -45,6 +45,8 @@ def plan(
     ctx: GenerationContext,
     name: AttributeName,
     quantity: int,
+    *,
+    session_id: str | None = None,
 ) -> dict[tuple[AttributeName, int], SlotPlan]:
     """Plan exactly ``quantity`` slots for one image attribute. Raises ``GalleryPlanError`` if
     the call fails or the plan doesn't cover slots 1..quantity — no fallback.
@@ -59,6 +61,7 @@ def plan(
             tool=tools.gallery_plan_tool(name, quantity),
             image_urls=ctx.product_image_urls or None,
             max_tokens=_plan_max_tokens(quantity),
+            session_id=session_id,
         )
         planned = _index_plan(
             parsed,

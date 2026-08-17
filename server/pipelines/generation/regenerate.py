@@ -42,6 +42,7 @@ def revise_prompt(
     current_value: str,
     improvement: str,
     image_urls: list[str] | None = None,
+    session_id: str | None = None,
 ) -> RevisedPrompt:
     """Calibrate ``previous_prompt`` with the user's improvement into a new generation prompt."""
     revision_prompt = prompts.revise_generation_prompt(
@@ -56,6 +57,7 @@ def revise_prompt(
         model=settings.openrouter_prompt_model,
         tool=tools.REVISE_PROMPT_TOOL,
         image_urls=image_urls or None,
+        session_id=session_id,
     )
     prompt = parsed.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
@@ -70,6 +72,7 @@ def regenerate_image(
     image_prompt: str,
     aspect_ratio: str,
     current_image_url: str,
+    session_id: str | None = None,
 ) -> ImageGeneration:
     """Re-render with the revised prompt, using the current output as a primary reference."""
     image_prompt = prompts.ensure_image_render_suffix(image_prompt)
@@ -98,6 +101,7 @@ def regenerate_image(
             model=model,
             references=references,
             aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GPT_ASPECT_RATIOS),
+            session_id=session_id,
         )
         return ImageGeneration(
             content=image.content,
@@ -110,6 +114,7 @@ def regenerate_image(
         model=model,
         references=references,
         aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GEMINI_ASPECT_RATIOS),
+        session_id=session_id,
     )
     return ImageGeneration(
         content=image.content,
@@ -123,6 +128,7 @@ def regenerate_text(
     *,
     name: AttributeName,
     revised_prompt: str,
+    session_id: str | None = None,
 ) -> TextRegeneration:
     """Generate a single text attribute from the revised prompt via a forced tool call.
 
@@ -133,6 +139,7 @@ def regenerate_text(
         revised_prompt,
         model=settings.openrouter_text_model,
         tool=tool,
+        session_id=session_id,
     )
     raw = parsed.get(name.value)
     if raw is None:

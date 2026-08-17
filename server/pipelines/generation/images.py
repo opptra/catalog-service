@@ -33,7 +33,7 @@ class ImageGeneration:
 # Model ID from OPENROUTER_IMAGE_MODEL → render fn.
 # Swap the env model ID to compare; prompt planning stays the same for every path.
 RenderFn = Callable[
-    [OpenRouterClient, GenerationContext, str, AttributeName, int, str | None],
+    [OpenRouterClient, GenerationContext, str, AttributeName, int, str | None, str | None],
     ImageGeneration,
 ]
 
@@ -45,6 +45,7 @@ def render(
     _name: AttributeName,
     _slot: int,
     aspect_ratio: str | None = None,
+    session_id: str | None = None,
 ) -> ImageGeneration:
     """Render one planned image via Gemini (chat + modalities)."""
     image_prompt = prompts.ensure_image_render_suffix(image_prompt)
@@ -53,6 +54,7 @@ def render(
         model=settings.openrouter_image_model,
         references=_references(ctx) or None,
         aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GEMINI_ASPECT_RATIOS),
+        session_id=session_id,
     )
     return ImageGeneration(
         content=image.content,
@@ -68,6 +70,7 @@ def render_gpt(
     _name: AttributeName,
     _slot: int,
     aspect_ratio: str | None = None,
+    session_id: str | None = None,
 ) -> ImageGeneration:
     """Render the same planned prompt via GPT Image (dedicated Images API)."""
     image_prompt = prompts.ensure_image_render_suffix(image_prompt)
@@ -76,6 +79,7 @@ def render_gpt(
         model=settings.openrouter_image_model,
         references=_references(ctx) or None,
         aspect_ratio=_normalize_aspect_ratio(aspect_ratio, _GPT_ASPECT_RATIOS),
+        session_id=session_id,
     )
     return ImageGeneration(
         content=image.content,

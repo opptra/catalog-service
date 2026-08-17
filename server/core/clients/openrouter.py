@@ -3,6 +3,7 @@ import binascii
 import json
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 import httpx
 
@@ -21,6 +22,11 @@ class ReferenceImage:
 
     url: str
     label: str | None = None
+
+
+def attribution_session_id(*, user_external_id: UUID, brand_external_id: UUID) -> str:
+    """OpenRouter ``session_id`` for spend grouping: ``{user}:{brand}`` (≤256 chars)."""
+    return f"{user_external_id}:{brand_external_id}"
 
 
 class OpenRouterClient:
@@ -200,6 +206,7 @@ class OpenRouterClient:
         model: str,
         references: list[ReferenceImage] | None = None,
         aspect_ratio: str = "1:1",
+        session_id: str | None = None,
     ) -> GeneratedImage:
         """Generate an image via chat + modalities, using Gemini's request shape specifically.
 
@@ -225,12 +232,14 @@ class OpenRouterClient:
                     content.append({"type": "text", "text": ref.label})
                 content.append({"type": "image_url", "image_url": {"url": ref.url}})
 
-        body = {
+        body: dict[str, Any] = {
             "model": model,
             "messages": [{"role": "user", "content": content}],
             "modalities": ["image", "text"],
             "image_config": {"aspect_ratio": aspect_ratio},
         }
+        if session_id:
+            body["session_id"] = session_id
         return self._image_from_chat(self.chat_completions(body, timeout=self._image_timeout))
 
     def generate_gpt_image(
@@ -240,6 +249,7 @@ class OpenRouterClient:
         model: str,
         references: list[ReferenceImage] | None = None,
         aspect_ratio: str = "1:1",
+        session_id: str | None = None,
     ) -> GeneratedImage:
         """Generate an image via OpenRouter's dedicated Images API (POST /images) for GPT Image.
 
@@ -253,6 +263,7 @@ class OpenRouterClient:
             references=references,
             aspect_ratio=aspect_ratio,
             quality="auto",
+            session_id=session_id,
         )
 
     def _generate_via_images_api(
@@ -263,6 +274,7 @@ class OpenRouterClient:
         references: list[ReferenceImage] | None,
         aspect_ratio: str,
         quality: str | None = None,
+        session_id: str | None = None,
     ) -> GeneratedImage:
         if not model:
             raise ValueError("model is required")
@@ -274,6 +286,8 @@ class OpenRouterClient:
             body["input_references"] = [
                 {"type": "image_url", "image_url": {"url": ref.url}} for ref in references
             ]
+        if session_id:
+            body["session_id"] = session_id
 
         return self._image_from_images_api(self.create_image(body))
 
