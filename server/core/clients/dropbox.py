@@ -24,7 +24,9 @@ _EXPIRY_SKEW_SECONDS = 60.0
 
 # Cap concurrent ensure/upload work across listing fill + content export.
 # Warm path is one list_shared_links; cold is upload + share.
-MAX_CONCURRENT_OPS = 8
+# 8 parallel uploads hit Dropbox ``too_many_write_operations`` (429) and leave
+# image cells empty in the content sheet; 4 stays under that write burst.
+MAX_CONCURRENT_OPS = 4
 
 
 @dataclass(frozen=True, slots=True)
