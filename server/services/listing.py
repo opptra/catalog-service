@@ -46,7 +46,7 @@ from utils import listing_workbook as workbook_utils
 logger = logging.getLogger(__name__)
 
 # SKU-level parallelism within a resolve stage (AI / enums / IMAGE). Dropbox
-# traffic is additionally hard-capped by DropboxClient.MAX_CONCURRENT_OPS (8).
+# traffic is additionally hard-capped by DropboxClient.MAX_CONCURRENT_OPS.
 _LISTING_FILL_WORKERS = MAX_CONCURRENT_OPS
 _FILLED_FILE_SIGNED_URL_TTL_SECONDS = 3600
 _REFERENCE_IMAGE_URL_TTL_SECONDS = 3600
