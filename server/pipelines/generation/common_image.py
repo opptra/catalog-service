@@ -52,7 +52,7 @@ def extract(
     try:
         parsed = client.call_tool(
             _extract_prompt(ctx.brand_dna, source),
-            model=settings.openrouter_prompt_model,
+            model=settings.openrouter_text_model,
             tool=tools.COMMON_IMAGE_CONTEXT_TOOL,
             max_tokens=_EXTRACT_MAX_TOKENS,
             session_id=session_id,

@@ -7,7 +7,6 @@ _REQUIRED_KWARGS = {
     "db_password": "pw",
     "user_service_db_name": "user_db",
     "google_client_id": "client-id",
-    "openrouter_prompt_model": "m",
     "openrouter_text_model": "m",
     "openrouter_image_model": "m",
 }

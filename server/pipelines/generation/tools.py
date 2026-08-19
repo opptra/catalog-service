@@ -12,6 +12,9 @@ from typing import Any
 from entities.catalog.attribute_enums import AttributeName
 
 GALLERY_PLAN_TOOL_NAME = "submit_gallery_plan"
+GALLERY_FACT_BOARD_TOOL_NAME = "submit_fact_board"
+SINGLE_SLOT_PROMPT_TOOL_NAME = "submit_slot_prompt"
+SHARED_STYLE_TOOL_NAME = "submit_shared_style"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
 COMMON_IMAGE_CONTEXT_TOOL_NAME = "submit_common_image_context"
 
@@ -88,6 +91,103 @@ def gallery_plan_tool(name: AttributeName, quantity: int) -> dict[str, Any]:
                     },
                 },
                 "required": ["shared_style", "slots"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def gallery_fact_board_tool() -> dict[str, Any]:
+    """Tool schema for extracting verbatim product values for feature-priority claims.
+
+    The tool is never executed — its JSON schema is the structured output contract.
+    For missing/unavailable claims, the model must return ``value`` as an empty string.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": GALLERY_FACT_BOARD_TOOL_NAME,
+            "description": (
+                "Return a fact board mapping each requested feature-priority claim to an "
+                "exact value copied from PRODUCT DATA, or an empty string when the claim "
+                "cannot be supported by PRODUCT DATA. Never invent."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "facts": {
+                        "type": "array",
+                        "description": "One entry per requested claim.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "claim": {
+                                    "type": "string",
+                                    "description": "The feature-priority claim string.",
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": (
+                                        "Exact product value to be used for on-image text, or "
+                                        "empty string when missing."
+                                    ),
+                                },
+                            },
+                            "required": ["claim", "value"],
+                            "additionalProperties": False,
+                        },
+                        "minItems": 0,
+                    }
+                },
+                "required": ["facts"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def single_slot_prompt_tool() -> dict[str, Any]:
+    """Tool schema for a single slot's standalone image-generation prompt."""
+    return {
+        "type": "function",
+        "function": {
+            "name": SINGLE_SLOT_PROMPT_TOOL_NAME,
+            "description": "Submit the standalone image-generation prompt for ONE chosen slot.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Complete standalone prompt for generating one slot image.",
+                    }
+                },
+                "required": ["prompt"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def shared_style_tool() -> dict[str, Any]:
+    """Tool schema for one shared visual-system paragraph for a selected track."""
+    return {
+        "type": "function",
+        "function": {
+            "name": SHARED_STYLE_TOOL_NAME,
+            "description": "Submit one shared visual-system paragraph for all selected slots.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "shared_style": {
+                        "type": "string",
+                        "description": (
+                            "One concise paragraph describing cohesive visual system: "
+                            "palette/chrome use, lighting, composition language, and "
+                            "overlay text treatment."
+                        ),
+                    }
+                },
+                "required": ["shared_style"],
                 "additionalProperties": False,
             },
         },
