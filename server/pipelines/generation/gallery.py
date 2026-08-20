@@ -117,6 +117,7 @@ def _fact_board_prompt(product: dict[str, Any], claims: list[str]) -> str:
         "- The output value must be copied verbatim from PRODUCT DATA.\n"
         "- If PRODUCT DATA does not contain a supporting value, return an empty string.\n"
         "- Never invent, infer, or rephrase into a new value.\n"
+        "- Copy each CLAIM string exactly in facts[].claim (same spelling and punctuation).\n"
         "\n"
         "PRODUCT DATA (opaque strings/columns):\n"
         f"{json.dumps(product, ensure_ascii=False, indent=2)}\n"
@@ -147,7 +148,8 @@ def _build_fact_board(
     if not isinstance(raw_facts, list):
         raise GalleryPlanError("fact board missing facts array")
 
-    out: dict[str, str] = {}
+    allowed = set(claims)
+    out: dict[str, str] = dict.fromkeys(claims, "")
     for entry in raw_facts:
         if not isinstance(entry, dict):
             continue
@@ -155,13 +157,11 @@ def _build_fact_board(
         value = entry.get("value")
         if not isinstance(claim, str) or not claim.strip():
             continue
+        if claim not in allowed:
+            continue
         if not isinstance(value, str):
             continue
         out[claim] = value.strip()
-
-    # Ensure stable keys: any missing claim becomes '' so selection can treat it as unsupported.
-    for claim in claims:
-        out.setdefault(claim, "")
     return out
 
 
@@ -257,13 +257,84 @@ def _select_slots(
     return selected
 
 
+def _slot_labels_prompt(
+    *,
+    output_slot: int,
+    slot: dict[str, Any],
+    assigned_facts: list[AssignedFact],
+) -> str:
+    role = slot.get("role") if isinstance(slot.get("role"), str) else ""
+    kind = slot.get("kind") if isinstance(slot.get("kind"), str) else ""
+    pattern = slot.get("pattern") if isinstance(slot.get("pattern"), str) else ""
+    max_callouts = _max_callouts(slot)
+    facts_json = json.dumps(
+        [{"claim": fact.claim, "value": fact.value} for fact in assigned_facts],
+        ensure_ascii=False,
+        indent=2,
+    )
+    return (
+        "You prepare short on-image label strings for ONE e-commerce product image slot.\n"
+        "\n"
+        f"OUTPUT SLOT: {output_slot}\n"
+        f"SLOT ROLE: {role}\n"
+        f"SLOT KIND: {kind}\n"
+        f"SLOT PATTERN: {pattern}\n"
+        f"MAX CALLOUTS: {max_callouts} (ceiling only — fewer strings is correct)\n"
+        "\n"
+        "ASSIGNED FACTS (truth only — every label must come from these values):\n"
+        f"{facts_json}\n"
+        "\n"
+        "RULES:\n"
+        "- Use role/kind/pattern to judge what fits this picture (size diagram vs care vs hero).\n"
+        "- For each assigned fact, return 0 to 2 short strings taken only from that fact's value.\n"
+        "- You may split one long value (e.g. cm and inches) into two strings, or keep one line.\n"
+        "- Never merge two claims into one string.\n"
+        "- Never invent a string not supported by an assigned value.\n"
+        "- Never add strings to fill unused callout slots.\n"
+        "- If a value is still a paragraph after shortening, omit that fact (return no string).\n"
+        "- Prefer fewer readable strings over a text wall.\n"
+        "- Units like TC may appear only when already in the assigned value.\n"
+    )
+
+
+def _plan_slot_labels(
+    client: OpenRouterClient,
+    *,
+    output_slot: int,
+    slot: dict[str, Any],
+    assigned_facts: list[AssignedFact],
+    session_id: str | None,
+) -> list[str]:
+    parsed = client.call_tool(
+        _slot_labels_prompt(
+            output_slot=output_slot,
+            slot=slot,
+            assigned_facts=assigned_facts,
+        ),
+        model=_plan_model(),
+        tool=tools.slot_labels_tool(),
+        max_tokens=400,
+        session_id=session_id,
+    )
+    raw_labels = parsed.get("labels") if isinstance(parsed, dict) else None
+    if not isinstance(raw_labels, list):
+        raise GalleryPlanError("slot labels missing labels array")
+    out: list[str] = []
+    for item in raw_labels:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if text:
+            out.append(text)
+    return out
+
+
 def _slot_prompt(
     *,
     name: AttributeName,
     output_slot: int,
     slot: dict[str, Any],
-    assigned_facts: list[AssignedFact],
-    sibling_concepts: list[str],
+    locked_labels: list[str],
     shared_style: str,
     common_block: str,
 ) -> str:
@@ -271,31 +342,27 @@ def _slot_prompt(
     kind = slot.get("kind") if isinstance(slot.get("kind"), str) else ""
     pattern = slot.get("pattern") if isinstance(slot.get("pattern"), str) else ""
     content = slot.get("content") if isinstance(slot.get("content"), str) else ""
-    max_callouts = _max_callouts(slot)
 
-    if assigned_facts:
-        facts_block = "\n".join(f"- claim: {fact.claim} | value: {fact.value}" for fact in assigned_facts)
+    if locked_labels:
+        labels_block = "\n".join(
+            f'{index}) "{label}"' for index, label in enumerate(locked_labels, start=1)
+        )
     else:
-        facts_block = "(none — print no on-image text)"
-    sibling_block = "\n".join(f"- {concept}" for concept in sibling_concepts) or "(none)"
+        labels_block = "(none — print no on-image text)"
     return (
         "You are creating a standalone prompt for generating ONE e-commerce product image.\n"
         "\n"
         f"ATTRIBUTE TYPE: {name.value}\n"
         f"OUTPUT SLOT: {output_slot} (1..quantity)\n"
         "\n"
-        "SLOT RECIPE (category guidance; not a source of facts):\n"
+        "SLOT RECIPE (layout only — not a source of new words):\n"
         f"- role: {role}\n"
         f"- kind: {kind}\n"
         f"- pattern: {pattern}\n"
         f"- content: {content}\n"
         "\n"
-        f"ON-IMAGE TEXT BUDGET: max_callouts={max_callouts} (upper bound only).\n"
-        "SOURCE FACTS (meaning + product value; not on-image copy):\n"
-        f"{facts_block}\n"
-        "\n"
-        "ALREADY-CHOSEN SLOT CONCEPTS FOR THIS TRACK (avoid overlap):\n"
-        f"{sibling_block}\n"
+        "LOCKED ON-IMAGE TEXT (print exactly these strings; do not add, rewrite, or combine):\n"
+        f"{labels_block}\n"
         "\n"
         "SHARED VISUAL SYSTEM:\n"
         f"{shared_style}\n"
@@ -303,20 +370,16 @@ def _slot_prompt(
         f"{common_block}\n"
         "\n"
         "HARD RULES:\n"
-        f"- Use at most {max_callouts} on-image labels.\n"
-        "- If there are no source facts, print NO on-image text at all.\n"
-        "- Distill source facts into short shopper-facing labels; do not copy long paragraphs.\n"
-        "- Claim keys are planner metadata. Never print claim keys on artwork.\n"
-        "- Never invent, infer, or add numbers/claims not supported by source facts.\n"
-        "- Keep labels phone-readable with generous whitespace; avoid dense text walls.\n"
+        "- Describe the photo, composition, lighting, and where the locked strings sit.\n"
+        "- You may style placement (large vs small type, chips, measurement lines, brackets).\n"
+        "- Do NOT add, rewrite, combine, or invent on-image text beyond the locked list.\n"
+        "- Do NOT fill empty callout space with extra labels.\n"
         "- Never print font family names on artwork.\n"
         f"{prompts.image_on_canvas_copy_rules()}\n"
         "\n"
         "Composition guidance:\n"
         "- Use the real product reference photos attached to the planning call.\n"
-        "- The on-image text should match the slot recipe job visually "
-        "(e.g., care module shows laundry-icons layout),\n"
-        "  but without inventing extra facts.\n"
+        "- Match the slot recipe visually (e.g. care module shows laundry-icons layout).\n"
     )
 
 
@@ -327,8 +390,7 @@ def _plan_slot_prompt(
     name: AttributeName,
     slot_position: int,
     slot: dict[str, Any],
-    assigned_facts: list[AssignedFact],
-    sibling_concepts: list[str],
+    locked_labels: list[str],
     shared_style: str,
     common_block: str,
     session_id: str | None,
@@ -338,8 +400,7 @@ def _plan_slot_prompt(
             name=name,
             output_slot=slot_position,
             slot=slot,
-            assigned_facts=assigned_facts,
-            sibling_concepts=sibling_concepts,
+            locked_labels=locked_labels,
             shared_style=shared_style,
             common_block=common_block,
         ),
@@ -352,7 +413,7 @@ def _plan_slot_prompt(
     prompt = parsed.get("prompt") if isinstance(parsed, dict) else None
     if not isinstance(prompt, str) or not prompt.strip():
         raise GalleryPlanError("slot prompt missing prompt string")
-    return prompt.strip()
+    return prompts.append_locked_on_image_text(prompt.strip(), locked_labels)
 
 
 def _shared_style_prompt(
@@ -362,7 +423,8 @@ def _shared_style_prompt(
     common_block: str,
 ) -> str:
     slot_summary = "\n".join(
-        f"- role={slot.get('role', '')} | kind={slot.get('kind', '')} | pattern={slot.get('pattern', '')}"
+        f"- role={slot.get('role', '')} | kind={slot.get('kind', '')} | "
+        f"pattern={slot.get('pattern', '')}"
         for slot in chosen_slots
     )
     return (
@@ -411,7 +473,7 @@ def plan_selected_slots(
 
     1) extracting a verbatim fact board from PRODUCT DATA for this track's `feature_priority`;
     2) selecting core/extended slots eligible for this SKU (no duplicate `owns` in-track);
-    3) generating one standalone prompt per selected slot.
+    3) generating locked on-image labels per slot, then one standalone prompt per slot.
 
     This replaces the previous bulk multi-slot planning call so we can stop repeated facts and
     hardcoded competitor information from landing on the same SKU's images.
@@ -448,20 +510,27 @@ def plan_selected_slots(
         common_block=common_block,
         session_id=session_id,
     )
-    sibling_concepts = [
-        str(slot.get("role", "")).strip() for slot in chosen_slots if str(slot.get("role", "")).strip()
-    ]
 
     out: dict[tuple[AttributeName, int], SlotPlan] = {}
     for slot_position, (slot_def, assigned_facts) in enumerate(chosen, start=1):
+        max_callouts = _max_callouts(slot_def)
+        if max_callouts > 0 and assigned_facts:
+            locked_labels = _plan_slot_labels(
+                client,
+                output_slot=slot_position,
+                slot=slot_def,
+                assigned_facts=assigned_facts,
+                session_id=session_id,
+            )
+        else:
+            locked_labels = []
         prompt = _plan_slot_prompt(
             client,
             ctx,
             name=name,
             slot_position=slot_position,
             slot=slot_def,
-            assigned_facts=assigned_facts,
-            sibling_concepts=sibling_concepts,
+            locked_labels=locked_labels,
             shared_style=shared_style,
             common_block=common_block,
             session_id=session_id,

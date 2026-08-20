@@ -701,7 +701,9 @@ def _run_images(
         quantity = quantities.get(attribute.id, 1)
         attribute_id_by_name[name] = attribute.id
         try:
-            slot_plans.update(gallery.plan(client, ctx, name, quantity, session_id=session_id))
+            slot_plans.update(
+                gallery.plan_selected_slots(client, ctx, name, quantity, session_id=session_id)
+            )
         except Exception:  # noqa: BLE001 — fail this type only; other types still plan/render
             logger.exception("Gallery plan failed for %s", name.value)
             tasks[name.value] = TaskStatus.FAILED

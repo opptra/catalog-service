@@ -13,6 +13,7 @@ from entities.catalog.attribute_enums import AttributeName
 
 GALLERY_PLAN_TOOL_NAME = "submit_gallery_plan"
 GALLERY_FACT_BOARD_TOOL_NAME = "submit_fact_board"
+SLOT_LABELS_TOOL_NAME = "submit_slot_labels"
 SINGLE_SLOT_PROMPT_TOOL_NAME = "submit_slot_prompt"
 SHARED_STYLE_TOOL_NAME = "submit_shared_style"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
@@ -140,6 +141,38 @@ def gallery_fact_board_tool() -> dict[str, Any]:
                     }
                 },
                 "required": ["facts"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def slot_labels_tool() -> dict[str, Any]:
+    """Tool schema for image-ready on-canvas strings derived from assigned facts."""
+    return {
+        "type": "function",
+        "function": {
+            "name": SLOT_LABELS_TOOL_NAME,
+            "description": (
+                "Submit short on-image label strings for ONE slot. Each string must come "
+                "from an assigned fact value. Never invent claims or merge two facts."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "labels": {
+                        "type": "array",
+                        "description": (
+                            "Flat list of short shopper-facing strings to paint on this "
+                            "image. For each assigned fact, return 0 to 2 strings taken "
+                            "only from that fact's value. Fewer strings is correct when "
+                            "values are long."
+                        ),
+                        "items": {"type": "string"},
+                        "minItems": 0,
+                    }
+                },
+                "required": ["labels"],
                 "additionalProperties": False,
             },
         },

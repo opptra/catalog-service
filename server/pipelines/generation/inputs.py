@@ -1,9 +1,9 @@
 """Assemble generation context from catalog DB + GCS product images.
 
-Product facts come from ``sku_master.attributes`` (all keys, as-is). Brand DNA and
-category intelligence come from ``brand`` / ``category_intelligence``. Reference photos
-are listed under ``products/{sku_id}/assets/images/`` in GCS and exposed as signed GET URLs
-for the model.
+Product facts come from ``sku_master.attributes`` with empty values dropped (blank
+keys are not facts). Brand DNA and category intelligence come from ``brand`` /
+``category_intelligence``. Reference photos are listed under
+``products/{sku_id}/assets/images/`` in GCS and exposed as signed GET URLs for the model.
 """
 
 from __future__ import annotations
@@ -58,9 +58,24 @@ def load_context(
     )
 
 
+def _has_attribute_value(value: Any) -> bool:
+    """True when a SKU-master value is usable as a product fact."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict, tuple, set)):
+        return bool(value)
+    return True
+
+
 def _product_from_sku(sku: SkuMaster) -> dict[str, Any]:
-    """Return every attribute on the SKU as the product payload (no field filtering)."""
-    attributes = dict(sku.attributes or {})
+    """Return SKU attributes that have a value. Empty keys are omitted, not sent as ''."""
+    attributes = {
+        key: value
+        for key, value in dict(sku.attributes or {}).items()
+        if _has_attribute_value(value)
+    }
     business_sku_id = str(attributes.get("SKU") or "").strip()
     if not business_sku_id:
         raise ProductNotFoundError(f"SKU id={sku.id} is missing attributes.SKU")

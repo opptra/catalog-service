@@ -98,6 +98,25 @@ def image_on_canvas_copy_rules() -> str:
     return _IMAGE_ON_CANVAS_COPY_RULES
 
 
+def locked_on_image_text_block(labels: list[str]) -> str:
+    """Deterministic copy lock appended to slot briefs before persist/render."""
+    if not labels:
+        return "On-image text: none. Print no headlines, badges, or labels."
+    lines = ["On-image text: use only these strings, no others:"]
+    for index, label in enumerate(labels, start=1):
+        lines.append(f'{index}) "{label}"')
+    return "\n".join(lines)
+
+
+def append_locked_on_image_text(prompt: str, labels: list[str]) -> str:
+    """Append the code-owned on-image copy lock to a slot prompt."""
+    block = locked_on_image_text_block(labels)
+    stripped = prompt.strip()
+    if not stripped:
+        return block
+    return f"{stripped}\n\n{block}"
+
+
 def image_render_prompt_suffix() -> str:
     """Single source appended to every prompt sent to the image model."""
     return f"{_IMAGE_RENDER_RULES_MARKER}\n{_IMAGE_LOGO_RULES}\n\n{_IMAGE_ON_CANVAS_COPY_RULES}"
