@@ -1,7 +1,7 @@
-"""Extract and reuse a compact common image-context blob for every image call.
+"""Compress full Brand DNA once per image job into a minimal JSON DNA.
 
-Built once per job from Brand DNA + category intelligence (image-relevant fields only).
-Never dump full Brand DNA or full CI into plan/render/regenerate prompts.
+Two versions exist in the image pipeline: the complete Brand DNA document, and this
+JSON (fonts, colors). Compression runs upstream only — never per slot.
 """
 
 from __future__ import annotations
@@ -13,319 +13,188 @@ from typing import Any
 
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
-from entities.catalog.attribute_enums import AttributeName
-from pipelines.generation import category, tools
-from pipelines.generation.context import GenerationContext
+from pipelines.generation import tools
 
 logger = logging.getLogger(__name__)
 
-COMMON_IMAGE_CONTEXT_MARKER = "=== COMMON IMAGE CONTEXT ==="
+JSON_DNA_MARKER = "JSON DNA"
 
-_EXTRACT_MAX_TOKENS = 1200
-_TYPE_ROLES = ("headline", "supporting", "dimension")
-_PRODUCT_TRUE_GUARDRAIL = (
-    "Never recolor the product to match the brand palette; product color, pattern, "
-    "material, and shape are authoritative."
-)
-_CHROME_ONLY_GUARDRAIL = (
-    "Brand colors apply only to image chrome (panels, badges, icon chips, headlines, "
-    "captions, dividers), not to the product or every scene prop."
-)
+_COMPRESS_MAX_TOKENS = 500
+
+_FONT_KEYS = ("headline", "body", "dimension")
+_COLOR_KEYS = ("primary", "secondary")
 
 
 def extract(
     client: OpenRouterClient,
-    ctx: GenerationContext,
-    names: list[AttributeName],
+    brand_dna: str,
     *,
     session_id: str | None = None,
-) -> dict[str, Any]:
-    """Build one common image-context JSON from Brand DNA + category CI.
+) -> str:
+    """Return minimal JSON DNA (fonts, colors) reused for every image in this job."""
+    source = brand_dna.strip()
+    if not source:
+        fallback = _fallback("")
+        return _dumps(fallback) if fallback else ""
 
-    Prefer a structured LLM extract; fall back to a deterministic parse so image
-    generation can still share palette/mood/category norms when the tool call fails.
-
-    Typography is look-to-match (at most headline, supporting, dimension). Palette is
-    chrome-only — never recolor the product. Never print font family names on the artwork.
-    """
-    source = category.image_brief(ctx.category_intelligence, names)
+    prompt = _compress_prompt(source)
     try:
         parsed = client.call_tool(
-            _extract_prompt(ctx.brand_dna, source),
-            model=settings.openrouter_prompt_model,
-            tool=tools.COMMON_IMAGE_CONTEXT_TOOL,
-            max_tokens=_EXTRACT_MAX_TOKENS,
+            prompt,
+            model=settings.openrouter_text_model,
+            tool=tools.COMPRESSED_BRAND_DNA_TOOL,
+            max_tokens=_COMPRESS_MAX_TOKENS,
             session_id=session_id,
         )
-        common = _normalize(parsed)
-        if common.get("mood") or common.get("category"):
-            return common
-        logger.warning("Common image-context extract missing mood/category; using fallback")
+        dna = _normalize_dna(parsed if isinstance(parsed, dict) else {})
+        if dna:
+            return _dumps(dna)
+        logger.warning("Compressed Brand DNA missing styling fields; using fallback")
     except Exception:  # noqa: BLE001 — fallback keeps the job running
-        logger.exception("Common image-context extract failed; using fallback")
-    return _fallback(ctx.brand_dna, source)
+        logger.exception("Brand DNA compression failed; using fallback")
+
+    fallback = _fallback(source)
+    return _dumps(fallback) if fallback else ""
 
 
-def format_block(common: dict[str, Any]) -> str:
-    """Stable text block embedded in every image prompt."""
-    has_type = isinstance(common.get("typography"), dict) and bool(common["typography"])
-    type_line = (
-        "Typography: match headline / supporting / dimension looks from this context on "
-        "overlay slots (titles, callouts, size labels). Headline larger than supporting; "
-        "dimension look only on measurement numbers. NEVER paint family names, "
-        '"Font: …", or a specimen line on the artwork.'
-        if has_type
-        else (
-            "Typography: DNA is silent on type — use clean, phone-readable sans and keep "
-            "hierarchy via weight and size. NEVER paint font family names on the artwork."
-        )
-    )
+def format_block(compressed: str | None) -> str:
+    """JSON DNA block passed into the per-slot planner."""
+    text = (compressed or "").strip()
+    if not text:
+        return ""
     return (
-        f"{COMMON_IMAGE_CONTEXT_MARKER}\n"
-        f"{json.dumps(common, ensure_ascii=False, indent=2)}\n"
-        "Product color, pattern, material, and shape are authoritative — never recolor or "
-        "restyle the SKU to match the brand palette.\n"
-        "Brand palette is for image chrome only (panels, badges, icon chips, headlines, "
-        "captions, dividers) — not the product, and not every scene prop.\n"
-        f"{type_line}"
+        f"{JSON_DNA_MARKER} (brand styling). Match these fonts and colors "
+        "for overlays and UI chrome. Do not recolor the product. Do not paint "
+        "typeface names or hex codes as text on the artwork.\n"
+        f"{text}"
     )
 
 
-def ensure_in_prompt(prompt: str, common: dict[str, Any] | None) -> str:
-    """Append or replace the common block so the prompt always carries the shared context."""
-    if not common:
-        return prompt
-    block = format_block(common)
-    stripped = prompt.strip()
-    existing = extract_block_from_prompt(stripped)
-    if existing is not None:
-        start = stripped.find(COMMON_IMAGE_CONTEXT_MARKER)
-        return f"{stripped[:start].rstrip()}\n\n{block}".strip()
-    return f"{stripped}\n\n{block}".strip()
-
-
-def extract_block_from_prompt(prompt: str) -> str | None:
-    """Return the common-context section from a stored prompt, if present."""
-    start = prompt.find(COMMON_IMAGE_CONTEXT_MARKER)
-    if start < 0:
-        return None
-    return prompt[start:].strip() or None
-
-
-def parse_common_from_prompt(prompt: str) -> dict[str, Any] | None:
-    """Parse JSON after the marker from a stored prompt (for regenerate reuse)."""
-    block = extract_block_from_prompt(prompt)
+def append_to_prompt(scene: str, compressed: str | None) -> str:
+    """Join the slot-specific scene with the job-wide JSON DNA."""
+    scene_text = scene.strip()
+    block = format_block(compressed)
     if not block:
-        return None
-    body = block[len(COMMON_IMAGE_CONTEXT_MARKER) :].strip()
-    # Drop trailing instruction sentence(s) after the JSON object.
-    brace = body.find("{")
-    if brace < 0:
-        return None
-    try:
-        payload, _ = json.JSONDecoder().raw_decode(body[brace:])
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    return _normalize(payload)
+        return scene_text
+    if not scene_text:
+        return block
+    return f"{scene_text}\n\n{block}"
 
 
-def _extract_prompt(brand_dna: str, category_source: dict[str, Any]) -> str:
+def _compress_prompt(brand_dna: str) -> str:
     return (
-        "You extract a compact COMMON IMAGE CONTEXT used for EVERY image in one catalog job "
-        "(gallery and enhanced-brand modules). Pull ONLY image-relevant details.\n\n"
-        "From Brand DNA:\n"
-        "- Palette for IMAGE CHROME only (panels, badges, icon chips, headlines, captions, "
-        "dividers), with usage notes. NEVER apply brand colors to the product. Omit palette "
-        "if DNA is silent on color.\n"
-        "- Typography: at most three roles — headline (primary/heading), supporting "
-        "(body/details), dimension (measurement face only if DNA names one). Ignore extra "
-        "families (print-only, legal, wordmark, decorative fifth face). For each role: "
-        "optional family as an art-direction hint plus a look (weight, serif vs sans, "
-        "geometric vs humanist). Never instruct printing family names on the artwork. "
-        "Omit typography if DNA is silent on fonts — do not invent families.\n"
-        "- Banned type (script, cursive, brush, comic; serif headlines if DNA is sans-only) "
-        "goes in visual_guardrails.\n"
-        "- Short mood for the FRAME only. Do not rewrite the product scene from DNA if "
-        "category + product already set it.\n"
-        "- Visual do-nots (overcrowding, humans, neon, etc.).\n"
-        "Always include visual_guardrails that the product must not be recolored and that "
-        "brand colors are chrome-only. Do not include voice, copy essays, audience prose, "
-        "logos/wordmarks, or font sizes in px/pt.\n\n"
-        "From Category Intelligence: cross-slot visual norms for this category, on-image text "
-        "density rules (phone-readable, minimal SEO-useful keywords, no fluff), shared product "
-        "presentation cues. Do not copy per-slot shot briefs or long topic essays.\n\n"
-        "Never invent brand colors or typefaces not supported by the sources. When finished, "
-        "call the submit_common_image_context tool.\n\n"
+        "Extract a minimal JSON DNA of this brand's visual styling for an image "
+        "generator. The same JSON is reused for every image in this catalog job.\n"
+        "\n"
+        "Copy ONLY what the source names. Do not invent fonts or hex codes.\n"
+        "Keep it small:\n"
+        "- fonts.headline / fonts.body / fonts.dimension: typeface names as written "
+        "(drop the usage essay after the name).\n"
+        "- colors.primary / colors.secondary: the named brand palette.\n"
+        "\n"
+        "Do not include banned colors, moods, photography style, or avoid lists.\n"
+        "\n"
+        "Skip audience essays, copy voice, logos/wordmarks, lifestyle concept pools, "
+        "INFOGRAPHIC RULES, callout counts, panel layouts, and selling_angle_priorities.\n"
+        "\n"
+        "When finished, call the submit_compressed_brand_dna tool.\n"
+        "\n"
         "=== BRAND DNA (source) ===\n"
-        f"{brand_dna.strip()}\n\n"
-        "=== CATEGORY INTELLIGENCE (image-relevant distill) ===\n"
-        f"{json.dumps(category_source, ensure_ascii=False, indent=2)}"
+        f"{brand_dna}"
     )
 
 
-def _normalize(raw: dict[str, Any]) -> dict[str, Any]:
-    palette_raw = raw.get("palette") if isinstance(raw.get("palette"), dict) else {}
-    category_raw = raw.get("category") if isinstance(raw.get("category"), dict) else {}
+def _normalize_dna(parsed: dict[str, Any]) -> dict[str, Any]:
+    fonts_in = parsed.get("fonts") if isinstance(parsed.get("fonts"), dict) else {}
+    colors_in = parsed.get("colors") if isinstance(parsed.get("colors"), dict) else {}
 
-    palette = {
-        key: value
-        for key, value in {
-            "primary": palette_raw.get("primary"),
-            "secondary": palette_raw.get("secondary"),
-            "accents": palette_raw.get("accents"),
-            "notes": palette_raw.get("notes"),
-        }.items()
-        if value
-    }
+    fonts = {key: value for key in _FONT_KEYS if (value := _clean_str(fonts_in.get(key)))}
+    colors: dict[str, list[str]] = {}
+    for key in _COLOR_KEYS:
+        items = _clean_str_list(colors_in.get(key))
+        if items:
+            colors[key] = items
 
-    category_out: dict[str, Any] = {}
-    norms = category_raw.get("visual_norms")
-    if isinstance(norms, list):
-        category_out["visual_norms"] = [str(item).strip() for item in norms if str(item).strip()]
-    on_image = str(category_raw.get("on_image_text") or "").strip()
-    if on_image:
-        category_out["on_image_text"] = on_image
-    else:
-        category_out["on_image_text"] = (
-            "phone-readable; minimal SEO-useful keywords; no fluff; no internal jargon"
-        )
-    cues = category_raw.get("shared_product_cues")
-    if isinstance(cues, list):
-        category_out["shared_product_cues"] = [
-            str(item).strip() for item in cues if str(item).strip()
-        ]
-
-    guardrails = raw.get("visual_guardrails")
-    guardrail_list = (
-        [str(item).strip() for item in guardrails if str(item).strip()]
-        if isinstance(guardrails, list)
-        else []
-    )
-    guardrail_list = _ensure_guardrail(guardrail_list, _PRODUCT_TRUE_GUARDRAIL)
-    guardrail_list = _ensure_guardrail(guardrail_list, _CHROME_ONLY_GUARDRAIL)
-
-    out: dict[str, Any] = {
-        "mood": str(raw.get("mood") or "").strip() or "clean, catalog, consistent",
-        "visual_guardrails": guardrail_list,
-        "category": category_out,
-    }
-    if palette:
-        out["palette"] = palette
-    typography = _normalize_typography(raw.get("typography"))
-    if typography:
-        out["typography"] = typography
+    out: dict[str, Any] = {}
+    if fonts:
+        out["fonts"] = fonts
+    if colors:
+        out["colors"] = colors
     return out
 
 
-def _normalize_typography(raw: Any) -> dict[str, dict[str, str]] | None:
-    if not isinstance(raw, dict):
+def _dumps(dna: dict[str, Any]) -> str:
+    return json.dumps(dna, ensure_ascii=False, indent=2)
+
+
+def _clean_str(value: Any) -> str | None:
+    if not isinstance(value, str):
         return None
-    out: dict[str, dict[str, str]] = {}
-    for role in _TYPE_ROLES:
-        parsed = _type_role(raw.get(role))
-        if parsed:
-            out[role] = parsed
-    return out or None
+    text = value.strip()
+    return text or None
 
 
-def _type_role(raw: Any) -> dict[str, str] | None:
-    if isinstance(raw, str):
-        text = raw.strip()
-        if not text:
-            return None
-        return {"family": text, "look": text}
-    if not isinstance(raw, dict):
-        return None
-    family = str(raw.get("family") or "").strip()
-    look = str(raw.get("look") or "").strip()
-    if not family and not look:
-        return None
-    role: dict[str, str] = {}
-    if look:
-        role["look"] = look
-    elif family:
-        role["look"] = f"match the look of {family}"
-    if family:
-        role["family"] = family
-    return role
+def _clean_str_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return _split_list(value)
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+    return out
 
 
-def _ensure_guardrail(items: list[str], line: str) -> list[str]:
-    marker = line.split(";")[0].casefold()
-    if any(marker in item.casefold() for item in items):
-        return items
-    return [*items, line]
-
-
-def _fallback(brand_dna: str, category_source: dict[str, Any]) -> dict[str, Any]:
-    mood = _field(brand_dna, "visual_mood") or _field(brand_dna, "photography_style") or "clean"
-    primary_colors = _field(brand_dna, "brand_colors_primary")
-    secondary_colors = _field(brand_dna, "brand_colors_secondary")
-
-    category_name = category_source.get("category") or "this category"
-    keywords = category_source.get("high_value_keywords") or []
-    keyword_hint = ", ".join(str(k) for k in keywords[:8]) if keywords else ""
-
-    plan = category_source.get("image_plan") or {}
-    norms: list[str] = [
-        f"Follow {category_name} marketplace visual norms from Category Intelligence.",
-        "Honor COMMON IMAGE CONTEXT typography on overlay slots; heroes stay product-first.",
-        "Product color is authoritative; brand palette is chrome only.",
-    ]
-    for track in plan.values() if isinstance(plan, dict) else []:
-        if isinstance(track, dict) and track.get("build_rationale"):
-            norms.append(str(track["build_rationale"]).strip()[:400])
-            break
-
-    cues: list[str] = []
-    if keyword_hint:
-        cues.append(f"Prefer SEO-useful on-image phrases when text is needed: {keyword_hint}")
-
-    banned_type = _field(brand_dna, "banned_fonts") or _field(brand_dna, "banned_type")
-    payload: dict[str, Any] = {
-        "palette": {
-            "primary": primary_colors,
-            "secondary": secondary_colors,
-            "notes": _field(brand_dna, "accent_color_rules"),
-        },
-        "mood": mood,
-        "visual_guardrails": [g for g in [_field(brand_dna, "banned_colors"), banned_type] if g],
-        "category": {
-            "visual_norms": norms,
-            "on_image_text": (
-                "phone-readable; minimal SEO-useful keywords; no fluff; no internal jargon"
-            ),
-            "shared_product_cues": cues,
-        },
-    }
-    typography = _fallback_typography(brand_dna)
-    if typography:
-        payload["typography"] = typography
-    return _normalize(payload)
-
-
-def _fallback_typography(brand_dna: str) -> dict[str, dict[str, str]] | None:
-    return _normalize_typography(
-        {
-            "headline": (
-                _field(brand_dna, "primary_font")
-                or _field(brand_dna, "heading_font")
-                or _field(brand_dna, "headline_font")
-            ),
-            "supporting": (
-                _field(brand_dna, "secondary_font")
-                or _field(brand_dna, "body_font")
-                or _field(brand_dna, "supporting_font")
-            ),
-            "dimension": (
-                _field(brand_dna, "measurement_font")
-                or _field(brand_dna, "dimension_font")
-                or _field(brand_dna, "measurements_font")
-            ),
-        }
+def _fallback(brand_dna: str) -> dict[str, Any]:
+    fonts: dict[str, str] = {}
+    headline = _font_name(
+        _field(brand_dna, "primary_font") or _field(brand_dna, "headline_font")
     )
+    body = _font_name(_field(brand_dna, "secondary_font") or _field(brand_dna, "body_font"))
+    dimension = _font_name(_field(brand_dna, "dimension_font"))
+    if headline:
+        fonts["headline"] = headline
+    if body:
+        fonts["body"] = body
+    if dimension:
+        fonts["dimension"] = dimension
+
+    colors: dict[str, list[str]] = {}
+    primary = _list_field(brand_dna, "brand_colors_primary")
+    secondary = _list_field(brand_dna, "brand_colors_secondary")
+    if primary:
+        colors["primary"] = primary
+    if secondary:
+        colors["secondary"] = secondary
+
+    out: dict[str, Any] = {}
+    if fonts:
+        out["fonts"] = fonts
+    if colors:
+        out["colors"] = colors
+    return out
+
+
+def _font_name(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    name = raw.split(" - ", 1)[0].split(" — ", 1)[0].strip()
+    return name or None
+
+
+def _list_field(brand_dna: str, key: str) -> list[str]:
+    raw = _field(brand_dna, key)
+    if not raw:
+        return []
+    return _split_list(raw)
+
+
+def _split_list(raw: str) -> list[str]:
+    inner = raw.strip()
+    if inner.startswith("[") and inner.endswith("]"):
+        inner = inner[1:-1]
+    return [part.strip() for part in inner.split(",") if part.strip()]
 
 
 def _field(brand_dna: str, key: str) -> str | None:

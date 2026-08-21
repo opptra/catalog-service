@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from core.clients.openrouter import OpenRouterClient, ReferenceImage
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
-from pipelines.generation import common_image, prompts
 from pipelines.generation.context import GenerationContext
 
 _PRODUCT_LABEL = (
@@ -27,7 +26,7 @@ class ImageGeneration:
 
     content: bytes
     content_type: str
-    prompt: str  # unique slot brief persisted as v1 (not the full wire payload)
+    prompt: str
 
 
 # Model ID from OPENROUTER_IMAGE_MODEL → render fn.
@@ -36,12 +35,6 @@ RenderFn = Callable[
     [OpenRouterClient, GenerationContext, str, AttributeName, int, str | None, str | None],
     ImageGeneration,
 ]
-
-
-def render_prompt_from_brief(ctx: GenerationContext, brief: str) -> str:
-    """Attach reconstructable common-image context and render rules to a stored slot brief."""
-    with_common = common_image.ensure_in_prompt(brief, ctx.common_image_context)
-    return prompts.ensure_image_render_suffix(with_common)
 
 
 def render(
@@ -54,7 +47,7 @@ def render(
     session_id: str | None = None,
 ) -> ImageGeneration:
     """Render one planned image via Gemini (chat + modalities)."""
-    sent = render_prompt_from_brief(ctx, image_prompt)
+    sent = image_prompt.strip()
     image = client.generate_gemini_image(
         sent,
         model=settings.openrouter_image_model,
@@ -65,7 +58,7 @@ def render(
     return ImageGeneration(
         content=image.content,
         content_type=image.content_type,
-        prompt=image_prompt,
+        prompt=sent,
     )
 
 
@@ -79,7 +72,7 @@ def render_gpt(
     session_id: str | None = None,
 ) -> ImageGeneration:
     """Render the same planned prompt via GPT Image (dedicated Images API)."""
-    sent = render_prompt_from_brief(ctx, image_prompt)
+    sent = image_prompt.strip()
     image = client.generate_gpt_image(
         sent,
         model=settings.openrouter_image_model,
@@ -90,7 +83,7 @@ def render_gpt(
     return ImageGeneration(
         content=image.content,
         content_type=image.content_type,
-        prompt=image_prompt,
+        prompt=sent,
     )
 
 

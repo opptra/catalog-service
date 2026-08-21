@@ -12,33 +12,8 @@ import json
 from dataclasses import dataclass
 
 from entities.catalog.attribute_enums import AttributeName
-from pipelines.generation import category, common_image, tools
+from pipelines.generation import category, tools
 from pipelines.generation.context import GenerationContext
-
-# Single source: constraints for copy and branding drawn ON generated listing images.
-_IMAGE_RENDER_RULES_MARKER = "=== IMAGE RENDER RULES ==="
-
-_IMAGE_ON_CANVAS_COPY_RULES = (
-    "ON-IMAGE COPY (shopper-facing only):\n"
-    "- Every headline, badge, and label on the artwork must read as normal product copy a "
-    "shopper sees on the live listing.\n"
-    "- NEVER render internal or ops jargon on the image — including A+, A Plus, A+ Content, "
-    "A+ Features, A+ Care, Enhanced Brand Content, EBC, PDP, gallery slot, IMAGE, A_PLUS, "
-    'module names, attribute type codes, or phrases like "A plus module works included".\n'
-    "- Planning hints (IMAGE/A_PLUS slots, CI role/kind/pattern codes) are for you only; "
-    "translate them into real messaging (e.g. Features, Care instructions, King bed fit) — "
-    "never print the hint labels.\n"
-    "- NEVER render font family / typeface names on the artwork (e.g. Open Sans, Montserrat, "
-    'Arial, "Font: …"). Use typography visually only; shoppers must not see font labels.\n'
-    "- Factual size/fit labels are fine when shopper-facing (e.g. King Size, Fits King Bed) — "
-    "not prefixed with A+ or module jargon."
-)
-
-_IMAGE_LOGO_RULES = (
-    "Brand logo: do not draw, render, watermark, or place any brand logo or brand name on the "
-    "image. Do not leave empty reserved space, corners, banners, margins, or padding for a logo "
-    "— the logo is added later by a deterministic code step."
-)
 
 # Shared rules applied to every generation call (text and image planning).
 _RULES = (
@@ -93,26 +68,6 @@ def attribute_rules(name: AttributeName) -> str:
     return _ATTRIBUTE_GUIDANCE.get(name, "")
 
 
-def image_on_canvas_copy_rules() -> str:
-    """Single source for shopper-facing on-image copy rules (plan + regenerate prompts)."""
-    return _IMAGE_ON_CANVAS_COPY_RULES
-
-
-def image_render_prompt_suffix() -> str:
-    """Single source appended to every prompt sent to the image model."""
-    return f"{_IMAGE_RENDER_RULES_MARKER}\n{_IMAGE_LOGO_RULES}\n\n{_IMAGE_ON_CANVAS_COPY_RULES}"
-
-
-def ensure_image_render_suffix(prompt: str) -> str:
-    """Idempotently attach render rules so storage and re-render stay aligned."""
-    if _IMAGE_RENDER_RULES_MARKER in prompt:
-        return prompt
-    stripped = prompt.strip()
-    if not stripped:
-        return image_render_prompt_suffix()
-    return f"{stripped}\n\n{image_render_prompt_suffix()}"
-
-
 @dataclass(frozen=True, slots=True)
 class PromptParts:
     """Stable ``prefix`` (prompt-cacheable) + variable ``suffix`` for the API wire format."""
@@ -129,8 +84,13 @@ class PromptParts:
         return f"{self.prefix}\n\n{self.suffix}"
 
 
+def _text_cache_prefix(ctx: GenerationContext) -> str:
+    """Shared cacheable prefix for strategy and generation: rules + product + brand."""
+    return f"{_RULES}\n\n{_product_block(ctx.product)}\n\n{_brand_block(ctx.brand_dna)}"
+
+
 def text_strategy_parts(ctx: GenerationContext, names: list[AttributeName]) -> PromptParts:
-    """Strategy prompt split for caching: rules + product first; attribute/category last."""
+    """Strategy prompt split for caching: shared product/brand prefix; CI brief last."""
     brief = category.text_brief(ctx.category_intelligence, names)
     attribute_list = ", ".join(name.value for name in names)
     attr_phrase = (
@@ -138,7 +98,6 @@ def text_strategy_parts(ctx: GenerationContext, names: list[AttributeName]) -> P
         if len(names) == 1
         else f"these attributes: {attribute_list}"
     )
-    prefix = f"{_RULES}\n\n{_product_block(ctx.product)}"
     suffix = (
         "You are an expert marketplace listing strategist. Produce a concise, high-signal "
         f"content strategy for generating {attr_phrase}. Base it on the "
@@ -148,12 +107,7 @@ def text_strategy_parts(ctx: GenerationContext, names: list[AttributeName]) -> P
         "bullets, NOT final copy.\n\n"
         f"{_category_block(brief)}"
     )
-    return PromptParts(prefix=prefix, suffix=suffix)
-
-
-def text_strategy_prompt(ctx: GenerationContext, names: list[AttributeName]) -> str:
-    """Ask for a concise, Category-Intelligence-led content strategy (not the final copy)."""
-    return text_strategy_parts(ctx, names).as_sent()
+    return PromptParts(prefix=_text_cache_prefix(ctx), suffix=suffix)
 
 
 def _text_tool_instruction(names: list[AttributeName]) -> str:
@@ -186,13 +140,12 @@ def _attribute_rules_block(names: list[AttributeName]) -> str:
 def text_generation_parts(
     ctx: GenerationContext, names: list[AttributeName], strategy: str
 ) -> PromptParts:
-    """Generation prompt split for caching: rules + product + brand; strategy/tool last."""
+    """Generation prompt: same cache prefix as strategy; strategy + attribute rules + tool."""
     target = f"the final {names[0].value}" if len(names) == 1 else "the final text attributes"
-    prefix = f"{_RULES}\n\n{_product_block(ctx.product)}\n\n{_brand_block(ctx.brand_dna)}"
     rules_block = _attribute_rules_block(names)
     suffix = (
         "You are an expert marketplace copywriter. Using the STRATEGY and the authoritative "
-        f"PRODUCT DATA below, write {target}. Apply the Brand DNA voice and "
+        f"PRODUCT DATA above, write {target}. Apply the Brand DNA voice and "
         "guardrails. Every factual claim must be supported by PRODUCT DATA; when a recommended "
         "detail is missing, adapt gracefully with neutral, high-quality copy rather than "
         "guessing.\n\n"
@@ -200,14 +153,7 @@ def text_generation_parts(
         + f"STRATEGY:\n{strategy}\n\n"
         f"{_text_tool_instruction(names)}"
     )
-    return PromptParts(prefix=prefix, suffix=suffix)
-
-
-def text_generation_prompt(
-    ctx: GenerationContext, names: list[AttributeName], strategy: str
-) -> str:
-    """Final text prompt: apply the strategy + brand voice to the authoritative product facts."""
-    return text_generation_parts(ctx, names, strategy).as_sent()
+    return PromptParts(prefix=_text_cache_prefix(ctx), suffix=suffix)
 
 
 def key_features_parts(
@@ -222,7 +168,6 @@ def key_features_parts(
     """
     name = AttributeName.KEY_FEATURES
     bullets_block = "\n".join(f"- {bullet}" for bullet in bullet_points)
-    prefix = f"{_RULES}\n\n{_product_block(ctx.product)}\n\n{_brand_block(ctx.brand_dna)}"
     suffix = (
         "You are an expert marketplace copywriter. Write Amazon's KEY PRODUCT FEATURES "
         "field: five short standalone feature phrases (not full sentences), one per line "
@@ -234,107 +179,7 @@ def key_features_parts(
         f"ALREADY-WRITTEN DESCRIPTION:\n{description}\n\n"
         f"{_text_tool_instruction([name])}"
     )
-    return PromptParts(prefix=prefix, suffix=suffix)
-
-
-def gallery_plan_prompt(ctx: GenerationContext, name: AttributeName, quantity: int) -> str:
-    """Plan exactly ``quantity`` slots for one image attribute type via a tool call.
-
-    IMAGE (PDP gallery) and A_PLUS are planned in separate calls so each gets a focused
-    role palette from CI ``image_plan``. Aspect ratio and logo placement stay out of the
-    model's job (fixed per attribute type in code; logo composited downstream).
-
-    Full Brand DNA is NOT included — use ``ctx.common_image_context`` (chrome palette,
-    mood, look-to-match typography, category visual bits). Product color stays
-    authoritative; overlay slots honor type looks; heroes stay product-first.
-    """
-    brief = category.image_brief(ctx.category_intelligence, [name])
-    type_label = (
-        "product gallery" if name == AttributeName.IMAGE else "enhanced brand / feature modules"
-    )
-    common_block = (
-        common_image.format_block(ctx.common_image_context)
-        if ctx.common_image_context
-        else (
-            "=== COMMON IMAGE CONTEXT ===\n"
-            "(missing — keep the set cohesive via mood/palette; overlay slots use clean "
-            "readable sans; never print font family names on the artwork; never recolor "
-            "the product)"
-        )
-    )
-    return (
-        "You are an expert e-commerce visual merchandiser and product-photography art director. "
-        f"Design a COHERENT {type_label} image set for ONE product. Produce EXACTLY {quantity} "
-        f"image(s) for internal type {name.value} — count is fixed by the job; do not add, drop, "
-        "or replace it with recommended_build. Use COMMON IMAGE CONTEXT and the attached "
-        "product image(s) so the set forms one connected, non-redundant series. Product "
-        "color, pattern, material, and shape are authoritative — never recolor the SKU to "
-        "the brand palette. Brand palette is chrome only (panels, badges, icon chips, "
-        "headlines, captions, dividers), not every scene prop. Overlay slots (infographic, "
-        "features, care, fabric, size/fit) must match COMMON IMAGE CONTEXT typography "
-        "looks: headline on titles, supporting on body/callouts, dimension look only on "
-        "measurement numbers. Hero / packshot / primary images stay product-first with "
-        "little or no type. Do not put font family names in slot prompts — type lives in "
-        "COMMON IMAGE CONTEXT and is applied at render time; never print typeface names "
-        "on the artwork.\n\n"
-        f"{_IMAGE_ON_CANVAS_COPY_RULES}\n\n"
-        "ROLE PALETTE (image_plan when present):\n"
-        f"- CATEGORY INTELLIGENCE.image_plan.{name.value} is the recommended role palette for "
-        "this type — guidance, not a locked recipe.\n"
-        "- Prefer priority=core roles as the main ideas. Use extended only when the requested "
-        "count needs more distinct roles than core provides.\n"
-        "- If N ≤ number of core roles: pick N distinct core roles "
-        "(do not invent near-duplicates).\n"
-        "- If N > core: cover core first, then use extended (or invent complementary distinct "
-        "roles) for the remainder — still no duplicates.\n"
-        "- Do NOT copy CI text verbatim onto the image; translate role/kind/pattern/content into "
-        "a concrete render prompt for THIS product + COMMON IMAGE CONTEXT.\n"
-        "- Topic playbook is supporting context only; image_plan is the primary role guidance "
-        "when present.\n\n"
-        "NON-REDUNDANCY (mandatory):\n"
-        "- Every slot must have a clearly different role and visual concept.\n"
-        "- No two slots may look like the same shot with minor tweaks (same angle, setting, "
-        "info density, or lifestyle framing).\n"
-        "- Make the difference obvious in composition, camera, background, props, and on-image "
-        "information load; each concept field must name a distinct role.\n"
-        "- Facts must not repeat across slots — each info/feature slot owns distinct claims.\n\n"
-        f"{_reference_photos_note(ctx.product_image_urls)}\n\n"
-        f"Images to produce: exactly {quantity} slot(s) of type {name.value} "
-        f"(slot 1 through {quantity}). Submit EXACTLY {quantity} plan entries via the tool.\n\n"
-        "For EVERY slot, reason it out and decide:\n"
-        "- the role/objective for a high-converting, policy-compliant listing in this "
-        "marketplace/category, drawn from the image_plan palette (core first) when present;\n"
-        "- a DISTINCT concept — no slot may duplicate another;\n"
-        "- composition, camera angle, background, props, lighting, styling and visual hierarchy;\n"
-        "- honesty: the depiction must NOT contradict the attached real product (its colour, form, "
-        "material, finish, pattern) — never render it as something it is not;\n"
-        "- physical coherence: show the product realistically and correctly used/placed;\n"
-        "- on-image text/badges appropriate to this image role and the marketplace's compliance "
-        "rules (a strict primary/main image carries no text or badges; secondary images may) — "
-        "shopper-facing only, never A+/EBC/PDP/internal labels;\n"
-        "- brand logo: never draw/render a logo or brand wordmark, and never leave reserved "
-        "space for one — every slot prompt must state this explicitly; the logo is composited "
-        "later in code;\n"
-        "- do NOT choose or mention an aspect ratio, canvas shape, orientation or pixel/format "
-        "dimensions anywhere — the renderer uses a fixed ratio per image type, so compose for the "
-        "subject and leave the canvas shape entirely to the system.\n\n"
-        "Keep the whole set LINKED via one shared visual system that MUST incorporate COMMON "
-        "IMAGE CONTEXT chrome palette, mood, typography looks, and category norms so every "
-        "image clearly belongs to the same product and brand. Overlay slots use those type "
-        "looks; heroes stay product-first. Never print font family names on the artwork. "
-        "Use product facts ONLY from "
-        "PRODUCT DATA; if a helpful detail is missing, stay neutral — never fabricate. The real "
-        "product reference image(s) are also supplied to the image model at render time.\n\n"
-        f"{_RULES}\n\n"
-        f"{_category_block(brief)}\n\n"
-        f"{common_block}\n\n"
-        f"{_product_block(ctx.product)}\n\n"
-        "When finished, call the submit_gallery_plan tool with shared_style and exactly "
-        f"{quantity} slots entries (type={name.value}, slot=1..{quantity}). Each prompt must be "
-        "a complete, standalone image-generation prompt that incorporates the shared_style, "
-        "COMMON IMAGE CONTEXT, and every decision above. Do not write the plan as free-form JSON "
-        "in the message body."
-    )
+    return PromptParts(prefix=_text_cache_prefix(ctx), suffix=suffix)
 
 
 def _product_block(product: dict) -> str:
@@ -344,19 +189,6 @@ def _product_block(product: dict) -> str:
     return (
         "=== PRODUCT DATA (authoritative — the ONLY source of product facts) ===\n"
         f"{json.dumps(facts, ensure_ascii=False, indent=2)}"
-    )
-
-
-def _reference_photos_note(image_urls: list[str]) -> str:
-    count = len(image_urls)
-    if not count:
-        return "No real product reference photos were available for this product."
-    return (
-        f"You are attached {count} real reference photo(s) of this exact product, taken from its "
-        "actual marketplace listing (different angles/closeups of the same physical item, in "
-        "listing order). Cross-reference all of them together as the single source of truth for "
-        "its true colour, pattern, texture, materials and construction — do not rely on only one "
-        "angle or assume a detail that isn't visible in any of them."
     )
 
 
@@ -384,7 +216,6 @@ def text_regeneration_parts(
     Does not send full category intelligence — v1 already translated that into the brief.
     Does not stack older user notes; current_value already reflects them.
     """
-    prefix = f"{_RULES}\n\n{_product_block(ctx.product)}\n\n{_brand_block(ctx.brand_dna)}"
     rules_block = _attribute_rules_block([name])
     suffix = (
         "You are an expert marketplace copywriter. Regenerate this attribute in place.\n"
@@ -398,26 +229,9 @@ def text_regeneration_parts(
         f"REQUESTED CHANGE:\n{improvement.strip()}\n\n"
         f"{_text_tool_instruction([name])}"
     )
-    return PromptParts(prefix=prefix, suffix=suffix)
+    return PromptParts(prefix=_text_cache_prefix(ctx), suffix=suffix)
 
 
-def image_regeneration_addendum(
-    ctx: GenerationContext,
-    *,
-    improvement: str,
-) -> str:
-    """User note + product facts appended at regen. Original slot brief is passed separately.
-
-    Common image context and render rules are attached to the v1 brief at send time.
-    """
-    return (
-        "=== REGENERATION (apply this change; do not ignore the original brief) ===\n"
-        "The first attached image is the CURRENT OUTPUT. Keep its composition, product "
-        "identity, and everything that still matches the original brief. Apply ONLY the "
-        "requested change below. Remaining attached images are the real product "
-        "(colour/shape/material truth). Product facts come ONLY from PRODUCT DATA — "
-        "never invent details.\n\n"
-        f"REQUESTED CHANGE:\n{improvement.strip()}\n\n"
-        f"{_product_block(ctx.product)}\n\n"
-        f"{_reference_photos_note(ctx.product_image_urls)}"
-    )
+def image_regeneration_addendum(*, improvement: str) -> str:
+    """User note for regen. v1 brief is separate; photos attach at render time."""
+    return f"Requested change:\n{improvement.strip()}"

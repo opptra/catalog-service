@@ -45,7 +45,18 @@ _IMAGE_PLAN_TRACK_BY_ATTRIBUTE: dict[AttributeName, str] = {
     AttributeName.IMAGE: "gallery",
     AttributeName.A_PLUS: "aplus",
 }
-_IMAGE_PLAN_SLOT_FIELDS = ("order", "priority", "role", "kind", "pattern", "content")
+_IMAGE_PLAN_SLOT_FIELDS = (
+    "order",
+    "priority",
+    "role",
+    "kind",
+    "pattern",
+    "content",
+    # Slot-level duplication + feature budget contract for selection/prompting.
+    "owns",
+    "feature_priority",
+    "max_callouts",
+)
 
 _MAX_KEYWORDS = 20
 _MAX_SIGNALS = 12
@@ -135,6 +146,8 @@ def _distill_image_plan_track(track: Any) -> dict[str, Any] | None:
         distilled["recommended_build"] = track["recommended_build"]
     if track.get("build_rationale"):
         distilled["build_rationale"] = track["build_rationale"]
+    if track.get("visual_norms"):
+        distilled["visual_norms"] = track["visual_norms"]
     # Empty slots with no rationale is useless — treat as missing track.
     if not slots and "recommended_build" not in distilled and "build_rationale" not in distilled:
         return None

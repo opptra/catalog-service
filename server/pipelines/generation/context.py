@@ -7,11 +7,14 @@ authoritative source of facts, ``category_intelligence`` (from the
 are signed GCS HTTPS URLs for the SKU's source photos under
 ``products/{sku_id}/assets/images/``.
 
-For image jobs, ``common_image_context`` holds a once-per-job distill of Brand DNA +
-category visual norms reused on every plan/render/regenerate call — never a full
-DNA/CI dump. Product owns SKU color/pattern; DNA owns overlay chrome (type looks,
-panel/badge colors); category intelligence owns slot recipe. Font family names are
-look-to-match only and must never be printed on the artwork.
+For image jobs, ``compressed_brand_dna`` is a minimal JSON DNA (fonts, colors)
+compressed once from full Brand DNA and embedded in each assembled slot brief
+sent to the image model. Product owns SKU color/pattern; DNA owns overlay
+typefaces and brand chrome palette; category intelligence owns the slot recipe
+(role, kind, content, pattern, feature claims). Font family names and hex codes
+are look-to-match only and must never be printed on the artwork. Claim ownership
+is capped upstream (``max_callouts``) from CI ``feature_priority`` ∩ verified
+product facts before each slot brief is assembled.
 """
 
 from dataclasses import dataclass, field
@@ -24,7 +27,5 @@ class GenerationContext:
     category_intelligence: dict[str, Any]
     brand_dna: str
     product_image_urls: list[str] = field(default_factory=list)
-    # Distilled once for image jobs: chrome palette/mood/typography + category visual norms.
-    # Product color is authoritative; DNA type is look-to-match on overlays only.
-    # Never a dump of full Brand DNA or full Category Intelligence.
-    common_image_context: dict[str, Any] | None = None
+    # Minimal JSON DNA compressed once per image job from full Brand DNA.
+    compressed_brand_dna: str | None = None
