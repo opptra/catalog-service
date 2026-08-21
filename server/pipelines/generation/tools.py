@@ -11,130 +11,62 @@ from typing import Any
 
 from entities.catalog.attribute_enums import AttributeName
 
-GALLERY_PLAN_TOOL_NAME = "submit_gallery_plan"
 GALLERY_FACT_BOARD_TOOL_NAME = "submit_fact_board"
-SLOT_LABELS_TOOL_NAME = "submit_slot_labels"
 SINGLE_SLOT_PROMPT_TOOL_NAME = "submit_slot_prompt"
-SHARED_STYLE_TOOL_NAME = "submit_shared_style"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
-COMMON_IMAGE_CONTEXT_TOOL_NAME = "submit_common_image_context"
-
-
-def gallery_plan_tool(name: AttributeName, quantity: int) -> dict[str, Any]:
-    """Tool schema for one image attribute plan with an exact slot count from the UI job.
-
-    ``slots`` is locked to ``quantity`` items (minItems = maxItems). ``type`` is locked to
-    ``name`` so IMAGE and A_PLUS are planned in separate calls.
-    """
-    if quantity < 1:
-        raise ValueError("quantity must be >= 1")
-    return {
-        "type": "function",
-        "function": {
-            "name": GALLERY_PLAN_TOOL_NAME,
-            "description": (
-                f"Submit the coherent {name.value} image plan with exactly {quantity} slot(s). "
-                "Call this tool with the final plan — do not write the plan as free-form JSON text."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "shared_style": {
-                        "type": "string",
-                        "description": (
-                            "One paragraph: the visual system linking every image — honor "
-                            "COMMON IMAGE CONTEXT palette (chrome only: panels, badges, type, "
-                            "icons), mood, typography looks, and category visual norms; also "
-                            "cover product rendering and lighting. Product color/pattern is "
-                            "authoritative — never recolor the SKU. Do not name font families "
-                            "in this paragraph or print them on the artwork; type lives in "
-                            "COMMON IMAGE CONTEXT and is applied at render time. Overlay slots "
-                            "use headline/supporting/dimension looks; heroes stay product-first "
-                            "with little or no type."
-                        ),
-                    },
-                    "slots": {
-                        "type": "array",
-                        "description": (
-                            f"Exactly {quantity} entries for type {name.value}, "
-                            f"slots 1 through {quantity}."
-                        ),
-                        "minItems": quantity,
-                        "maxItems": quantity,
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "type": {
-                                    "type": "string",
-                                    "enum": [name.value],
-                                    "description": f"Must be {name.value}.",
-                                },
-                                "slot": {
-                                    "type": "integer",
-                                    "minimum": 1,
-                                    "maximum": quantity,
-                                    "description": (f"1-based slot index from 1 to {quantity}."),
-                                },
-                                "concept": {
-                                    "type": "string",
-                                    "description": "Short label for this slot's distinct concept.",
-                                },
-                                "prompt": {
-                                    "type": "string",
-                                    "description": (
-                                        "Complete standalone image-generation prompt for this slot."
-                                    ),
-                                },
-                            },
-                            "required": ["type", "slot", "prompt"],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["shared_style", "slots"],
-                "additionalProperties": False,
-            },
-        },
-    }
+COMPRESSED_BRAND_DNA_TOOL_NAME = "submit_compressed_brand_dna"
 
 
 def gallery_fact_board_tool() -> dict[str, Any]:
-    """Tool schema for extracting verbatim product values for feature-priority claims.
+    """Tool schema for binding CI claims to zero or more verified PRODUCT DATA snippets.
 
-    The tool is never executed — its JSON schema is the structured output contract.
-    For missing/unavailable claims, the model must return ``value`` as an empty string.
+    Combined claims (e.g. cover and pillow dimensions) may emit one entry per independent
+    spec that exists on this SKU. Undeterminable claims emit nothing.
     """
     return {
         "type": "function",
         "function": {
             "name": GALLERY_FACT_BOARD_TOOL_NAME,
             "description": (
-                "Return a fact board mapping each requested feature-priority claim to an "
-                "exact value copied from PRODUCT DATA, or an empty string when the claim "
-                "cannot be supported by PRODUCT DATA. Never invent."
+                "Return verified product snippets for the requested feature-priority claims. "
+                "Each claim may yield zero or more items. Never invent. Prefer short structured "
+                "fields. For combined claims that name independent specs, emit one item per "
+                "spec that actually exists on this SKU."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "facts": {
                         "type": "array",
-                        "description": "One entry per requested claim.",
+                        "description": (
+                            "Zero or more snippets. Same claim may appear more than once when "
+                            "it names independent specs (e.g. cover size and pillow size)."
+                        ),
                         "items": {
                             "type": "object",
                             "properties": {
                                 "claim": {
                                     "type": "string",
-                                    "description": "The feature-priority claim string.",
+                                    "description": (
+                                        "The feature-priority claim string, copied exactly."
+                                    ),
                                 },
                                 "value": {
                                     "type": "string",
                                     "description": (
-                                        "Exact product value to be used for on-image text, or "
-                                        "empty string when missing."
+                                        "Short verbatim snippet copied from the source field "
+                                        "(not the whole marketing paragraph when a shorter "
+                                        "supporting phrase exists)."
+                                    ),
+                                },
+                                "source_field": {
+                                    "type": "string",
+                                    "description": (
+                                        "Exact PRODUCT DATA key the value was copied from."
                                     ),
                                 },
                             },
-                            "required": ["claim", "value"],
+                            "required": ["claim", "value", "source_field"],
                             "additionalProperties": False,
                         },
                         "minItems": 0,
@@ -147,51 +79,28 @@ def gallery_fact_board_tool() -> dict[str, Any]:
     }
 
 
-def slot_labels_tool() -> dict[str, Any]:
-    """Tool schema for image-ready on-canvas strings derived from assigned facts."""
-    return {
-        "type": "function",
-        "function": {
-            "name": SLOT_LABELS_TOOL_NAME,
-            "description": (
-                "Submit short on-image label strings for ONE slot. Each string must come "
-                "from an assigned fact value. Never invent claims or merge two facts."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "labels": {
-                        "type": "array",
-                        "description": (
-                            "Flat list of short shopper-facing strings to paint on this "
-                            "image. For each assigned fact, return 0 to 2 strings taken "
-                            "only from that fact's value. Fewer strings is correct when "
-                            "values are long."
-                        ),
-                        "items": {"type": "string"},
-                        "minItems": 0,
-                    }
-                },
-                "required": ["labels"],
-                "additionalProperties": False,
-            },
-        },
-    }
-
-
 def single_slot_prompt_tool() -> dict[str, Any]:
-    """Tool schema for a single slot's standalone image-generation prompt."""
+    """Tool schema for a single slot's photography Scene (facts are pasted by Python)."""
     return {
         "type": "function",
         "function": {
             "name": SINGLE_SLOT_PROMPT_TOOL_NAME,
-            "description": "Submit the standalone image-generation prompt for ONE chosen slot.",
+            "description": (
+                "Submit the photography Scene for ONE chosen slot. Do not restate or invent "
+                "product facts — those are appended by the pipeline."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "prompt": {
                         "type": "string",
-                        "description": "Complete standalone prompt for generating one slot image.",
+                        "description": (
+                            "Photography only under heading Scene: camera, lighting, "
+                            "composition, what the product looks like in frame. Follow the "
+                            "slot content and pattern, and the JSON DNA for type and color. "
+                            "Do not list product specs, slogans, or on-image copy. Do not "
+                            "print typeface names, hex codes, or canvas ratios."
+                        ),
                     }
                 },
                 "required": ["prompt"],
@@ -201,153 +110,55 @@ def single_slot_prompt_tool() -> dict[str, Any]:
     }
 
 
-def shared_style_tool() -> dict[str, Any]:
-    """Tool schema for one shared visual-system paragraph for a selected track."""
-    return {
-        "type": "function",
-        "function": {
-            "name": SHARED_STYLE_TOOL_NAME,
-            "description": "Submit one shared visual-system paragraph for all selected slots.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "shared_style": {
-                        "type": "string",
-                        "description": (
-                            "One concise paragraph describing cohesive visual system: "
-                            "palette/chrome use, lighting, composition language, and "
-                            "overlay text treatment."
-                        ),
-                    }
-                },
-                "required": ["shared_style"],
-                "additionalProperties": False,
-            },
-        },
-    }
-
-
-_TYPE_ROLE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "family": {
-            "type": "string",
-            "description": (
-                "Optional art-direction family name (e.g. Montserrat). Never instruct "
-                "printing this name on the artwork."
-            ),
-        },
-        "look": {
-            "type": "string",
-            "description": (
-                "Visual look to match: weight, serif vs sans, geometric vs humanist "
-                "(e.g. geometric sans, bold). Prefer this over family alone."
-            ),
-        },
-    },
-}
-
-
-COMMON_IMAGE_CONTEXT_TOOL: dict[str, Any] = {
+COMPRESSED_BRAND_DNA_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
-        "name": COMMON_IMAGE_CONTEXT_TOOL_NAME,
+        "name": COMPRESSED_BRAND_DNA_TOOL_NAME,
         "description": (
-            "Submit the compact common image context for every image in this job. "
-            "Call this tool with the extracted JSON — do not write free-form JSON text. "
-            "Typography is look-to-match (at most headline, supporting, dimension). "
-            "Palette is chrome-only — never recolor the product."
+            "Submit a minimal JSON DNA of this brand's visual styling, reused for every "
+            "image in this job. Copy fonts and colors from the source; do not invent."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "palette": {
+                "fonts": {
                     "type": "object",
-                    "description": (
-                        "Brand colors for image chrome only (panels, badges, icon chips, "
-                        "headlines, captions, dividers). Never apply these to the product "
-                        "itself. Omit if DNA is silent on color."
-                    ),
-                    "properties": {
-                        "primary": {"type": "string"},
-                        "secondary": {"type": "string"},
-                        "accents": {"type": "string"},
-                        "notes": {
-                            "type": "string",
-                            "description": (
-                                "Where each color is used on chrome (e.g. charcoal = "
-                                "headlines; white = panel; beige = badge fill)."
-                            ),
-                        },
-                    },
-                    "additionalProperties": False,
-                },
-                "typography": {
-                    "type": "object",
-                    "description": (
-                        "At most three type roles from Brand DNA. Ignore extra families. "
-                        "Omit the whole object if DNA is silent on fonts. Never instruct "
-                        "printing family names on the artwork."
-                    ),
+                    "description": "Typefaces named in Brand DNA. Omit a key if the source has none.",
                     "properties": {
                         "headline": {
-                            **_TYPE_ROLE_SCHEMA,
-                            "description": "Primary / heading face (titles on overlays).",
+                            "type": "string",
+                            "description": "Primary / headline typeface name only.",
                         },
-                        "supporting": {
-                            **_TYPE_ROLE_SCHEMA,
-                            "description": "Body / callout / detail face.",
+                        "body": {
+                            "type": "string",
+                            "description": "Secondary / body typeface name only.",
                         },
                         "dimension": {
-                            **_TYPE_ROLE_SCHEMA,
-                            "description": (
-                                "Measurement / size-fit numbers only. Omit unless DNA "
-                                "names a distinct measurement face."
-                            ),
+                            "type": "string",
+                            "description": "Measurement overlay typeface name only.",
                         },
                     },
                     "additionalProperties": False,
                 },
-                "mood": {
-                    "type": "string",
-                    "description": (
-                        "Short frame mood (clean catalog, lighting). Do not rewrite the "
-                        "product scene from DNA if category + product already set it."
-                    ),
-                },
-                "visual_guardrails": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Do-nots that affect image pixels: banned type styles "
-                        "(script/cursive/brush/comic), banned colors, no overcrowding. "
-                        "Always include: never recolor the product to the brand palette."
-                    ),
-                },
-                "category": {
+                "colors": {
                     "type": "object",
-                    "description": "Cross-slot category visual norms (not per-slot briefs).",
+                    "description": "Brand palette as named in Brand DNA.",
                     "properties": {
-                        "visual_norms": {
+                        "primary": {
                             "type": "array",
                             "items": {"type": "string"},
+                            "description": "Primary brand colors (hex and/or name).",
                         },
-                        "on_image_text": {
-                            "type": "string",
-                            "description": (
-                                "Phone-readable / minimal SEO keyword rules for on-image copy."
-                            ),
-                        },
-                        "shared_product_cues": {
+                        "secondary": {
                             "type": "array",
                             "items": {"type": "string"},
+                            "description": "Secondary brand colors (hex and/or name).",
                         },
                     },
                     "additionalProperties": False,
                 },
             },
-            "required": ["mood", "category"],
+            "required": ["fonts", "colors"],
             "additionalProperties": False,
         },
     },

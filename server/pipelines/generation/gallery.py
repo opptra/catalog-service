@@ -1,40 +1,38 @@
 """Stage 1: plan a coherent, non-duplicated image set for one attribute type per call.
 
-IMAGE (PDP gallery) and A_PLUS are planned in separate tool calls. Each call sees the product
-image and Category Intelligence role palette and returns a ready prompt per slot. No fallback:
-a plan that fails or doesn't cover every requested slot is rejected outright.
+IMAGE (PDP gallery) and A_PLUS are planned separately. Per track: gather claim keys →
+fact board values → deterministic claim ownership (max_callouts upstream) → per-slot
+Scene writers that receive CI content/pattern, owned facts, and JSON DNA
+(fonts, colors). On-image facts are pasted after the Scene; Brand DNA is not
+appended again.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 from dataclasses import dataclass
 from typing import Any
 
+from core import pipeline_dump
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from core.exceptions import GalleryPlanError
 from entities.catalog.attribute_enums import AttributeName
-from pipelines.generation import common_image, prompts, tools
+from pipelines.generation import common_image, tools
 from pipelines.generation.context import GenerationContext
 
 logger = logging.getLogger(__name__)
 
-# Token budget scales with gallery size — a bigger gallery genuinely needs more output tokens
-# (one complete standalone prompt per slot plus the shared_style paragraph). Calibrated from
-# live measurements against openai/gpt-5.4-mini across 3/6/10-image galleries.
-_PLAN_TOKENS_BASE = 400
-_PLAN_TOKENS_PER_SLOT = 210
-_PLAN_TOKENS_SAFETY_MULTIPLIER = 1.5
-
-
-def _plan_max_tokens(num_slots: int) -> int:
-    """Token budget for a plan call requesting ``num_slots`` images, with a safety margin."""
-    raw = _PLAN_TOKENS_BASE + _PLAN_TOKENS_PER_SLOT * num_slots
-    return int(raw * _PLAN_TOKENS_SAFETY_MULTIPLIER)
-
 
 @dataclass(frozen=True, slots=True)
 class SlotPlan:
+    """One slot, ready for the image model.
+
+    ``prompt`` is the planner Scene with on-image facts pasted (JSON DNA is
+    applied inside the planner prompt, not appended again here).
+    """
+
     name: AttributeName
     slot: int
     prompt: str
@@ -42,13 +40,34 @@ class SlotPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class FactValue:
+    """One verified PRODUCT DATA snippet bound to a CI claim."""
+
+    value: str
+    source_field: str
+
+
+@dataclass(frozen=True, slots=True)
 class AssignedFact:
     claim: str
     value: str
+    source_field: str
+
+
+@dataclass(frozen=True, slots=True)
+class AllocatedSlot:
+    slot_def: dict[str, Any]
+    concept: str
+    owned_claims: list[str]
+    assigned_facts: list[AssignedFact]
+
+
+# Fact board: CI claim → verified values (same claim may have many source fields).
+FactBoard = dict[str, list[FactValue]]
 
 
 def _plan_model() -> str:
-    """Model for structured planning/extraction (slot selection + per-slot prompts)."""
+    """Model for structured planning/extraction (fact board, writers)."""
     return settings.openrouter_text_model
 
 
@@ -57,7 +76,6 @@ def _track_key(name: AttributeName) -> str:
         return "gallery"
     if name == AttributeName.A_PLUS:
         return "aplus"
-    # Defensive: AttributeName should be locked by the caller.
     return str(name.value).lower()
 
 
@@ -105,66 +123,6 @@ def _candidate_ci_slots(ctx: GenerationContext, name: AttributeName) -> list[dic
     return core + extended
 
 
-def _fact_board_prompt(product: dict[str, Any], claims: list[str]) -> str:
-    return (
-        "You extract verbatim product facts for on-image labels.\n"
-        "\n"
-        "RULES:\n"
-        "- PRODUCT DATA is the only source of facts.\n"
-        "- For each CLAIM, find an exact value that directly supports that claim.\n"
-        "- Prefer short structured spec fields over long marketing paragraphs.\n"
-        "- If a claim is only supported by taxonomy/category labels, return empty string.\n"
-        "- The output value must be copied verbatim from PRODUCT DATA.\n"
-        "- If PRODUCT DATA does not contain a supporting value, return an empty string.\n"
-        "- Never invent, infer, or rephrase into a new value.\n"
-        "- Copy each CLAIM string exactly in facts[].claim (same spelling and punctuation).\n"
-        "\n"
-        "PRODUCT DATA (opaque strings/columns):\n"
-        f"{json.dumps(product, ensure_ascii=False, indent=2)}\n"
-        "\n"
-        f"CLAIMS (feature_priority strings): {json.dumps(claims, ensure_ascii=False)}\n"
-    )
-
-
-def _build_fact_board(
-    client: OpenRouterClient,
-    ctx: GenerationContext,
-    *,
-    claims: list[str],
-    session_id: str | None,
-) -> dict[str, str]:
-    """Return {claim: exact_value | ''} extracted from PRODUCT DATA."""
-    if not claims:
-        return {}
-
-    parsed = client.call_tool(
-        _fact_board_prompt(ctx.product, claims),
-        model=_plan_model(),
-        tool=tools.gallery_fact_board_tool(),
-        max_tokens=4096,
-        session_id=session_id,
-    )
-    raw_facts = parsed.get("facts") if isinstance(parsed, dict) else None
-    if not isinstance(raw_facts, list):
-        raise GalleryPlanError("fact board missing facts array")
-
-    allowed = set(claims)
-    out: dict[str, str] = dict.fromkeys(claims, "")
-    for entry in raw_facts:
-        if not isinstance(entry, dict):
-            continue
-        claim = entry.get("claim")
-        value = entry.get("value")
-        if not isinstance(claim, str) or not claim.strip():
-            continue
-        if claim not in allowed:
-            continue
-        if not isinstance(value, str):
-            continue
-        out[claim] = value.strip()
-    return out
-
-
 def _feature_priority(slot: dict[str, Any]) -> list[str]:
     raw = slot.get("feature_priority")
     if not isinstance(raw, list):
@@ -181,53 +139,154 @@ def _max_callouts(slot: dict[str, Any]) -> int:
     return raw if isinstance(raw, int) and raw >= 0 else 0
 
 
-def _assigned_facts_for_slot(
+def _slot_text_field(slot: dict[str, Any], key: str) -> str:
+    raw = slot.get(key)
+    return raw.strip() if isinstance(raw, str) and raw.strip() else ""
+
+
+def _slot_concept(slot: dict[str, Any]) -> str:
+    role = _slot_text_field(slot, "role")
+    if role:
+        return role
+    content = _slot_text_field(slot, "content")
+    if content:
+        return content.split(".", 1)[0].strip() or content[:80]
+    return "catalog shot"
+
+
+def _normalize_value(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def _fact_board_prompt(product: dict[str, Any], claims: list[str]) -> str:
+    facts = {key: value for key, value in product.items() if key != "source_assets"}
+    return (
+        "You bind category feature-priority claims to this SKU's PRODUCT DATA.\n"
+        "\n"
+        "RULES:\n"
+        "- PRODUCT DATA is the only source of facts.\n"
+        "- For each CLAIM, return zero or more items that directly support it.\n"
+        "- Prefer a short structured field over a marketing paragraph. Shorten at source "
+        '(e.g. water temperature → "Machine Wash Cold", not the whole wash-care sentence).\n'
+        '- If the cell is already short ("210", "Microfiber"), leave it. Do not expand '
+        '"210" into "210 TC".\n'
+        "- If a claim names more than one independent spec that this SKU actually has "
+        "(e.g. cover length and cover width), return ONE item per spec with the same claim "
+        "string, different values, and the matching source_field for each.\n"
+        "- If only one of those specs exists, return only that one. If none can be "
+        "determined, return nothing for that claim.\n"
+        "- If the claim cannot be determined — no field, several conflicting fields, or "
+        "the only hit is not shopper-facing — return no items for it. Never invent.\n"
+        "- Every value must be a verbatim substring of its source_field value.\n"
+        "- source_field must be an exact PRODUCT DATA key.\n"
+        "- Copy each CLAIM string exactly (same spelling and punctuation).\n"
+        "- Do not return empty-value rows; omit the claim instead.\n"
+        "\n"
+        "PRODUCT DATA (opaque strings/columns):\n"
+        f"{json.dumps(facts, ensure_ascii=False, indent=2)}\n"
+        "\n"
+        f"CLAIMS (feature_priority strings): {json.dumps(claims, ensure_ascii=False)}\n"
+    )
+
+
+def _verify_fact_item(
     *,
-    slot: dict[str, Any],
-    fact_board: dict[str, str],
-) -> list[AssignedFact]:
-    priorities = _feature_priority(slot)
-    if not priorities:
-        return []
-    cap = _max_callouts(slot)
-    if cap == 0:
-        return []
-    out: list[AssignedFact] = []
-    for claim in priorities:
-        value = fact_board.get(claim, "")
-        if not isinstance(value, str) or not value.strip():
+    claim: str,
+    value: str,
+    source_field: str,
+) -> str | None:
+    """Return a drop reason, or None when the item is kept.
+
+    Only empty claim/value/source_field rows are dropped — no other filtering.
+    """
+    if not claim.strip() or not value.strip() or not source_field.strip():
+        return "empty"
+    return None
+
+
+def _build_fact_board(
+    client: OpenRouterClient,
+    ctx: GenerationContext,
+    *,
+    claims: list[str],
+    session_id: str | None,
+) -> FactBoard:
+    """Return {claim: [FactValue, ...]} — omitted claims are absent or empty."""
+    if not claims:
+        return {}
+
+    llm_prompt = _fact_board_prompt(ctx.product, claims)
+    parsed = client.call_tool(
+        llm_prompt,
+        model=_plan_model(),
+        tool=tools.gallery_fact_board_tool(),
+        max_tokens=4096,
+        session_id=session_id,
+    )
+    raw_facts = parsed.get("facts") if isinstance(parsed, dict) else None
+    if not isinstance(raw_facts, list):
+        raise GalleryPlanError("fact board missing facts array")
+
+    allowed = set(claims)
+    out: FactBoard = {claim: [] for claim in claims}
+    seen_per_claim: dict[str, set[str]] = {claim: set() for claim in claims}
+
+    for entry in raw_facts:
+        if not isinstance(entry, dict):
             continue
-        out.append(AssignedFact(claim=claim, value=value.strip()))
-        if len(out) >= cap:
-            break
+        claim = entry.get("claim")
+        value = entry.get("value")
+        source_field = entry.get("source_field")
+        if not isinstance(claim, str) or claim not in allowed:
+            continue
+        if not isinstance(value, str) or not isinstance(source_field, str):
+            continue
+        cleaned = value.strip()
+        field = source_field.strip()
+        reason = _verify_fact_item(
+            claim=claim,
+            value=cleaned,
+            source_field=field,
+        )
+        if reason is not None:
+            logger.info(
+                "fact board drop claim=%r value=%r field=%r reason=%s",
+                claim,
+                cleaned,
+                field,
+                reason,
+            )
+            continue
+        norm = _normalize_value(cleaned)
+        if norm in seen_per_claim[claim]:
+            continue
+        seen_per_claim[claim].add(norm)
+        out[claim].append(FactValue(value=cleaned, source_field=field))
+
+    for claim, values in out.items():
+        if not values:
+            logger.info("fact board omit claim=%r reason=unmatched_or_filtered", claim)
+
     return out
 
 
-def _slot_has_any_fact(*, slot: dict[str, Any], fact_board: dict[str, str]) -> bool:
+def _slot_has_any_fact(*, slot: dict[str, Any], fact_board: FactBoard) -> bool:
     priorities = _feature_priority(slot)
     if not priorities:
         return True
-    return any(bool(fact_board.get(claim, "").strip()) for claim in priorities)
+    return any(bool(fact_board.get(claim)) for claim in priorities)
 
 
 def _select_slots(
     candidate_slots: list[dict[str, Any]],
     *,
     quantity: int,
-    fact_board: dict[str, str],
-) -> list[tuple[dict[str, Any], list[AssignedFact]]]:
-    """Select exactly `quantity` slots.
-
-    Rules:
-    - Deduplicate by `owns` (fallback to role) within the track.
-    - First pass: eligible overlays require at least one supported fact.
-    - Second pass: if still short, fill remaining non-duplicate slots even when facts are empty
-      (prompt will omit on-image text when assigned_facts is empty).
-    """
-    selected: list[tuple[dict[str, Any], list[AssignedFact]]] = []
+    fact_board: FactBoard,
+) -> list[dict[str, Any]]:
+    """Select exactly ``quantity`` slots (dedupe by owns; prefer fact-supported overlays)."""
+    selected: list[dict[str, Any]] = []
     used: set[str] = set()
 
-    # Pass 1: eligible slots only.
     for slot in candidate_slots:
         if len(selected) >= quantity:
             break
@@ -237,9 +296,8 @@ def _select_slots(
         if not _slot_has_any_fact(slot=slot, fact_board=fact_board):
             continue
         used.add(key)
-        selected.append((slot, _assigned_facts_for_slot(slot=slot, fact_board=fact_board)))
+        selected.append(slot)
 
-    # Pass 2: fill to quantity with remaining slots.
     if len(selected) < quantity:
         for slot in candidate_slots:
             if len(selected) >= quantity:
@@ -248,7 +306,7 @@ def _select_slots(
             if key in used:
                 continue
             used.add(key)
-            selected.append((slot, _assigned_facts_for_slot(slot=slot, fact_board=fact_board)))
+            selected.append(slot)
 
     if len(selected) != quantity:
         raise GalleryPlanError(
@@ -257,208 +315,206 @@ def _select_slots(
     return selected
 
 
-def _slot_labels_prompt(
-    *,
-    output_slot: int,
-    slot: dict[str, Any],
-    assigned_facts: list[AssignedFact],
-) -> str:
-    role = slot.get("role") if isinstance(slot.get("role"), str) else ""
-    kind = slot.get("kind") if isinstance(slot.get("kind"), str) else ""
-    pattern = slot.get("pattern") if isinstance(slot.get("pattern"), str) else ""
-    max_callouts = _max_callouts(slot)
-    facts_json = json.dumps(
-        [{"claim": fact.claim, "value": fact.value} for fact in assigned_facts],
-        ensure_ascii=False,
-        indent=2,
-    )
-    return (
-        "You prepare short on-image label strings for ONE e-commerce product image slot.\n"
-        "\n"
-        f"OUTPUT SLOT: {output_slot}\n"
-        f"SLOT ROLE: {role}\n"
-        f"SLOT KIND: {kind}\n"
-        f"SLOT PATTERN: {pattern}\n"
-        f"MAX CALLOUTS: {max_callouts} (ceiling only — fewer strings is correct)\n"
-        "\n"
-        "ASSIGNED FACTS (truth only — every label must come from these values):\n"
-        f"{facts_json}\n"
-        "\n"
-        "RULES:\n"
-        "- Use role/kind/pattern to judge what fits this picture (size diagram vs care vs hero).\n"
-        "- For each assigned fact, return 0 to 2 short strings taken only from that fact's value.\n"
-        "- You may split one long value (e.g. cm and inches) into two strings, or keep one line.\n"
-        "- Never merge two claims into one string.\n"
-        "- Never invent a string not supported by an assigned value.\n"
-        "- Never add strings to fill unused callout slots.\n"
-        "- If a value is still a paragraph after shortening, omit that fact (return no string).\n"
-        "- Prefer fewer readable strings over a text wall.\n"
-        "- Units like TC may appear only when already in the assigned value.\n"
-    )
-
-
-def _plan_slot_labels(
-    client: OpenRouterClient,
-    *,
-    output_slot: int,
-    slot: dict[str, Any],
-    assigned_facts: list[AssignedFact],
-    session_id: str | None,
-) -> list[str]:
-    parsed = client.call_tool(
-        _slot_labels_prompt(
-            output_slot=output_slot,
-            slot=slot,
-            assigned_facts=assigned_facts,
-        ),
-        model=_plan_model(),
-        tool=tools.slot_labels_tool(),
-        max_tokens=400,
-        session_id=session_id,
-    )
-    raw_labels = parsed.get("labels") if isinstance(parsed, dict) else None
-    if not isinstance(raw_labels, list):
-        raise GalleryPlanError("slot labels missing labels array")
-    out: list[str] = []
-    for item in raw_labels:
-        if not isinstance(item, str):
-            continue
-        text = item.strip()
-        if text:
-            out.append(text)
+def _facts_for_claims(
+    owned_claims: list[str],
+    fact_board: FactBoard,
+) -> list[AssignedFact]:
+    out: list[AssignedFact] = []
+    seen_values: set[str] = set()
+    for claim in owned_claims:
+        for item in fact_board.get(claim, []):
+            norm = _normalize_value(item.value)
+            if norm in seen_values:
+                continue
+            seen_values.add(norm)
+            out.append(
+                AssignedFact(
+                    claim=claim,
+                    value=item.value,
+                    source_field=item.source_field,
+                )
+            )
     return out
+
+
+def _own_claims_for_slots(
+    *,
+    chosen_slots: list[dict[str, Any]],
+    fact_board: FactBoard,
+) -> list[list[str]]:
+    """Deterministic ownership: CI feature_priority ∩ fact board, capped by max_callouts.
+
+    Earlier slots win when the same claim appears in more than one slot's priority list.
+    """
+    owned_by_slot: list[list[str]] = []
+    claim_owner: dict[str, int] = {}
+    for slot_index, slot_def in enumerate(chosen_slots):
+        priorities = _feature_priority(slot_def)
+        cap = _max_callouts(slot_def)
+        kept: list[str] = []
+        used_values: set[str] = set()
+        for claim in priorities:
+            if cap >= 0 and len(kept) >= cap:
+                break
+            values = fact_board.get(claim) or []
+            if not values:
+                continue
+            if claim in claim_owner:
+                logger.info(
+                    "ownership skip claim=%r slot=%s reason=owned_by_slot_%s",
+                    claim,
+                    slot_index + 1,
+                    claim_owner[claim] + 1,
+                )
+                continue
+            norms = {_normalize_value(item.value) for item in values}
+            if norms & used_values:
+                logger.info(
+                    "ownership skip claim=%r slot=%s reason=duplicate_value_in_slot",
+                    claim,
+                    slot_index + 1,
+                )
+                continue
+            used_values |= norms
+            claim_owner[claim] = slot_index
+            kept.append(claim)
+        owned_by_slot.append(kept)
+    return owned_by_slot
+
+
+def _allocate_slots(
+    *,
+    chosen_slots: list[dict[str, Any]],
+    fact_board: FactBoard,
+) -> list[AllocatedSlot]:
+    """Map chosen CI slots to owned claims and verified facts (no LLM)."""
+    owned_by_slot = _own_claims_for_slots(
+        chosen_slots=chosen_slots,
+        fact_board=fact_board,
+    )
+    allocated: list[AllocatedSlot] = []
+    for slot_def, owned in zip(chosen_slots, owned_by_slot, strict=True):
+        allocated.append(
+            AllocatedSlot(
+                slot_def=slot_def,
+                concept=_slot_concept(slot_def),
+                owned_claims=owned,
+                assigned_facts=_facts_for_claims(owned, fact_board),
+            )
+        )
+    return allocated
+
+
+def _facts_block(assigned_facts: list[AssignedFact]) -> str:
+    if not assigned_facts:
+        return "none"
+    return "\n".join(
+        f"- {fact.claim} | {fact.source_field}: {fact.value}" for fact in assigned_facts
+    )
+
+
+def _append_facts_to_scene(scene: str, assigned_facts: list[AssignedFact]) -> str:
+    """Paste verified facts after the photography Scene. Writer never re-authors values."""
+    scene_text = scene.strip()
+    facts = _facts_block(assigned_facts)
+    block = f"On-image facts\n{facts}"
+    if not scene_text:
+        return block
+    return f"{scene_text}\n\n{block}"
 
 
 def _slot_prompt(
     *,
-    name: AttributeName,
-    output_slot: int,
     slot: dict[str, Any],
-    locked_labels: list[str],
-    shared_style: str,
-    common_block: str,
+    assigned_facts: list[AssignedFact],
+    brand_look: str,
 ) -> str:
-    role = slot.get("role") if isinstance(slot.get("role"), str) else ""
-    kind = slot.get("kind") if isinstance(slot.get("kind"), str) else ""
-    pattern = slot.get("pattern") if isinstance(slot.get("pattern"), str) else ""
-    content = slot.get("content") if isinstance(slot.get("content"), str) else ""
+    role = _slot_text_field(slot, "role")
+    kind = _slot_text_field(slot, "kind")
+    content = _slot_text_field(slot, "content")
+    pattern = _slot_text_field(slot, "pattern")
+    slot_line = " — ".join(part for part in (role, kind) if part) or "catalog shot"
 
-    if locked_labels:
-        labels_block = "\n".join(
-            f'{index}) "{label}"' for index, label in enumerate(locked_labels, start=1)
+    lines = [
+        f"Slot: {slot_line}",
+    ]
+    if content:
+        lines.append(f"Content: {content}")
+    if pattern:
+        lines.append(f"Pattern: {pattern}")
+    dna_block = common_image.format_block(brand_look)
+    if dna_block:
+        lines.append(dna_block)
+    lines.append("")
+
+    if assigned_facts:
+        lines.append(
+            "This shot has required on-image facts. Render every fact visibly and "
+            "legibly in the finished image. Preserve the wording exactly: do not "
+            "omit, paraphrase, restyle, or invent facts."
+        )
+        lines.append(
+            "Required on-image facts are listed below. Each line uses the format "
+            "'fact type | display text'. Render only the display text after the |;"
+            "do not render the fact type or the |."
+        )
+        lines.append(_facts_block(assigned_facts))
+        lines.append(
+            "Integrate the text as a restrained catalog-style overlay in a readable "
+            "area without materially changing the requested photography."
         )
     else:
-        labels_block = "(none — print no on-image text)"
-    return (
-        "You are creating a standalone prompt for generating ONE e-commerce product image.\n"
-        "\n"
-        f"ATTRIBUTE TYPE: {name.value}\n"
-        f"OUTPUT SLOT: {output_slot} (1..quantity)\n"
-        "\n"
-        "SLOT RECIPE (layout only — not a source of new words):\n"
-        f"- role: {role}\n"
-        f"- kind: {kind}\n"
-        f"- pattern: {pattern}\n"
-        f"- content: {content}\n"
-        "\n"
-        "LOCKED ON-IMAGE TEXT (print exactly these strings; do not add, rewrite, or combine):\n"
-        f"{labels_block}\n"
-        "\n"
-        "SHARED VISUAL SYSTEM:\n"
-        f"{shared_style}\n"
-        "\n"
-        f"{common_block}\n"
-        "\n"
-        "HARD RULES:\n"
-        "- Describe the photo, composition, lighting, and where the locked strings sit.\n"
-        "- You may style placement (large vs small type, chips, measurement lines, brackets).\n"
-        "- Do NOT add, rewrite, combine, or invent on-image text beyond the locked list.\n"
-        "- Do NOT fill empty callout space with extra labels.\n"
-        "- Never print font family names on artwork.\n"
-        f"{prompts.image_on_canvas_copy_rules()}\n"
-        "\n"
-        "Composition guidance:\n"
-        "- Use the real product reference photos attached to the planning call.\n"
-        "- Match the slot recipe visually (e.g. care module shows laundry-icons layout).\n"
+        lines.append(
+            "This shot has no on-image facts. Paint no product specs, slogans, size "
+            "charts, icon strips, or promotional copy."
+        )
+
+    lines.extend(
+        [
+            "",
+            "Follow Content and Pattern for what this shot must show.",
+            "Keep the requested photography and product appearance as the visual priority.",
+            "Do not draw a logo. Do not invent claims. Do not mention canvas ratio or font names.",
+            "Use the real product reference photos attached to this call.",
+        ]
     )
+    return "\n".join(lines)
 
 
 def _plan_slot_prompt(
     client: OpenRouterClient,
     ctx: GenerationContext,
     *,
-    name: AttributeName,
+    attribute: AttributeName,
     slot_position: int,
     slot: dict[str, Any],
-    locked_labels: list[str],
-    shared_style: str,
-    common_block: str,
+    assigned_facts: list[AssignedFact],
     session_id: str | None,
 ) -> str:
+    llm_prompt = _slot_prompt(
+        slot=slot,
+        assigned_facts=assigned_facts,
+        brand_look=ctx.compressed_brand_dna or "",
+    )
     parsed = client.call_tool(
-        _slot_prompt(
-            name=name,
-            output_slot=slot_position,
-            slot=slot,
-            locked_labels=locked_labels,
-            shared_style=shared_style,
-            common_block=common_block,
-        ),
+        llm_prompt,
         model=_plan_model(),
         tool=tools.single_slot_prompt_tool(),
         image_urls=ctx.product_image_urls or None,
-        max_tokens=900,
+        max_tokens=1400,
         session_id=session_id,
     )
     prompt = parsed.get("prompt") if isinstance(parsed, dict) else None
     if not isinstance(prompt, str) or not prompt.strip():
         raise GalleryPlanError("slot prompt missing prompt string")
-    return prompts.append_locked_on_image_text(prompt.strip(), locked_labels)
-
-
-def _shared_style_prompt(
-    *,
-    name: AttributeName,
-    chosen_slots: list[dict[str, Any]],
-    common_block: str,
-) -> str:
-    slot_summary = "\n".join(
-        f"- role={slot.get('role', '')} | kind={slot.get('kind', '')} | "
-        f"pattern={slot.get('pattern', '')}"
-        for slot in chosen_slots
+    writer_scene = prompt.strip()
+    pipeline_dump.record_slot(
+        attribute=attribute.value,
+        slot=slot_position,
+        input=llm_prompt,
+        output=parsed,
     )
-    return (
-        "Write one short shared visual-system paragraph for this image track.\n"
-        f"ATTRIBUTE TYPE: {name.value}\n"
-        "It must keep all slots cohesive while preserving slot-level distinction.\n"
-        "Focus on: composition language, palette usage, text treatment, icon style, and lighting.\n"
-        "Do not mention aspect ratio, font family names, CI keys, or internal attribute labels.\n"
-        "Keep it concise and directly usable inside image prompts.\n\n"
-        "CHOSEN SLOT ROLES:\n"
-        f"{slot_summary}\n\n"
-        f"{common_block}\n"
-    )
-
-
-def _plan_shared_style(
-    client: OpenRouterClient,
-    *,
-    name: AttributeName,
-    chosen_slots: list[dict[str, Any]],
-    common_block: str,
-    session_id: str | None,
-) -> str:
-    parsed = client.call_tool(
-        _shared_style_prompt(name=name, chosen_slots=chosen_slots, common_block=common_block),
-        model=_plan_model(),
-        tool=tools.shared_style_tool(),
-        max_tokens=220,
-        session_id=session_id,
-    )
-    style = parsed.get("shared_style") if isinstance(parsed, dict) else None
-    if not isinstance(style, str) or not style.strip():
-        raise GalleryPlanError("shared style missing shared_style string")
-    return style.strip()
+    return _append_facts_to_scene(writer_scene, assigned_facts)
 
 
 def plan_selected_slots(
@@ -469,15 +525,7 @@ def plan_selected_slots(
     *,
     session_id: str | None = None,
 ) -> dict[tuple[AttributeName, int], SlotPlan]:
-    """Plan exactly `quantity` slots by:
-
-    1) extracting a verbatim fact board from PRODUCT DATA for this track's `feature_priority`;
-    2) selecting core/extended slots eligible for this SKU (no duplicate `owns` in-track);
-    3) generating locked on-image labels per slot, then one standalone prompt per slot.
-
-    This replaces the previous bulk multi-slot planning call so we can stop repeated facts and
-    hardcoded competitor information from landing on the same SKU's images.
-    """
+    """Plan exactly ``quantity`` slots for one image attribute track."""
     if quantity < 1:
         raise GalleryPlanError(f"quantity must be >= 1 for {name.value}")
 
@@ -485,172 +533,35 @@ def plan_selected_slots(
     if not candidate_slots:
         raise GalleryPlanError(f"no candidate CI slots for {name.value}")
 
-    # Build the universe of claims to support for this track.
     all_claims: list[str] = []
     for slot in candidate_slots:
         all_claims.extend(_feature_priority(slot))
     claims = sorted(set(all_claims))
 
-    fact_board = _build_fact_board(client, ctx, claims=claims, session_id=session_id)
-    chosen = _select_slots(candidate_slots, quantity=quantity, fact_board=fact_board)
-    chosen_slots = [slot for slot, _ in chosen]
-    common_block = (
-        common_image.format_block(ctx.common_image_context)
-        if ctx.common_image_context
-        else (
-            "=== COMMON IMAGE CONTEXT ===\n"
-            "(missing — keep one cohesive visual system with sparse phone-readable labels and "
-            "product-first compositions)"
-        )
-    )
-    shared_style = _plan_shared_style(
+    fact_board = _build_fact_board(
         client,
-        name=name,
-        chosen_slots=chosen_slots,
-        common_block=common_block,
+        ctx,
+        claims=claims,
         session_id=session_id,
     )
+    chosen_slots = _select_slots(candidate_slots, quantity=quantity, fact_board=fact_board)
+    allocated = _allocate_slots(chosen_slots=chosen_slots, fact_board=fact_board)
 
     out: dict[tuple[AttributeName, int], SlotPlan] = {}
-    for slot_position, (slot_def, assigned_facts) in enumerate(chosen, start=1):
-        max_callouts = _max_callouts(slot_def)
-        if max_callouts > 0 and assigned_facts:
-            locked_labels = _plan_slot_labels(
-                client,
-                output_slot=slot_position,
-                slot=slot_def,
-                assigned_facts=assigned_facts,
-                session_id=session_id,
-            )
-        else:
-            locked_labels = []
-        prompt = _plan_slot_prompt(
+    for slot_position, item in enumerate(allocated, start=1):
+        final_prompt = _plan_slot_prompt(
             client,
             ctx,
-            name=name,
+            attribute=name,
             slot_position=slot_position,
-            slot=slot_def,
-            locked_labels=locked_labels,
-            shared_style=shared_style,
-            common_block=common_block,
+            slot=item.slot_def,
+            assigned_facts=item.assigned_facts,
             session_id=session_id,
         )
         out[(name, slot_position)] = SlotPlan(
             name=name,
             slot=slot_position,
-            prompt=prompt,
-            concept=slot_def.get("role") if isinstance(slot_def.get("role"), str) else None,
+            prompt=final_prompt,
+            concept=item.concept,
         )
     return out
-
-
-def plan(
-    client: OpenRouterClient,
-    ctx: GenerationContext,
-    name: AttributeName,
-    quantity: int,
-    *,
-    session_id: str | None = None,
-) -> dict[tuple[AttributeName, int], SlotPlan]:
-    """Plan exactly ``quantity`` slots for one image attribute. Raises ``GalleryPlanError`` if
-    the call fails or the plan doesn't cover slots 1..quantity — no fallback.
-    """
-    if quantity < 1:
-        raise GalleryPlanError(f"quantity must be >= 1 for {name.value}")
-    wanted = [(name, slot) for slot in range(1, quantity + 1)]
-    try:
-        parsed = client.call_tool(
-            prompts.gallery_plan_prompt(ctx, name, quantity),
-            model=settings.openrouter_text_model,
-            tool=tools.gallery_plan_tool(name, quantity),
-            image_urls=ctx.product_image_urls or None,
-            max_tokens=_plan_max_tokens(quantity),
-            session_id=session_id,
-        )
-        planned = _index_plan(parsed, name=name, quantity=quantity)
-    except GalleryPlanError:
-        raise
-    except Exception as exc:
-        logger.error("Gallery plan call failed for %s: %s", name.value, exc)
-        raise GalleryPlanError(f"Gallery plan call failed for {name.value}: {exc}") from exc
-
-    missing = [key for key in wanted if key not in planned]
-    if missing:
-        logger.error(
-            "Gallery plan missing %d/%d slot(s) for %s: %s",
-            len(missing),
-            quantity,
-            name.value,
-            missing,
-        )
-        raise GalleryPlanError(
-            f"Gallery plan missing {len(missing)}/{quantity} slot(s) for {name.value}"
-        )
-
-    return {key: planned[key] for key in wanted}
-
-
-def _index_plan(
-    parsed: dict[str, Any],
-    *,
-    name: AttributeName,
-    quantity: int,
-) -> dict[tuple[AttributeName, int], SlotPlan]:
-    """Index slots 1..quantity for a single attribute type from the tool payload.
-
-    Prefer the model's ``slot`` when it is a unique int in 1..quantity; otherwise assign by
-    order of appearance so a slight numbering slip does not orphan the plan. Entries for any
-    other type are ignored (the tool schema already locks type).
-
-    Stored prompt is the unique slot brief (+ shared style). Common image context and
-    render-rule suffix are applied at render time, not persisted.
-    """
-    shared_style = parsed.get("shared_style") or ""
-    raw_slots = parsed.get("slots")
-    if not isinstance(raw_slots, list):
-        raw_slots = []
-
-    entries: list[dict[str, Any]] = []
-    for entry in raw_slots:
-        if not isinstance(entry, dict):
-            continue
-        try:
-            entry_name = AttributeName(str(entry["type"]).strip().upper())
-            prompt = entry["prompt"]
-        except (KeyError, ValueError, TypeError):
-            continue
-        if entry_name != name:
-            continue
-        if not isinstance(prompt, str) or not prompt.strip():
-            continue
-        entries.append(entry)
-
-    if len(entries) != quantity:
-        raise GalleryPlanError(
-            f"Gallery plan for {name.value} returned {len(entries)} slot(s); expected {quantity}"
-        )
-
-    # Use model slot numbers when they are a clean permutation of 1..quantity.
-    by_slot: dict[int, dict[str, Any]] = {}
-    slot_ok = True
-    for entry in entries:
-        slot = entry.get("slot")
-        if not isinstance(slot, int) or slot < 1 or slot > quantity or slot in by_slot:
-            slot_ok = False
-            break
-        by_slot[slot] = entry
-    if not slot_ok or len(by_slot) != quantity:
-        by_slot = dict(enumerate(entries, start=1))
-
-    indexed: dict[tuple[AttributeName, int], SlotPlan] = {}
-    for slot, entry in by_slot.items():
-        full_prompt = entry["prompt"].strip()
-        if shared_style:
-            full_prompt = f"{full_prompt}\n\nShared visual system (keep consistent): {shared_style}"
-        indexed[(name, slot)] = SlotPlan(
-            name=name,
-            slot=slot,
-            prompt=full_prompt,
-            concept=entry.get("concept"),
-        )
-    return indexed
