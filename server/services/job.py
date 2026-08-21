@@ -369,6 +369,35 @@ def execute_sku_generation_job(
         else None
     )
 
+    return _execute_sku_generation_job_body(
+        session,
+        sku_generation_job,
+        job,
+        text_attrs,
+        image_attrs,
+        quantities,
+        client,
+        gcs,
+        ctx,
+        render_fn,
+        session_id=session_id,
+    )
+
+
+def _execute_sku_generation_job_body(
+    session: Session,
+    sku_generation_job: SkuGenerationJob,
+    job: Job,
+    text_attrs: list[AttributeMaster],
+    image_attrs: list[AttributeMaster],
+    quantities: dict[int, int],
+    client: OpenRouterClient,
+    gcs: GcsClient,
+    ctx: GenerationContext,
+    render_fn: Callable[..., Any],
+    *,
+    session_id: str | None,
+) -> dict[str, Any]:
     # Pre-created task map — never seeded or extended with new attribute keys here.
     tasks: dict[str, Any] = dict(sku_generation_job.tasks or {})
     persisted: list[dict[str, Any]] = []
@@ -683,13 +712,10 @@ def _run_images(
     if not pending_attrs:
         return []
 
-    # Distill Brand DNA + category CI once; reuse on every plan/render slot.
-    pending_names = [AttributeName(attribute.name) for attribute in pending_attrs]
+    # Compress Brand DNA once into JSON DNA; reuse it on every slot planner prompt.
     ctx = replace(
         ctx,
-        common_image_context=common_image.extract(
-            client, ctx, pending_names, session_id=session_id
-        ),
+        compressed_brand_dna=common_image.extract(client, ctx.brand_dna, session_id=session_id),
     )
 
     # Plan IMAGE and A_PLUS separately — one tool call per attribute type.
@@ -701,7 +727,9 @@ def _run_images(
         quantity = quantities.get(attribute.id, 1)
         attribute_id_by_name[name] = attribute.id
         try:
-            slot_plans.update(gallery.plan(client, ctx, name, quantity, session_id=session_id))
+            slot_plans.update(
+                gallery.plan_selected_slots(client, ctx, name, quantity, session_id=session_id)
+            )
         except Exception:  # noqa: BLE001 — fail this type only; other types still plan/render
             logger.exception("Gallery plan failed for %s", name.value)
             tasks[name.value] = TaskStatus.FAILED
@@ -756,7 +784,7 @@ def _run_images(
                         name=name.value,
                         slot=slot,
                         value=uploaded.gs_uri,
-                        prompt=slot_plans[(name, slot)].prompt,
+                        prompt=generation.prompt,
                     )
                 )
             except Exception as exc:  # noqa: BLE001 — one failed slot fails the attribute
@@ -1356,6 +1384,41 @@ def regenerate_attribute_value(
         else None
     )
 
+    return _regenerate_attribute_value_body(
+        session,
+        client,
+        gcs,
+        job=job,
+        sku_generation_job=sku_generation_job,
+        master=master,
+        latest=latest,
+        name=name,
+        data_type=data_type,
+        ctx=ctx,
+        origin_brief=origin_brief,
+        improvement_text=improvement_text,
+        value_external_id=value_external_id,
+        session_id=session_id,
+    )
+
+
+def _regenerate_attribute_value_body(
+    session: Session,
+    client: OpenRouterClient,
+    gcs: GcsClient,
+    *,
+    job: Job,
+    sku_generation_job: SkuGenerationJob,
+    master: AttributeMaster,
+    latest: SkuMarketplaceAttributeValue,
+    name: AttributeName,
+    data_type: AttributeDataType,
+    ctx: GenerationContext,
+    origin_brief: str,
+    improvement_text: str,
+    value_external_id: UUID,
+    session_id: str | None,
+) -> dict[str, Any]:
     if data_type == AttributeDataType.IMAGE:
         if not latest.value.startswith("gs://"):
             raise AttributeValueRegenerationError(
@@ -1364,10 +1427,6 @@ def regenerate_attribute_value(
         current_image_url = gcs.signed_url_for_gs_uri(
             latest.value, expiration_seconds=_SIGNED_URL_TTL_SECONDS
         )
-        common = common_image.parse_common_from_prompt(origin_brief)
-        if common is None:
-            common = common_image.extract(client, ctx, [name], session_id=session_id)
-        ctx = replace(ctx, common_image_context=common)
         try:
             generation = regenerate.regenerate_image(
                 client,

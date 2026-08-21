@@ -1,8 +1,9 @@
 """Regenerate a single attribute value from user improvement notes.
 
-v1 stored prompt is the unique brief (slot render brief or text strategy). Later versions
-store only this regen's user note. Each regen sends: reloaded product context + v1 brief +
-current output + this note — never a stack of older notes.
+v1 stored prompt is the unique brief (exact image-maker text or text strategy). Later
+versions store only this regen's user note. Each image regen sends: v1 brief + this note,
+with current output and product photos attached at render time — never a stack of older
+notes or a re-dump of PRODUCT DATA.
 """
 
 import json
@@ -19,7 +20,6 @@ from pipelines.generation.images import (
     ImageGeneration,
     _normalize_aspect_ratio,
     _references,
-    render_prompt_from_brief,
     resolve_image_model,
 )
 
@@ -41,8 +41,8 @@ def regenerate_image(
     session_id: str | None = None,
 ) -> ImageGeneration:
     """Re-render from v1 brief + current image + this user note + product refs."""
-    base = render_prompt_from_brief(ctx, origin_brief)
-    addendum = prompts.image_regeneration_addendum(ctx, improvement=improvement)
+    base = origin_brief.strip()
+    addendum = prompts.image_regeneration_addendum(improvement=improvement)
     image_prompt = f"{base}\n\n{addendum}"
     references = [
         ReferenceImage(

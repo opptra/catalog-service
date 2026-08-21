@@ -40,7 +40,7 @@ def generate_attribute(
     strategy_parts = prompts.text_strategy_parts(ctx, names)
     strategy = client.generate_text(
         strategy_parts.suffix,
-        model=settings.openrouter_prompt_model,
+        model=settings.openrouter_text_model,
         cache_prefix=strategy_parts.prefix,
         session_id=session_id,
     )

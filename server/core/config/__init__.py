@@ -45,7 +45,6 @@ class Settings(BaseSettings):
     # Model IDs the generation pipeline passes to OpenRouter. The client never
     # hardcodes models — set these in .env. Swap openrouter_image_model among the
     # known comparison IDs (see .env.example) to pick gemini / gpt path.
-    openrouter_prompt_model: str
     openrouter_text_model: str
     openrouter_image_model: str
 
