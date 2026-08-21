@@ -17,7 +17,6 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from core import pipeline_dump
 from core.clients.gcs import GcsClient
 from core.clients.openrouter import OpenRouterClient, attribution_session_id
 from core.clients.workflows import WorkflowsClient
@@ -370,24 +369,19 @@ def execute_sku_generation_job(
         else None
     )
 
-    with pipeline_dump.run_scope(
-        job.external_id,
-        sku=str(ctx.product.get("SKU") or sku.id),
-        sku_generation_job_external_id=sku_generation_job.external_id,
-    ):
-        return _execute_sku_generation_job_body(
-            session,
-            sku_generation_job,
-            job,
-            text_attrs,
-            image_attrs,
-            quantities,
-            client,
-            gcs,
-            ctx,
-            render_fn,
-            session_id=session_id,
-        )
+    return _execute_sku_generation_job_body(
+        session,
+        sku_generation_job,
+        job,
+        text_attrs,
+        image_attrs,
+        quantities,
+        client,
+        gcs,
+        ctx,
+        render_fn,
+        session_id=session_id,
+    )
 
 
 def _execute_sku_generation_job_body(

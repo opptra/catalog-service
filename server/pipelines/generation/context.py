@@ -8,13 +8,13 @@ are signed GCS HTTPS URLs for the SKU's source photos under
 ``products/{sku_id}/assets/images/``.
 
 For image jobs, ``compressed_brand_dna`` is a minimal JSON DNA (fonts, colors)
-compressed once from full Brand DNA and passed into the per-slot planner as JSON
-DNA (not appended again after the Scene). Product owns SKU color/pattern; DNA
-owns overlay typefaces and brand chrome palette; category intelligence owns the
-slot recipe (role, kind, content, pattern, feature claims). Font family names
-and hex codes are look-to-match only and must never be printed on the artwork.
-Claim ownership is capped upstream (``max_callouts``) from CI ``feature_priority``
-∩ verified product facts before the per-slot planner runs.
+compressed once from full Brand DNA and embedded in each assembled slot brief
+sent to the image model. Product owns SKU color/pattern; DNA owns overlay
+typefaces and brand chrome palette; category intelligence owns the slot recipe
+(role, kind, content, pattern, feature claims). Font family names and hex codes
+are look-to-match only and must never be printed on the artwork. Claim ownership
+is capped upstream (``max_callouts``) from CI ``feature_priority`` ∩ verified
+product facts before each slot brief is assembled.
 """
 
 from dataclasses import dataclass, field

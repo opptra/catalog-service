@@ -12,7 +12,6 @@ from typing import Any
 from entities.catalog.attribute_enums import AttributeName
 
 GALLERY_FACT_BOARD_TOOL_NAME = "submit_fact_board"
-SINGLE_SLOT_PROMPT_TOOL_NAME = "submit_slot_prompt"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
 COMPRESSED_BRAND_DNA_TOOL_NAME = "submit_compressed_brand_dna"
 
@@ -73,37 +72,6 @@ def gallery_fact_board_tool() -> dict[str, Any]:
                     }
                 },
                 "required": ["facts"],
-                "additionalProperties": False,
-            },
-        },
-    }
-
-
-def single_slot_prompt_tool() -> dict[str, Any]:
-    """Tool schema for a single slot's photography Scene (facts are pasted by Python)."""
-    return {
-        "type": "function",
-        "function": {
-            "name": SINGLE_SLOT_PROMPT_TOOL_NAME,
-            "description": (
-                "Submit the photography Scene for ONE chosen slot. Do not restate or invent "
-                "product facts — those are appended by the pipeline."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": (
-                            "Photography only under heading Scene: camera, lighting, "
-                            "composition, what the product looks like in frame. Follow the "
-                            "slot content and pattern, and the JSON DNA for type and color. "
-                            "Do not list product specs, slogans, or on-image copy. Do not "
-                            "print typeface names, hex codes, or canvas ratios."
-                        ),
-                    }
-                },
-                "required": ["prompt"],
                 "additionalProperties": False,
             },
         },

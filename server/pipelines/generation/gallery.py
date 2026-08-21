@@ -1,10 +1,9 @@
 """Stage 1: plan a coherent, non-duplicated image set for one attribute type per call.
 
 IMAGE (PDP gallery) and A_PLUS are planned separately. Per track: gather claim keys →
-fact board values → deterministic claim ownership (max_callouts upstream) → per-slot
-Scene writers that receive CI content/pattern, owned facts, and JSON DNA
-(fonts, colors). On-image facts are pasted after the Scene; Brand DNA is not
-appended again.
+fact board values → deterministic claim ownership (max_callouts upstream) → assemble
+a per-slot image brief (CI content/pattern, owned facts, JSON DNA fonts/colors).
+That brief is sent straight to the image model — no Scene rewrite step.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from core import pipeline_dump
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from core.exceptions import GalleryPlanError
@@ -29,8 +27,8 @@ logger = logging.getLogger(__name__)
 class SlotPlan:
     """One slot, ready for the image model.
 
-    ``prompt`` is the planner Scene with on-image facts pasted (JSON DNA is
-    applied inside the planner prompt, not appended again here).
+    ``prompt`` is the assembled slot brief sent to the image model (CI recipe,
+    owned facts, and JSON DNA). No separate Scene rewrite.
     """
 
     name: AttributeName
@@ -406,21 +404,18 @@ def _allocate_slots(
 
 
 def _facts_block(assigned_facts: list[AssignedFact]) -> str:
+    """JSON list of assigned facts for the image-model brief."""
     if not assigned_facts:
-        return "none"
-    return "\n".join(
-        f"- {fact.claim} | {fact.source_field}: {fact.value}" for fact in assigned_facts
-    )
-
-
-def _append_facts_to_scene(scene: str, assigned_facts: list[AssignedFact]) -> str:
-    """Paste verified facts after the photography Scene. Writer never re-authors values."""
-    scene_text = scene.strip()
-    facts = _facts_block(assigned_facts)
-    block = f"On-image facts\n{facts}"
-    if not scene_text:
-        return block
-    return f"{scene_text}\n\n{block}"
+        return "[]"
+    payload = [
+        {
+            "claim": fact.claim,
+            "source_field": fact.source_field,
+            "value": fact.value,
+        }
+        for fact in assigned_facts
+    ]
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def _slot_prompt(
@@ -429,6 +424,7 @@ def _slot_prompt(
     assigned_facts: list[AssignedFact],
     brand_look: str,
 ) -> str:
+    """Assemble the image-model brief for one slot (no Scene rewrite)."""
     role = _slot_text_field(slot, "role")
     kind = _slot_text_field(slot, "kind")
     content = _slot_text_field(slot, "content")
@@ -436,6 +432,8 @@ def _slot_prompt(
     slot_line = " — ".join(part for part in (role, kind) if part) or "catalog shot"
 
     lines = [
+        "Create this image from the product reference photos attached to this call.",
+        "",
         f"Slot: {slot_line}",
     ]
     if content:
@@ -449,14 +447,13 @@ def _slot_prompt(
 
     if assigned_facts:
         lines.append(
-            "This shot has required on-image facts. Render every fact visibly and "
-            "legibly in the finished image. Preserve the wording exactly: do not "
-            "omit, paraphrase, restyle, or invent facts."
+            "This shot has required on-image facts as JSON below. Render every fact "
+            "visibly and legibly in the finished image. Preserve each value exactly: "
+            "do not omit, paraphrase, restyle, or invent facts."
         )
         lines.append(
-            "Required on-image facts are listed below. Each line uses the format "
-            "'fact type | display text'. Render only the display text after the |;"
-            "do not render the fact type or the |."
+            "Paint ONLY each object's \"value\" string on the image. Do not paint "
+            "\"claim\", \"source_field\", JSON keys, braces, quotes, or commas."
         )
         lines.append(_facts_block(assigned_facts))
         lines.append(
@@ -472,49 +469,26 @@ def _slot_prompt(
     lines.extend(
         [
             "",
-            "Follow Content and Pattern for what this shot must show.",
-            "Keep the requested photography and product appearance as the visual priority.",
+            "Render the shot described by Content and Pattern above.",
+            "Keep the product appearance from the reference photos as the visual priority.",
             "Do not draw a logo. Do not invent claims. Do not mention canvas ratio or font names.",
-            "Use the real product reference photos attached to this call.",
         ]
     )
     return "\n".join(lines)
 
 
 def _plan_slot_prompt(
-    client: OpenRouterClient,
     ctx: GenerationContext,
     *,
-    attribute: AttributeName,
-    slot_position: int,
     slot: dict[str, Any],
     assigned_facts: list[AssignedFact],
-    session_id: str | None,
 ) -> str:
-    llm_prompt = _slot_prompt(
+    """Assemble the image brief for one slot — no Scene-writer LLM call."""
+    return _slot_prompt(
         slot=slot,
         assigned_facts=assigned_facts,
         brand_look=ctx.compressed_brand_dna or "",
     )
-    parsed = client.call_tool(
-        llm_prompt,
-        model=_plan_model(),
-        tool=tools.single_slot_prompt_tool(),
-        image_urls=ctx.product_image_urls or None,
-        max_tokens=1400,
-        session_id=session_id,
-    )
-    prompt = parsed.get("prompt") if isinstance(parsed, dict) else None
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise GalleryPlanError("slot prompt missing prompt string")
-    writer_scene = prompt.strip()
-    pipeline_dump.record_slot(
-        attribute=attribute.value,
-        slot=slot_position,
-        input=llm_prompt,
-        output=parsed,
-    )
-    return _append_facts_to_scene(writer_scene, assigned_facts)
 
 
 def plan_selected_slots(
@@ -550,13 +524,9 @@ def plan_selected_slots(
     out: dict[tuple[AttributeName, int], SlotPlan] = {}
     for slot_position, item in enumerate(allocated, start=1):
         final_prompt = _plan_slot_prompt(
-            client,
             ctx,
-            attribute=name,
-            slot_position=slot_position,
             slot=item.slot_def,
             assigned_facts=item.assigned_facts,
-            session_id=session_id,
         )
         out[(name, slot_position)] = SlotPlan(
             name=name,

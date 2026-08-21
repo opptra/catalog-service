@@ -5,4 +5,4 @@ server/input/
 node_modules/
 .tools/
 temp/
-tmp/generation-runs/
+tmp/
