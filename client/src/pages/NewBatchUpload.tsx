@@ -204,7 +204,8 @@ function NewBatchUpload() {
             ZIP with a root folder (any name). Inside it: one folder per SKU, folder name =
             SKU value.
             <br />
-            Minimum one image per folder.
+            Minimum one image per folder. Print CMYK JPEGs and TIFFs are converted
+            to sRGB JPEG before upload so colors stay as they look on your computer.
           </p>
         </div>
       </div>

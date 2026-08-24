@@ -13,6 +13,7 @@ import {
   isIgnoredZipName,
   resolveZipRootPrefix,
 } from '../lib/batchZip'
+import { JPEG_CONTENT_TYPE, needsSrgbJpegConvert } from '../lib/ensureSrgbImage'
 import type { BatchValidationResult } from '../lib/validateBatchFiles'
 import {
   INITIAL_UPLOAD_STEPS,
@@ -72,6 +73,14 @@ async function readZipImageBlobs(
 }
 
 const IMAGE_UPLOAD_CONCURRENCY = 10
+/** Magick is CPU-heavy. One at a time keeps older Windows laptops from locking up. */
+const PRINT_CONVERT_CONCURRENCY = 1
+
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, 0)
+  })
+}
 
 /** Run async work over ``items`` with at most ``concurrency`` in flight. */
 async function mapPool<T>(
@@ -115,13 +124,24 @@ export async function runFlatfileUpload(input: RunFlatfileUploadInput): Promise<
 
   report(markStep(steps, 'prepare', 'running'))
 
+  const zipBlobs = await readZipImageBlobs(imagesFile)
+  const convertJobs: Array<{ skuId: string; filename: string; bytes: Uint8Array }> = []
   const images: FlatfileImageFile[] = []
   for (const entry of result.skuImages) {
     for (const filename of entry.filenames) {
+      const blob = zipBlobs.get(entry.sku_id)?.get(filename)
+      if (!blob) {
+        throw new Error(`Missing zip file for SKU ${entry.sku_id}/${filename}`)
+      }
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      const convert = needsSrgbJpegConvert(bytes)
+      if (convert) {
+        convertJobs.push({ skuId: entry.sku_id, filename, bytes })
+      }
       images.push({
         sku_id: entry.sku_id,
         filename,
-        content_type: guessImageContentType(filename),
+        content_type: convert ? JPEG_CONTENT_TYPE : guessImageContentType(filename),
       })
     }
   }
@@ -149,7 +169,6 @@ export async function runFlatfileUpload(input: RunFlatfileUploadInput): Promise<
   report(markStep(steps, 'product', 'passed'))
 
   report(markStep(steps, 'images', 'running'))
-  const zipBlobs = await readZipImageBlobs(imagesFile)
 
   const remainingBySku = new Map<string, number>()
   for (const item of created.images) {
@@ -160,17 +179,49 @@ export async function runFlatfileUpload(input: RunFlatfileUploadInput): Promise<
   }
 
   const productTotal = remainingBySku.size
+  if (convertJobs.length > 0) {
+    const { convertToSrgbJpeg } = await import('../lib/convertCmykJpegToSrgb')
+    let convertedDone = 0
+    report(
+      markStep(
+        steps,
+        'images',
+        'running',
+        `Converting print colors 0 of ${convertJobs.length}`,
+      ),
+    )
+    await mapPool(convertJobs, PRINT_CONVERT_CONCURRENCY, async (job) => {
+      const converted = await convertToSrgbJpeg(job.bytes)
+      const skuFiles = zipBlobs.get(job.skuId)
+      if (!skuFiles) {
+        throw new Error(`Missing zip file for SKU ${job.skuId}/${job.filename}`)
+      }
+      skuFiles.set(job.filename, converted)
+      convertedDone += 1
+      report(
+        markStep(
+          steps,
+          'images',
+          'running',
+          `Converting print colors ${convertedDone} of ${convertJobs.length}`,
+        ),
+      )
+      await yieldToUi()
+    })
+  }
+
   let productsDone = 0
   report(markStep(steps, 'images', 'running', `0 of ${productTotal} products`))
 
   await mapPool(created.images, IMAGE_UPLOAD_CONCURRENCY, async (item) => {
-    if (item.sku_id == null || !item.filename || !item.upload_url || !item.content_type) {
+    const filename = item.filename
+    if (item.sku_id == null || filename == null || filename === '' || !item.upload_url || !item.content_type) {
       throw new Error('Incomplete image upload URL payload.')
     }
     const skuFiles = zipBlobs.get(item.sku_id)
-    const blob = skuFiles?.get(item.filename)
+    const blob = skuFiles?.get(filename)
     if (!blob) {
-      throw new Error(`Missing zip file for SKU ${item.sku_id}/${item.filename}`)
+      throw new Error(`Missing zip file for SKU ${item.sku_id}/${filename}`)
     }
     await putToSignedUrl(item.upload_url, blob, item.content_type)
 

@@ -70,6 +70,7 @@ class GcsClient:
             blob.upload_from_string(data, content_type=content_type)
         except GoogleCloudError as exc:
             raise GcsError(f"GCS upload failed for {object_name!r}: {exc}") from exc
+        self._invalidate_signed_urls(object_name)
         return self._uploaded(object_name)
 
     def upload_file(
@@ -87,6 +88,7 @@ class GcsClient:
             blob.upload_from_filename(str(path), content_type=content_type)
         except (OSError, GoogleCloudError) as exc:
             raise GcsError(f"GCS file upload failed for {object_name!r}: {exc}") from exc
+        self._invalidate_signed_urls(object_name)
         return self._uploaded(object_name)
 
     def upload_json(self, data: Any, object_name: str) -> UploadedObject:
@@ -227,6 +229,11 @@ class GcsClient:
         if cache_key is not None:
             self._signed_url_cache[cache_key] = (url, time.time() + expiration_seconds)
         return url
+
+    def _invalidate_signed_urls(self, object_name: str) -> None:
+        stale = [key for key in self._signed_url_cache if key[0] == object_name]
+        for key in stale:
+            del self._signed_url_cache[key]
 
     def _resolve_signer_email(self) -> str:
         if self._signer_service_account_email:
