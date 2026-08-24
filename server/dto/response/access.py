@@ -10,6 +10,7 @@ class AccessibleBrandResponse(BaseModel):
     external_id: UUID
     name: str
     granted_at: datetime
+    last_batch_at: datetime | None = None
 
 
 class BrandUserResponse(BaseModel):

@@ -133,12 +133,16 @@ COMPRESSED_BRAND_DNA_TOOL: dict[str, Any] = {
 }
 
 
-# --- Amazon text-attribute limits ----------------------------------------------
+# --- Text-attribute limits -----------------------------------------------------
 #
 # Soft targets live in tool property descriptions (and attribute guidance).
 # Character minLength/maxLength are NOT put on the JSON schema — models often
 # stuff to hit a min, then get cut mid-phrase by maxLength. Item counts
 # (minItems/maxItems) stay on the schema.
+#
+# Limits come from ``marketplace_attribute.config`` (see
+# ``text_limit_from_config``). ``FALLBACK_TEXT_LIMITS`` mirrors the former Amazon
+# hardcodes for jobs whose marketplace has no mapping row yet.
 #
 # TEMPORARY: ``strip_incomplete_text_ending`` (+ optional char fit) runs after the
 # tool returns. Incomplete endings under the ceiling (e.g. "…, White &") are the
@@ -159,9 +163,8 @@ class TextLimit:
     per_item_min_chars: int | None = None
 
 
-# Amazon marketplace hard caps (title policy effective 2026-07-27).
-# ``min_chars`` / ``per_item_min_chars`` are soft aims for the model only.
-TEXT_LIMITS: dict[AttributeName, TextLimit] = {
+# Legacy Amazon caps — used only when marketplace_attribute has no text rules.
+FALLBACK_TEXT_LIMITS: dict[AttributeName, TextLimit] = {
     AttributeName.TITLE: TextLimit(max_chars=75, min_chars=60),
     AttributeName.ITEM_HIGHLIGHTS: TextLimit(max_chars=125, min_chars=100),
     AttributeName.BULLET_POINTS: TextLimit(
@@ -172,6 +175,86 @@ TEXT_LIMITS: dict[AttributeName, TextLimit] = {
     ),
     AttributeName.BACKEND_KEYWORDS: TextLimit(min_items=10, max_items=15),
 }
+
+# Back-compat alias for imports that still reference TEXT_LIMITS.
+TEXT_LIMITS = FALLBACK_TEXT_LIMITS
+
+
+def text_limit_from_config(config: object | None) -> TextLimit | None:
+    """Build a ``TextLimit`` from ``marketplace_attribute.config`` (or nested text block)."""
+    if config is None:
+        return None
+
+    # Accept either MarketplaceAttributeConfig, its ``text`` submodel, or a raw dict.
+    text_cfg = config
+    if hasattr(config, "text"):
+        text_cfg = config.text
+    elif isinstance(config, dict):
+        text_cfg = config.get("text", config)
+
+    if text_cfg is None:
+        return None
+
+    chars = getattr(text_cfg, "chars", None)
+    items = getattr(text_cfg, "items", None)
+    if isinstance(text_cfg, dict):
+        chars = text_cfg.get("chars")
+        items = text_cfg.get("items")
+
+    max_chars = min_chars = None
+    if chars is not None:
+        max_chars = getattr(chars, "max", None) if not isinstance(chars, dict) else chars.get("max")
+        min_chars = getattr(chars, "min", None) if not isinstance(chars, dict) else chars.get("min")
+
+    item_count = min_items = max_items = per_item_max = per_item_min = None
+    if items is not None:
+        if isinstance(items, dict):
+            item_count = items.get("count")
+            min_items = items.get("min")
+            max_items = items.get("max")
+            item_chars = items.get("chars") or {}
+            per_item_max = item_chars.get("max") if isinstance(item_chars, dict) else None
+            per_item_min = item_chars.get("min") if isinstance(item_chars, dict) else None
+        else:
+            item_count = getattr(items, "count", None)
+            min_items = getattr(items, "min", None)
+            max_items = getattr(items, "max", None)
+            item_chars = getattr(items, "chars", None)
+            if item_chars is not None:
+                per_item_max = getattr(item_chars, "max", None)
+                per_item_min = getattr(item_chars, "min", None)
+
+    if all(
+        value is None
+        for value in (
+            max_chars,
+            min_chars,
+            item_count,
+            min_items,
+            max_items,
+            per_item_max,
+            per_item_min,
+        )
+    ):
+        return None
+
+    return TextLimit(
+        max_chars=max_chars,
+        min_chars=min_chars,
+        item_count=item_count,
+        min_items=min_items,
+        max_items=max_items,
+        per_item_max_chars=per_item_max,
+        per_item_min_chars=per_item_min,
+    )
+
+
+def resolve_text_limit(name: AttributeName, limit: TextLimit | None = None) -> TextLimit | None:
+    """Prefer an explicit marketplace limit; otherwise fall back to legacy Amazon caps."""
+    if limit is not None:
+        return limit
+    return FALLBACK_TEXT_LIMITS.get(name)
+
 
 # Attributes whose value is a list of strings (schema + persistence).
 LIST_TEXT_ATTRIBUTES = frozenset(
@@ -252,14 +335,14 @@ def fit_text_to_char_limit(text: str, max_chars: int) -> str:
     return window.rstrip(" \t,;|:-–—")
 
 
-def apply_text_limits(name: AttributeName, value: Any) -> Any:
+def apply_text_limits(name: AttributeName, value: Any, limit: TextLimit | None = None) -> Any:
     """Post-process one tool-returned text attribute (no LLM retries)."""
-    limit = TEXT_LIMITS.get(name)
+    resolved = resolve_text_limit(name, limit)
 
     if name in LIST_TEXT_ATTRIBUTES:
         if not isinstance(value, list):
             return value
-        per_max = limit.per_item_max_chars if limit is not None else None
+        per_max = resolved.per_item_max_chars if resolved is not None else None
         out: list[Any] = []
         for item in value:
             if item is None:
@@ -273,8 +356,8 @@ def apply_text_limits(name: AttributeName, value: Any) -> Any:
         return out
 
     text = strip_incomplete_text_ending(str(value))
-    if limit is not None and limit.max_chars is not None:
-        text = fit_text_to_char_limit(text, limit.max_chars)
+    if resolved is not None and resolved.max_chars is not None:
+        text = fit_text_to_char_limit(text, resolved.max_chars)
         # Length fit can reintroduce a dangling connector — strip again.
         text = strip_incomplete_text_ending(text)
     return text
@@ -326,13 +409,13 @@ def _limit_description(limit: TextLimit) -> str:
     )
 
 
-def _text_property_schema(name: AttributeName) -> dict[str, Any]:
+def _text_property_schema(name: AttributeName, limit: TextLimit | None = None) -> dict[str, Any]:
     """JSON-schema property for one text attribute.
 
     Item counts are schema-enforced. Character ceilings are soft (description only);
     ``apply_text_limits`` fits oversize strings after the tool returns.
     """
-    limit = TEXT_LIMITS.get(name)
+    resolved = resolve_text_limit(name, limit)
     if name in LIST_TEXT_ATTRIBUTES:
         items: dict[str, Any] = {"type": "string"}
         if name == AttributeName.BACKEND_KEYWORDS:
@@ -347,32 +430,38 @@ def _text_property_schema(name: AttributeName) -> dict[str, Any]:
             "items": items,
             "description": description,
         }
-        if limit is not None:
-            limit_note = _limit_description(limit)
+        if resolved is not None:
+            limit_note = _limit_description(resolved)
             if limit_note:
                 schema["description"] = f"{description} {limit_note}"
-            if limit.item_count is not None:
-                schema["minItems"] = limit.item_count
-                schema["maxItems"] = limit.item_count
+            if resolved.item_count is not None:
+                schema["minItems"] = resolved.item_count
+                schema["maxItems"] = resolved.item_count
             else:
-                if limit.min_items is not None:
-                    schema["minItems"] = limit.min_items
-                if limit.max_items is not None:
-                    schema["maxItems"] = limit.max_items
+                if resolved.min_items is not None:
+                    schema["minItems"] = resolved.min_items
+                if resolved.max_items is not None:
+                    schema["maxItems"] = resolved.max_items
         return schema
 
     description = f"Final copy for {name.value}."
-    schema: dict[str, Any] = {"type": "string", "description": description}
-    if limit is not None:
-        limit_note = _limit_description(limit)
+    schema = {"type": "string", "description": description}
+    if resolved is not None:
+        limit_note = _limit_description(resolved)
         if limit_note:
             schema["description"] = f"{description} {limit_note}"
     return schema
 
 
-def text_attributes_tool(names: list[AttributeName]) -> dict[str, Any]:
+def text_attributes_tool(
+    names: list[AttributeName],
+    limits: dict[AttributeName, TextLimit] | None = None,
+) -> dict[str, Any]:
     """Tool schema whose arguments are exactly the requested text attributes."""
-    properties: dict[str, Any] = {name.value: _text_property_schema(name) for name in names}
+    limit_map = limits or {}
+    properties: dict[str, Any] = {
+        name.value: _text_property_schema(name, limit_map.get(name)) for name in names
+    }
     return {
         "type": "function",
         "function": {

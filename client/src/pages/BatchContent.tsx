@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import axios from 'axios'
 import {
-  getJobContentExport,
-  getJobStatus,
+  getJobGroupStatus,
   getSkuGenerationJobContent,
+  getSkuImageDownload,
   retrySkuGenerationJob,
   type JobExpectedAttribute,
+  type JobGroupStatusResponse,
   type JobStatusResponse,
+  type MarketplaceAttributeConfig,
   type SkuGenerationJobAttributeSlot,
   type SkuGenerationJobContentResponse,
 } from '../api/jobs'
@@ -20,7 +22,7 @@ import ListingExportPanel from '../components/batch-content/ListingExportPanel'
 import PipelineProgressBar from '../components/batch-content/PipelineProgressBar'
 import AppHeader from '../components/AppHeader'
 import type { ContentImage } from '../components/batch-content/types'
-import { downloadJobContentExport } from '../lib/downloadJobContentExport'
+import { downloadSkuImagesZip } from '../lib/downloadSkuImagesZip'
 
 const STATUS_POLL_MS = 4000
 const CONTENT_POLL_MS = 5000
@@ -61,15 +63,31 @@ function textSectionRank(name: string): number {
   return index === -1 ? TEXT_SECTION_ORDER.length : index
 }
 
-/** Field limits for UI counters — mirrors server generation/tools.py TEXT_LIMITS. */
-const TEXT_FIELD_LIMITS: Record<
-  string,
-  { maxChars?: number; perItemMaxChars?: number }
-> = {
-  TITLE: { maxChars: 75 },
-  ITEM_HIGHLIGHTS: { maxChars: 125 },
-  BULLET_POINTS: { perItemMaxChars: 200 },
-  KEY_FEATURES: { perItemMaxChars: 100 },
+function textLimitsFromConfig(
+  config?: MarketplaceAttributeConfig | null,
+): { maxChars?: number; perItemMaxChars?: number } {
+  const text = config?.text
+  if (!text) return {}
+  if (text.chars?.max != null) return { maxChars: text.chars.max }
+  if (text.items?.chars?.max != null) return { perItemMaxChars: text.items.chars.max }
+  return {}
+}
+
+function marketplaceHasListing(name: string | null | undefined): boolean {
+  return (name ?? '').trim().toLowerCase() === 'amazon'
+}
+
+function skuImageTasksReady(
+  skuJob: { tasks?: Record<string, string> } | null | undefined,
+  expected: JobExpectedAttribute[],
+): boolean {
+  if (!skuJob) return false
+  const imageNames = expected.filter((item) => item.data_type === 'IMAGE').map((item) => item.name)
+  if (imageNames.length === 0) return true
+  return imageNames.every((name) => {
+    const task = skuJob.tasks?.[name]
+    return task === 'COMPLETED' || task === 'FAILED'
+  })
 }
 
 type ImageModalSource =
@@ -185,10 +203,13 @@ function isAttributePending(
 }
 
 function BatchContent() {
-  const { jobExternalId = '' } = useParams<{ jobExternalId: string }>()
+  const { jobExternalId: jobGroupId = '' } = useParams<{ jobExternalId: string }>()
   const { selectedBrand: brand } = useBrands()
 
-  const [status, setStatus] = useState<JobStatusResponse | null>(null)
+  const [groupStatus, setGroupStatus] = useState<JobGroupStatusResponse | null>(null)
+  const [activeMarketplaceExternalId, setActiveMarketplaceExternalId] = useState<string | null>(
+    null,
+  )
   const [statusError, setStatusError] = useState<string | null>(null)
   const [statusFetching, setStatusFetching] = useState(false)
   const [skuIndex, setSkuIndex] = useState(0)
@@ -199,8 +220,10 @@ function BatchContent() {
   const [regenTarget, setRegenTarget] = useState<AttributeRegenTarget | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [contentRefreshKey, setContentRefreshKey] = useState(0)
-  const [contentExporting, setContentExporting] = useState(false)
-  const [contentExportError, setContentExportError] = useState<string | null>(null)
+  const [imageDownloading, setImageDownloading] = useState(false)
+  const [imageDownloadError, setImageDownloadError] = useState<string | null>(null)
+
+  const status: JobStatusResponse | null = groupStatus?.active_job ?? null
 
   useEffect(() => {
     document.title = status
@@ -209,16 +232,22 @@ function BatchContent() {
   }, [status])
 
   useEffect(() => {
-    if (!jobExternalId) return
+    if (!jobGroupId) return
     let cancelled = false
     let intervalId: number | undefined
 
-    async function loadStatus(): Promise<JobStatusResponse | null> {
+    async function loadStatus(): Promise<JobGroupStatusResponse | null> {
       setStatusFetching(true)
       try {
-        const next = await getJobStatus(jobExternalId)
+        const next = await getJobGroupStatus(
+          jobGroupId,
+          activeMarketplaceExternalId ?? undefined,
+        )
         if (cancelled) return null
-        setStatus(next)
+        setGroupStatus(next)
+        if (activeMarketplaceExternalId == null && next.marketplaces.length > 0) {
+          setActiveMarketplaceExternalId(next.marketplaces[0].marketplace_external_id)
+        }
         setStatusError(null)
         return next
       } catch (error) {
@@ -247,9 +276,7 @@ function BatchContent() {
       cancelled = true
       if (intervalId != null) window.clearInterval(intervalId)
     }
-    // contentRefreshKey re-fetches job-level status (counts, per-SKU chips) after a retry —
-    // polling stopped permanently once the job first hit a terminal status.
-  }, [jobExternalId, contentRefreshKey])
+  }, [jobGroupId, activeMarketplaceExternalId, contentRefreshKey])
 
   const skuJobs = status?.sku_generation_jobs ?? []
   const safeSkuIndex = Math.min(skuIndex, Math.max(skuJobs.length - 1, 0))
@@ -316,7 +343,7 @@ function BatchContent() {
     return <Navigate to="/brands" replace />
   }
 
-  if (!jobExternalId) {
+  if (!jobGroupId) {
     return <Navigate to="/workspace" replace />
   }
 
@@ -367,8 +394,20 @@ function BatchContent() {
     otherImageGrids.map((grid) => [grid.attribute.name, grid.images]),
   )
 
+  const activeMarketplace =
+    groupStatus?.marketplaces.find(
+      (item) => item.marketplace_external_id === activeMarketplaceExternalId,
+    ) ?? groupStatus?.marketplaces[0] ??
+    null
+
   const marketplaceName =
-    content?.marketplace_name ?? status?.marketplace_name ?? 'Marketplace'
+    content?.marketplace_name ?? status?.marketplace_name ?? activeMarketplace?.marketplace_name ?? 'Marketplace'
+
+  const showListingExport =
+    activeMarketplaceExternalId != null && marketplaceHasListing(activeMarketplace?.marketplace_name)
+
+  const skuIdForDownload = activeSkuJob?.sku_id ?? content?.sku_id ?? null
+  const imagesReady = skuImageTasksReady(activeSkuJob, expected)
 
   const isFirstSku = safeSkuIndex <= 0
   const isLastSku = skuJobs.length === 0 || safeSkuIndex >= skuJobs.length - 1
@@ -466,15 +505,27 @@ function BatchContent() {
     }
   }
 
-  async function handleContentDownload() {
-    if (!jobExternalId || contentExporting || status?.status !== 'COMPLETED') return
-    setContentExporting(true)
-    setContentExportError(null)
+  async function handleImageDownload() {
+    if (
+      !jobGroupId ||
+      !activeMarketplaceExternalId ||
+      !skuIdForDownload ||
+      imageDownloading ||
+      !imagesReady
+    ) {
+      return
+    }
+    setImageDownloading(true)
+    setImageDownloadError(null)
     try {
-      const payload = await getJobContentExport(jobExternalId)
-      await downloadJobContentExport(payload)
+      const payload = await getSkuImageDownload(
+        jobGroupId,
+        skuIdForDownload,
+        activeMarketplaceExternalId,
+      )
+      await downloadSkuImagesZip(payload)
     } catch (error) {
-      let message = 'Could not download content. Please try again.'
+      let message = 'Could not download images. Please try again.'
       if (axios.isAxiosError(error)) {
         const detail = error.response?.data?.detail
         if (typeof detail === 'string' && detail.trim()) message = detail
@@ -482,9 +533,9 @@ function BatchContent() {
       } else if (error instanceof Error && error.message) {
         message = error.message
       }
-      setContentExportError(message)
+      setImageDownloadError(message)
     } finally {
-      setContentExporting(false)
+      setImageDownloading(false)
     }
   }
 
@@ -502,7 +553,7 @@ function BatchContent() {
     const canRegen =
       slot?.value_external_id != null && slot.version != null && Boolean(slot.value)
 
-    const limit = TEXT_FIELD_LIMITS[attr.name]
+    const limit = textLimitsFromConfig(attr.config)
     let counter: string | null = null
     let overLimit = false
     if (rawValue && limit?.maxChars != null) {
@@ -627,11 +678,11 @@ function BatchContent() {
         <div className="batch-content__inner">
           {status ? (
             <PipelineProgressBar
-              startedAt={status.started_at}
-              updatedAt={status.updated_at}
-              jobStatus={status.status}
-              completedCount={status.completed_sku_count}
-              totalCount={status.sku_count}
+              startedAt={groupStatus?.started_at ?? status.started_at}
+              updatedAt={groupStatus?.updated_at ?? status.updated_at}
+              jobStatus={groupStatus?.status ?? status.status}
+              completedCount={groupStatus?.completed_sku_count ?? status.completed_sku_count}
+              totalCount={groupStatus?.sku_count ?? status.sku_count}
               isFetching={statusFetching}
             />
           ) : (
@@ -658,11 +709,13 @@ function BatchContent() {
             </div>
           </header>
 
-          {status ? (
+          {showListingExport && activeMarketplaceExternalId ? (
             <ListingExportPanel
-              key={jobExternalId}
-              jobExternalId={jobExternalId}
-              enabled={status.status === 'COMPLETED'}
+              key={`${jobGroupId}-${activeMarketplaceExternalId}`}
+              jobGroupId={jobGroupId}
+              marketplaceExternalId={activeMarketplaceExternalId}
+              marketplaceName={activeMarketplace?.marketplace_name ?? 'Marketplace'}
+              enabled={(groupStatus?.status ?? status?.status) === 'COMPLETED'}
             />
           ) : null}
 
@@ -671,38 +724,41 @@ function BatchContent() {
           </nav>
 
           <div className="batch-content__marketplaces">
-            <div className="batch-content__mp-tabs">
-              <span className="batch-content__mp-tab batch-content__mp-tab--active">
-                {marketplaceName}
-              </span>
+            <div className="batch-content__mp-tabs" role="tablist" aria-label="Marketplaces">
+              {(groupStatus?.marketplaces ?? []).map((marketplace) => {
+                const active =
+                  marketplace.marketplace_external_id === activeMarketplaceExternalId
+                return (
+                  <button
+                    key={marketplace.marketplace_external_id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    className={
+                      active
+                        ? 'batch-content__mp-tab batch-content__mp-tab--active'
+                        : 'batch-content__mp-tab'
+                    }
+                    onClick={() => {
+                      if (active) return
+                      setActiveMarketplaceExternalId(marketplace.marketplace_external_id)
+                      setSkuIndex(0)
+                      setContent(null)
+                      setExpandedText({})
+                      setRegenTarget(null)
+                      setImageDownloadError(null)
+                    }}
+                  >
+                    {marketplace.marketplace_name}
+                  </button>
+                )
+              })}
             </div>
-            <button
-              type="button"
-              className="batch-content__content-download"
-              disabled={status?.status !== 'COMPLETED' || contentExporting}
-              onClick={() => void handleContentDownload()}
-            >
-              <svg
-                className="batch-content__content-download-icon"
-                width="14"
-                height="14"
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-hidden="true"
-              >
-                <path
-                  d="M8 2v8.5M8 10.5 5 7.5M8 10.5 11 7.5M3 13.5h10"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              {contentExporting ? 'Preparing…' : 'Download content'}
-            </button>
           </div>
 
-          {contentExportError ? <p className="batch-content__error">{contentExportError}</p> : null}
+          {imageDownloadError ? (
+            <p className="batch-content__error">{imageDownloadError}</p>
+          ) : null}
 
           <div className="batch-content__sku-bar">
             <div className="batch-content__sku-label">
@@ -755,6 +811,14 @@ function BatchContent() {
             </span>
           </div>
           <div className="batch-content__sku-dock-nav">
+            <button
+              type="button"
+              className="btn-outline batch-content__sku-dock-btn"
+              disabled={!skuIdForDownload || !activeMarketplaceExternalId || !imagesReady || imageDownloading}
+              onClick={() => void handleImageDownload()}
+            >
+              {imageDownloading ? 'Preparing…' : 'Download images'}
+            </button>
             <button
               type="button"
               className="btn-outline batch-content__sku-dock-btn"

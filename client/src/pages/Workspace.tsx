@@ -4,14 +4,10 @@ import { listJobs, type JobListItem } from '../api/jobs'
 import { useBrands } from '../brands/useBrands'
 import AppHeader from '../components/AppHeader'
 
-interface ExecutionRow extends JobListItem {
-  executionNumber: number
-}
-
 interface ExecutionSection {
   key: string
   label: string
-  items: ExecutionRow[]
+  items: JobListItem[]
 }
 
 function PlusIcon() {
@@ -81,8 +77,11 @@ function startOfLocalDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
 }
 
-function formatShortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+function formatShortDateTime(iso: string): string {
+  const date = new Date(iso)
+  const day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return `${day}, ${time}`
 }
 
 function sectionLabelFor(iso: string, now: Date): string {
@@ -113,20 +112,7 @@ function skuProgressLabel(item: JobListItem): string {
   return `${item.completed_sku_count} of ${total} SKUs processed`
 }
 
-function withExecutionNumbers(items: JobListItem[]): ExecutionRow[] {
-  const chronological = [...items].toSorted(
-    (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime(),
-  )
-  const numbered = chronological.map((item, index) => ({
-    ...item,
-    executionNumber: index + 1,
-  }))
-  return numbered.toSorted(
-    (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
-  )
-}
-
-function groupByDay(items: ExecutionRow[]): ExecutionSection[] {
+function groupByDay(items: JobListItem[]): ExecutionSection[] {
   const now = new Date()
   const sections: ExecutionSection[] = []
   const indexByKey = new Map<string, number>()
@@ -151,6 +137,7 @@ function hasInProgressJobs(jobs: JobListItem[]): boolean {
 }
 
 const EXECUTIONS_POLL_MS = 8_000
+const EXECUTIONS_PAGE_SIZE = 50
 
 function Workspace() {
   const navigate = useNavigate()
@@ -159,11 +146,15 @@ function Workspace() {
   const [items, setItems] = useState<JobListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [nextOffset, setNextOffset] = useState<number | null>(null)
+  const [hasMore, setHasMore] = useState(false)
   const itemsRef = useRef(items)
   itemsRef.current = items
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     document.title = brand ? `Listing Studio · ${brand.name}` : 'Listing Studio'
@@ -182,11 +173,11 @@ function Workspace() {
     const selectedBrandId = brandId
     let cancelled = false
     let pollId: number | undefined
-    let inFlight = false
+    let refreshInFlight = false
 
-    async function load(options: { showLoading: boolean }) {
-      if (inFlight) return
-      inFlight = true
+    async function loadFirstPage(options: { showLoading: boolean }) {
+      if (refreshInFlight) return
+      refreshInFlight = true
       const showRefreshHint = !options.showLoading && hasInProgressJobs(itemsRef.current)
       if (options.showLoading) {
         setLoading(true)
@@ -195,9 +186,25 @@ function Workspace() {
         setRefreshing(true)
       }
       try {
-        const response = await listJobs(selectedBrandId)
+        const response = await listJobs(selectedBrandId, {
+          offset: 0,
+          limit: EXECUTIONS_PAGE_SIZE,
+        })
         if (cancelled) return
-        setItems(response.items)
+        setItems((current) => {
+          if (options.showLoading || current.length <= response.items.length) {
+            return response.items
+          }
+          const seen = new Set(response.items.map((item) => item.external_id))
+          const remainder = current.filter((item) => !seen.has(item.external_id))
+          return [...response.items, ...remainder]
+        })
+        setNextOffset((current) => {
+          if (options.showLoading || current == null) return response.next_offset
+          const preservedLength = Math.max(itemsRef.current.length, response.items.length)
+          return response.has_more ? preservedLength : null
+        })
+        setHasMore((current) => (options.showLoading ? response.has_more : current || response.has_more))
         if (options.showLoading) setError(null)
       } catch {
         if (cancelled) return
@@ -207,17 +214,17 @@ function Workspace() {
           setItems([])
         }
       } finally {
-        inFlight = false
+        refreshInFlight = false
         if (cancelled) return
         if (options.showLoading) setLoading(false)
         else setRefreshing(false)
       }
     }
 
-    void load({ showLoading: true }).then(() => {
+    void loadFirstPage({ showLoading: true }).then(() => {
       if (cancelled) return
       pollId = window.setInterval(() => {
-        void load({ showLoading: false })
+        void loadFirstPage({ showLoading: false })
       }, EXECUTIONS_POLL_MS)
     })
 
@@ -227,26 +234,74 @@ function Workspace() {
     }
   }, [brandId])
 
+  useEffect(() => {
+    if (!brandId || !hasMore || nextOffset == null) return
+    const node = loadMoreRef.current
+    if (!node) return
+
+    let cancelled = false
+    let requestInFlight = false
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (!entry?.isIntersecting || requestInFlight) return
+        requestInFlight = true
+        setLoadingMore(true)
+        void listJobs(brandId, {
+          offset: nextOffset,
+          limit: EXECUTIONS_PAGE_SIZE,
+        })
+          .then((response) => {
+            if (cancelled) return
+            setItems((current) => {
+              const seen = new Set(current.map((item) => item.external_id))
+              const appended = response.items.filter((item) => !seen.has(item.external_id))
+              return [...current, ...appended]
+            })
+            setNextOffset(response.next_offset)
+            setHasMore(response.has_more)
+          })
+          .catch(() => {
+            if (cancelled) return
+            setError("Couldn't load more executions. Scroll again to retry.")
+          })
+          .finally(() => {
+            requestInFlight = false
+            if (!cancelled) setLoadingMore(false)
+          })
+      },
+      { rootMargin: '240px 0px' },
+    )
+
+    observer.observe(node)
+    return () => {
+      cancelled = true
+      observer.disconnect()
+    }
+  }, [brandId, hasMore, nextOffset])
+
   if (!brand) {
     return <Navigate to="/brands" replace />
   }
 
-  const executions = withExecutionNumbers(items)
   const filtered = debouncedQuery
-    ? executions.filter((item) => {
+    ? items.filter((item) => {
         const haystack = [
-          `execution ${item.executionNumber}`,
+          `execution ${item.execution_number}`,
           item.status,
           statusLabel(item.status),
           skuProgressLabel(item),
           item.marketplace_name ?? '',
+          item.marketplaces.map((marketplace) => marketplace.name).join(' '),
+          item.created_by_name ?? '',
           item.category_name ?? '',
         ]
           .join(' ')
           .toLowerCase()
         return haystack.includes(debouncedQuery)
       })
-    : executions
+    : items
   const sections = groupByDay(filtered)
   const showList = !loading && items.length > 0
   const live = hasInProgressJobs(items)
@@ -327,51 +382,64 @@ function Workspace() {
             {filtered.length === 0 ? (
               <p className="executions-page__status">No executions match your search.</p>
             ) : (
-              sections.map((section) => (
-                <section key={section.key} className="executions-section">
-                  <h2 className="executions-section__label">{section.label}</h2>
-                  <ul className="executions-section__list">
-                    {section.items.map((item) => (
-                      <li key={item.external_id}>
-                        <article className="execution-card">
-                          <div className="execution-card__main">
-                            <StatusIcon status={item.status} />
-                            <div className="execution-card__copy">
-                              <p className="execution-card__title">
-                                Execution {item.executionNumber}
-                                <span className="execution-card__date">
-                                  · {formatShortDate(item.started_at)}
-                                </span>
-                              </p>
-                              <p className="execution-card__meta">{skuProgressLabel(item)}</p>
+              <>
+                {sections.map((section) => (
+                  <section key={section.key} className="executions-section">
+                    <h2 className="executions-section__label">{section.label}</h2>
+                    <ul className="executions-section__list">
+                      {section.items.map((item) => (
+                        <li key={item.external_id}>
+                          <article className="execution-card">
+                            <div className="execution-card__main">
+                              <StatusIcon status={item.status} />
+                              <div className="execution-card__copy">
+                                <p className="execution-card__title">
+                                  Execution {item.execution_number}
+                                  <span className="execution-card__date">
+                                    · {formatShortDateTime(item.started_at)}
+                                  </span>
+                                </p>
+                                <p className="execution-card__meta">
+                                  <span>{skuProgressLabel(item)}</span>
+                                  {item.created_by_name ? (
+                                    <span className="execution-card__ran-by">
+                                      Ran by {item.created_by_name}
+                                    </span>
+                                  ) : null}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                          <div className="execution-card__side">
-                            <span
-                              className={
-                                item.status === 'COMPLETED'
-                                  ? 'execution-card__status execution-card__status--done'
-                                  : item.status === 'FAILED'
-                                    ? 'execution-card__status execution-card__status--failed'
-                                    : 'execution-card__status execution-card__status--pending'
-                              }
-                            >
-                              {statusLabel(item.status)}
-                            </span>
-                            <button
-                              type="button"
-                              className="btn-outline execution-card__open"
-                              onClick={() => navigate(`/batches/preview/${item.external_id}`)}
-                            >
-                              Open
-                            </button>
-                          </div>
-                        </article>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ))
+                            <div className="execution-card__side">
+                              <span
+                                className={
+                                  item.status === 'COMPLETED'
+                                    ? 'execution-card__status execution-card__status--done'
+                                    : item.status === 'FAILED'
+                                      ? 'execution-card__status execution-card__status--failed'
+                                      : 'execution-card__status execution-card__status--pending'
+                                }
+                              >
+                                {statusLabel(item.status)}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn-outline execution-card__open"
+                                onClick={() => navigate(`/batches/preview/${item.external_id}`)}
+                              >
+                                Open
+                              </button>
+                            </div>
+                          </article>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+                {loadingMore ? (
+                  <p className="executions-page__status">Loading more executions…</p>
+                ) : null}
+                {hasMore ? <div ref={loadMoreRef} className="executions-page__sentinel" /> : null}
+              </>
             )}
           </div>
         ) : null}

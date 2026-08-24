@@ -4,6 +4,7 @@ export interface AccessibleBrand {
   external_id: string
   name: string
   granted_at: string
+  last_batch_at: string | null
 }
 
 export interface BrandUser {

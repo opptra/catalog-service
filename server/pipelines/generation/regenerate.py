@@ -98,6 +98,7 @@ def regenerate_text(
     origin_brief: str,
     current_value: str,
     improvement: str,
+    limit: tools.TextLimit | None = None,
     session_id: str | None = None,
 ) -> TextRegeneration:
     """Regenerate from v1 brief + current copy + this user note. Persist the note only."""
@@ -108,7 +109,8 @@ def regenerate_text(
         current_value=current_value,
         improvement=improvement,
     )
-    tool = tools.text_attributes_tool([name])
+    limits = {name: limit} if limit is not None else None
+    tool = tools.text_attributes_tool([name], limits=limits)
     parsed = client.call_tool(
         parts.suffix,
         model=settings.openrouter_text_model,
@@ -119,7 +121,7 @@ def regenerate_text(
     raw = parsed.get(name.value)
     if raw is None:
         raise ValueError(f"Text regeneration missing attribute: {name.value}")
-    fitted = tools.apply_text_limits(name, raw)
+    fitted = tools.apply_text_limits(name, raw, limit)
     if name in tools.LIST_TEXT_ATTRIBUTES:
         value = json.dumps(fitted if isinstance(fitted, list) else [], ensure_ascii=False)
     else:

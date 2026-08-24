@@ -12,9 +12,12 @@ export interface FillListingResponse {
   gaps: ListingFillGap[]
 }
 
-export async function fillListing(jobExternalId: string): Promise<FillListingResponse> {
-  const { data } = await api.post<FillListingResponse>('/listings/fill', {
-    job_external_id: jobExternalId,
-  })
+export interface FillListingRequest {
+  job_group_id: string
+  marketplace_external_id: string
+}
+
+export async function fillListing(body: FillListingRequest): Promise<FillListingResponse> {
+  const { data } = await api.post<FillListingResponse>('/listings/fill', body)
   return data
 }

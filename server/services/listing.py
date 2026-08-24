@@ -41,6 +41,7 @@ from repositories.catalog import listing_template_column as listing_template_col
 from repositories.catalog import sku_generation_job as sku_generation_job_repo
 from repositories.catalog import sku_marketplace_attribute_value as attribute_value_repo
 from repositories.catalog import sku_master as sku_master_repo
+from services import sku_image_export as sku_image_export_service
 from utils import listing_workbook as workbook_utils
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,22 @@ _FILLED_FILE_SIGNED_URL_TTL_SECONDS = 3600
 _REFERENCE_IMAGE_URL_TTL_SECONDS = 3600
 _MAX_PRODUCT_IMAGE_URLS = 7
 _LISTING_OUTPUT_CONTENT_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.12"
+
+
+def fill_listing_for_group(
+    session: Session,
+    gcs: GcsClient,
+    dropbox: DropboxClient,
+    openrouter: OpenRouterClient,
+    *,
+    job_group_id: UUID,
+    marketplace_external_id: UUID,
+) -> FillListingResponse:
+    """Resolve a group + marketplace to a child job, then fill its listing template."""
+    job, _marketplace = sku_image_export_service.resolve_job_in_group(
+        session, job_group_id, marketplace_external_id
+    )
+    return fill_listing_for_job(session, gcs, dropbox, openrouter, job.external_id)
 
 
 def fill_listing_for_job(

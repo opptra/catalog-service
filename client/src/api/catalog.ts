@@ -1,14 +1,12 @@
 import api from './axios'
-
-export interface MarketplaceSelectionMarketplace {
-  external_id: string
-  name: string
-}
+import type { MarketplaceAttributeConfig } from './jobs'
 
 export interface MarketplaceSelectionAttributeItem {
   external_id: string
   name: string
   allows_quantity: boolean
+  quantity: number
+  config: MarketplaceAttributeConfig
 }
 
 export interface MarketplaceSelectionAttribute {
@@ -17,9 +15,14 @@ export interface MarketplaceSelectionAttribute {
   items: MarketplaceSelectionAttributeItem[]
 }
 
+export interface MarketplaceSelectionMarketplace {
+  external_id: string
+  name: string
+  attributes: MarketplaceSelectionAttribute[]
+}
+
 export interface MarketplaceSelection {
   marketplaces: MarketplaceSelectionMarketplace[]
-  attributes: MarketplaceSelectionAttribute[]
 }
 
 export async function getMarketplaceSelection(): Promise<MarketplaceSelection> {
