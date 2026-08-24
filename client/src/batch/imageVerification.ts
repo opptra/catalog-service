@@ -22,12 +22,39 @@ export function verificationMismatchLines(
   verification: ImageVerificationSnapshot,
 ): string[] {
   const mismatches = verification.mismatches ?? []
-  return mismatches.slice(0, 4).map((item) => {
+  return mismatches.slice(0, 6).map((item) => {
     if (item.kind === 'invented') {
       return `Invented: “${item.observed ?? ''}”`
     }
+    if (item.kind === 'quality') {
+      return `Quality: ${item.observed ?? '—'}`
+    }
+    if (item.kind === 'identity') {
+      if (item.source_field && item.catalog) {
+        return `Look: catalog ${item.source_field} ${item.catalog}, saw ${item.observed ?? '—'}`
+      }
+      return `Look: ${item.observed ?? '—'}`
+    }
     return `${item.source_field ?? 'Attribute'}: catalog ${item.catalog ?? '—'}, saw ${item.observed ?? '—'}`
   })
+}
+
+export function verificationAxisLines(
+  verification: ImageVerificationSnapshot,
+): string[] {
+  const axes = verification.axes
+  if (axes == null) return []
+  const lines: string[] = []
+  if (typeof axes.identity === 'number') {
+    lines.push(`Identity ${Math.round(axes.identity)}%`)
+  }
+  if (typeof axes.claims === 'number') {
+    lines.push(`Claims ${Math.round(axes.claims)}%`)
+  }
+  if (typeof axes.quality === 'number') {
+    lines.push(`Quality ${Math.round(axes.quality)}%`)
+  }
+  return lines
 }
 
 export function verificationCardTitle(

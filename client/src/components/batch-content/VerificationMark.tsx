@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { ImageVerification, ImageVerificationSnapshot } from '../../api/jobs'
 import {
   isVerificationBelowThreshold,
+  verificationAxisLines,
   verificationCardTitle,
   verificationMismatchLines,
   verificationOutcomeLine,
@@ -78,15 +79,19 @@ function VerificationAttemptBody({
   const percent = verificationPercentLabel(verification)
   const outcome = verificationOutcomeLine(verification)
   const reason = verification.reasoning?.trim() || ''
+  const axes = verificationAxisLines(verification)
   const mismatches = verificationMismatchLines(verification)
 
   return (
     <>
-      {percent || outcome ? (
+      {percent || outcome || axes.length > 0 ? (
         <section className="verify-mark__tip-section">
           <h4 className="verify-mark__tip-label">Match</h4>
           {percent ? <p className="verify-mark__tip-score">{percent}</p> : null}
           {outcome ? <p className="verify-mark__tip-outcome">{outcome}</p> : null}
+          {axes.length > 0 ? (
+            <p className="verify-mark__tip-outcome">{axes.join(' · ')}</p>
+          ) : null}
         </section>
       ) : null}
       {reason ? (
@@ -116,7 +121,8 @@ function VerificationTipCard({ verification }: { verification: ImageVerification
       <header className="verify-mark__tip-head">
         <p className="verify-mark__tip-title">{verificationCardTitle(verification)}</p>
         <p className="verify-mark__tip-lede">
-          On-image claims compared with this product’s catalog data.
+          Product look vs source photos, and on-image claims vs catalog. Quality is
+          advisory.
         </p>
       </header>
       <VerificationAttemptBody verification={verification} />

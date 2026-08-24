@@ -92,6 +92,18 @@ export interface ImageVerificationMismatch {
   observed: string | null
 }
 
+export interface ImageVerificationAxes {
+  identity?: number | null
+  claims?: number | null
+  quality?: number | null
+}
+
+export interface ImageVerificationSlotContext {
+  name?: string | null
+  role?: string | null
+  kind?: string | null
+}
+
 export interface ImageVerificationSnapshot {
   v: number
   status: string
@@ -102,6 +114,8 @@ export interface ImageVerificationSnapshot {
   reasoning?: string | null
   observed_text?: string[] | null
   mismatches?: ImageVerificationMismatch[] | null
+  axes?: ImageVerificationAxes | null
+  slot?: ImageVerificationSlotContext | null
   error?: string | null
 }
 

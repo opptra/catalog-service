@@ -44,7 +44,7 @@ Under the picture, a short **Verification** block:
 - Confidence: **61%**
 - Hint if retried once
 - Reason: *“Badge reads Queen; catalog Size is King.”*
-- Mismatch list: `Size: catalog King, saw Queen` (or invented copy not in product data)
+- Mismatch list: `Size: catalog King, saw Queen` (or invented copy nowhere in PRODUCT DATA, including Description)
 
 They can still type an improvement and regenerate. After a **user** regen, the new version is verified the same way (one auto-retry if below `n`). Compare view shows the new version’s score.
 
@@ -87,14 +87,14 @@ If the **retry render** itself fails, keep the first image and its first verific
 The verifier sees:
 
 1. The **generated** image (signed HTTPS URL after GCS upload).
-2. Full **PRODUCT DATA** (`sku_master.attributes`, empty keys already dropped; `source_assets` not sent).
+2. Full **PRODUCT DATA** (`sku_master.attributes`, empty keys already dropped; `source_assets` not sent). **Every key and every value is a fact** — including long fields such as Description. A claim is invented only if it is nowhere in that JSON.
 
 It does **not** see source/reference product photos. It does **not** score against per-slot assigned facts (those stay a generation concern only).
 
 | Situation | Effect |
 |---|---|
 | On-image text **contradicts** an attribute (Queen vs King) | Miss |
-| Invented copy that is not in PRODUCT DATA | Miss |
+| Invented copy that appears in **no** PRODUCT DATA key or value (including Description) | Miss |
 | SKU / ASIN / UPC / EAN / GTIN printed on the artwork | Miss (shopper image, not a label) |
 | Overlay **omits** a catalog fact | Allowed — not a miss |
 | Hero with little or no text | High score is allowed |

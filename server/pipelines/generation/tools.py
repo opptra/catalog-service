@@ -84,23 +84,42 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
     "function": {
         "name": IMAGE_VERIFICATION_TOOL_NAME,
         "description": (
-            "Submit product-data verification for one generated catalog image. "
-            "Score on-image claims against PRODUCT DATA only."
+            "Submit marketplace image QA for one generated catalog slot. "
+            "Score identity vs source photos, claims vs PRODUCT DATA, and quality."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "confidence": {
+                "identity": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 100,
                     "description": (
-                        "0–100 how sure you are that on-image claims agree with PRODUCT DATA."
+                        "0–100 same physical variant as source photos and catalog "
+                        "Color/pack/print/silhouette."
+                    ),
+                },
+                "claims": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": (
+                        "0–100 on-image text agrees with PRODUCT DATA (any key or value, "
+                        "including Description). Omission may be high. Invented only if "
+                        "the claim is nowhere in the JSON."
+                    ),
+                },
+                "quality": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": (
+                        "0–100 production fitness (crop, blur, readable type). Advisory."
                     ),
                 },
                 "reasoning": {
                     "type": "string",
-                    "description": "Short explanation of the score (a few sentences).",
+                    "description": "Short explanation covering identity and claims.",
                 },
                 "observed_text": {
                     "type": "array",
@@ -109,29 +128,32 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                 },
                 "mismatches": {
                     "type": "array",
-                    "description": "Only failures: contradiction or invented. Empty if none.",
+                    "description": (
+                        "Failures only: contradiction, invented, identity, or quality. "
+                        "Empty if none."
+                    ),
                     "items": {
                         "type": "object",
                         "properties": {
                             "kind": {
                                 "type": "string",
-                                "enum": ["contradiction", "invented"],
+                                "enum": ["contradiction", "invented", "identity", "quality"],
                             },
                             "source_field": {
                                 "type": "string",
                                 "description": (
-                                    "Exact PRODUCT DATA key for a contradiction. Omit for invented."
+                                    "Exact PRODUCT DATA key when mapped. Omit for invented/quality."
                                 ),
                             },
                             "catalog": {
                                 "type": "string",
                                 "description": (
-                                    "Catalog value for a contradiction. Omit for invented."
+                                    "Catalog value when mapped. Omit for invented/quality."
                                 ),
                             },
                             "observed": {
                                 "type": "string",
-                                "description": "Text read on the image.",
+                                "description": "Text or look read on the generated image.",
                             },
                         },
                         "required": ["kind", "observed"],
@@ -139,7 +161,14 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     },
                 },
             },
-            "required": ["confidence", "reasoning", "observed_text", "mismatches"],
+            "required": [
+                "identity",
+                "claims",
+                "quality",
+                "reasoning",
+                "observed_text",
+                "mismatches",
+            ],
             "additionalProperties": False,
         },
     },

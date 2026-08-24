@@ -60,7 +60,7 @@ class JobListResponse(BaseModel):
 
 
 class ImageVerificationMismatchResponse(BaseModel):
-    """One on-image claim that disagrees with sku_master.attributes."""
+    """One on-image claim or look that disagrees with catalog / source photos."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -68,6 +68,22 @@ class ImageVerificationMismatchResponse(BaseModel):
     source_field: str | None = None
     catalog: str | None = None
     observed: str | None = None
+
+
+class ImageVerificationAxesResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    identity: int | None = None
+    claims: int | None = None
+    quality: int | None = None
+
+
+class ImageVerificationSlotContextResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str | None = None
+    role: str | None = None
+    kind: str | None = None
 
 
 class ImageVerificationSnapshotResponse(BaseModel):
@@ -84,6 +100,8 @@ class ImageVerificationSnapshotResponse(BaseModel):
     reasoning: str | None = None
     observed_text: list[str] | None = None
     mismatches: list[ImageVerificationMismatchResponse] | None = None
+    axes: ImageVerificationAxesResponse | None = None
+    slot: ImageVerificationSlotContextResponse | None = None
     error: str | None = None
 
 

@@ -81,7 +81,7 @@ from utils import flatfile as flatfile_utils
 logger = logging.getLogger(__name__)
 
 # Cloud Workflows resource id — must match the id in cloud-workflows/manifest.yaml.
-_JOB_PIPELINE_WORKFLOW = "workflow-2"
+_JOB_PIPELINE_WORKFLOW = "job-pipeline"
 
 # Cap concurrent OpenRouter image calls. Slots are independent after planning; text + gallery
 # planning stay sequential.
@@ -741,14 +741,22 @@ def _safe_verify_image(
     product: dict[str, Any],
     attempt: int,
     session_id: str | None,
+    source_image_urls: list[str] | None = None,
+    attribute_name: str | None = None,
+    role: str | None = None,
+    kind: str | None = None,
 ) -> verify.VerificationResult:
-    """Run product-data verification; never raise — errors become a persisted error snapshot."""
+    """Run verification; never raise — errors become a persisted error snapshot."""
     try:
         return verify.verify_image(
             client,
             generated_image_url=generated_image_url,
             product=product,
             attempt=attempt,
+            source_image_urls=source_image_urls,
+            attribute_name=attribute_name,
+            role=role,
+            kind=kind,
             session_id=session_id,
         )
     except Exception:  # noqa: BLE001 — keep the image; do not retry on verifier failure
@@ -758,6 +766,21 @@ def _safe_verify_image(
             attempt=attempt,
             error="verify_tool_call_failed",
         )
+
+
+def _slot_context_from_verification(blob: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """role / kind from a prior v2 verification snapshot (user regen has no SlotPlan)."""
+    if not isinstance(blob, dict):
+        return None, None
+    slot = blob.get("slot")
+    if not isinstance(slot, dict):
+        return None, None
+    role = slot.get("role")
+    kind = slot.get("kind")
+    return (
+        str(role).strip() or None if isinstance(role, str) else None,
+        str(kind).strip() or None if isinstance(kind, str) else None,
+    )
 
 
 def _render_verify_upload_slot(
@@ -771,9 +794,11 @@ def _render_verify_upload_slot(
     name: AttributeName,
     slot: int,
     original_prompt: str,
+    role: str | None,
+    kind: str | None,
     session_id: str | None,
 ) -> _VerifiedSlotImage:
-    """Render, upload, verify against product data; one mismatch retry, then keep the image."""
+    """Render, upload, verify; one mismatch retry when enabled, then keep the image."""
     aspect = _aspect_ratio_for(name)
 
     def _upload(generation: images.ImageGeneration) -> tuple[str, str]:
@@ -802,9 +827,13 @@ def _render_verify_upload_slot(
         product=ctx.product,
         attempt=1,
         session_id=session_id,
+        source_image_urls=ctx.product_image_urls,
+        attribute_name=name.value,
+        role=role,
+        kind=kind,
     )
     previous: verify.VerificationResult | None = None
-    if result.below_threshold():
+    if verify.should_retry(result):
         first = result
         retry_prompt = f"{original_prompt.strip()}\n\n{verify.retry_addendum(result)}"
         try:
@@ -816,6 +845,10 @@ def _render_verify_upload_slot(
                 product=ctx.product,
                 attempt=2,
                 session_id=session_id,
+                source_image_urls=ctx.product_image_urls,
+                attribute_name=name.value,
+                role=role,
+                kind=kind,
             )
             previous = first
         except Exception:  # noqa: BLE001 — keep the first image rather than failing the slot
@@ -901,6 +934,8 @@ def _run_images(
                 name=name,
                 slot=slot,
                 original_prompt=slot_plans[(name, slot)].prompt,
+                role=slot_plans[(name, slot)].role,
+                kind=slot_plans[(name, slot)].kind,
                 session_id=session_id,
             ): (name, slot)
             for name, slot in jobs
@@ -1589,15 +1624,22 @@ def _regenerate_attribute_value_body(
                 return uploaded.gs_uri, signed_url
 
             gs_uri, signed = _upload_regen(generation)
+            regen_role, regen_kind = _slot_context_from_verification(
+                latest.verification if isinstance(latest.verification, dict) else None
+            )
             result = _safe_verify_image(
                 client,
                 generated_image_url=signed,
                 product=ctx.product,
                 attempt=1,
                 session_id=session_id,
+                source_image_urls=ctx.product_image_urls,
+                attribute_name=name.value,
+                role=regen_role,
+                kind=regen_kind,
             )
             previous: verify.VerificationResult | None = None
-            if result.below_threshold():
+            if verify.should_retry(result):
                 first = result
                 retry_note = f"{improvement_text}\n\n{verify.retry_addendum(result)}"
                 try:
@@ -1617,6 +1659,10 @@ def _regenerate_attribute_value_body(
                         product=ctx.product,
                         attempt=2,
                         session_id=session_id,
+                        source_image_urls=ctx.product_image_urls,
+                        attribute_name=name.value,
+                        role=regen_role,
+                        kind=regen_kind,
                     )
                     previous = first
                 except Exception:  # noqa: BLE001 — keep the first regen
