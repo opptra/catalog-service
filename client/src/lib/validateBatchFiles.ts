@@ -5,6 +5,7 @@ import {
   isIgnoredZipName,
   resolveZipRootPrefix,
 } from './batchZip'
+import { needsSrgbJpegConvert } from './ensureSrgbImage'
 
 export type ValidationStepId =
   | 'read_product'
@@ -210,6 +211,7 @@ async function readProductTable(file: File): Promise<ProductTable> {
 interface FolderImages {
   imageCount: number
   files: string[]
+  cmykCount: number
 }
 
 /**
@@ -237,7 +239,7 @@ async function readZipFolders(file: File): Promise<Map<string, FolderImages>> {
   function ensureFolder(name: string): FolderImages {
     const existing = folders.get(name)
     if (existing) return existing
-    const created = { imageCount: 0, files: [] as string[] }
+    const created = { imageCount: 0, files: [] as string[], cmykCount: 0 }
     folders.set(name, created)
     return created
   }
@@ -267,6 +269,11 @@ async function readZipFolders(file: File): Promise<Map<string, FolderImages>> {
     if (!dir && IMAGE_EXT.test(fileName)) {
       current.imageCount += 1
       current.files.push(fileName)
+      const zipEntry = zip.files[path]
+      if (zipEntry) {
+        const bytes = await zipEntry.async('uint8array')
+        if (needsSrgbJpegConvert(bytes)) current.cmykCount += 1
+      }
     }
   }
 
@@ -373,7 +380,7 @@ export async function validateBatchFiles(options: {
     )
   }
 
-  report(setStep(steps, 'read_images', 'running'))
+  report(setStep(steps, 'read_images', 'running', 'Reading ZIP and checking JPEG color space'))
   await tick()
 
   let folders: Map<string, FolderImages>
@@ -559,6 +566,7 @@ export async function validateBatchFiles(options: {
     [...problemSkus],
     steps,
     skuImages,
+    [...folders.values()].reduce((sum, folder) => sum + folder.cmykCount, 0),
   )
 }
 
@@ -571,6 +579,7 @@ function finalize(
   problemSkus: string[],
   steps: ValidationStep[],
   skuImages: SkuImageManifestEntry[],
+  cmykCount = 0,
 ): BatchValidationResult {
   const passed =
     skuCount > 0 && problemCount === 0 && !issues.some((issue) => !issue.ok)
@@ -582,6 +591,11 @@ function finalize(
       `${skuCount} folders · every SKU has at least one image`,
       `${imageCount} images total`,
     )
+    if (cmykCount > 0) {
+      successItems.push(
+        `${cmykCount} print ${cmykCount === 1 ? 'image' : 'images'} (CMYK JPEG or TIFF) will be converted to sRGB JPEG before upload`,
+      )
+    }
   }
 
   return {
