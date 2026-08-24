@@ -1,4 +1,8 @@
 import type { ContentImage } from './types'
+import {
+  isVerificationBelowThreshold,
+  verificationScoreLabel,
+} from '../../batch/imageVerification'
 
 interface ContentImageGridProps {
   title: string
@@ -18,6 +22,10 @@ function ContentImageGrid({ title, hint, images, onSelect }: ContentImageGridPro
         {images.map((image, index) => {
           const url = image.url
           const ready = typeof url === 'string' && url.trim() !== ''
+          const verification = image.verification
+          const score = verification ? verificationScoreLabel(verification) : null
+          const low = isVerificationBelowThreshold(verification)
+          const retried = (verification?.attempt ?? 1) > 1
           return (
             <button
               key={image.id}
@@ -36,6 +44,14 @@ function ContentImageGrid({ title, hint, images, onSelect }: ContentImageGridPro
                 <span className="pdp-tile__empty content-shimmer" aria-hidden="true" />
               )}
               <span className="pdp-tile__badge">{index + 1}</span>
+              {score != null ? (
+                <span
+                  className={`pdp-tile__verify${low ? ' pdp-tile__verify--low' : ''}${retried ? ' pdp-tile__verify--retried' : ''}`}
+                >
+                  {score}
+                  {retried ? ' · retried' : ''}
+                </span>
+              ) : null}
             </button>
           )
         })}

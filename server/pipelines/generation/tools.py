@@ -14,6 +14,7 @@ from entities.catalog.attribute_enums import AttributeName
 GALLERY_FACT_BOARD_TOOL_NAME = "submit_fact_board"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
 COMPRESSED_BRAND_DNA_TOOL_NAME = "submit_compressed_brand_dna"
+IMAGE_VERIFICATION_TOOL_NAME = "submit_image_verification"
 
 
 def gallery_fact_board_tool() -> dict[str, Any]:
@@ -78,6 +79,73 @@ def gallery_fact_board_tool() -> dict[str, Any]:
     }
 
 
+IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": IMAGE_VERIFICATION_TOOL_NAME,
+        "description": (
+            "Submit product-data verification for one generated catalog image. "
+            "Score on-image claims against PRODUCT DATA only."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "confidence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": (
+                        "0–100 how sure you are that on-image claims agree with PRODUCT DATA."
+                    ),
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Short explanation of the score (a few sentences).",
+                },
+                "observed_text": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Shopper-facing words/badges read off the generated image.",
+                },
+                "mismatches": {
+                    "type": "array",
+                    "description": "Only failures: contradiction or invented. Empty if none.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": ["contradiction", "invented"],
+                            },
+                            "source_field": {
+                                "type": "string",
+                                "description": (
+                                    "Exact PRODUCT DATA key for a contradiction. Omit for invented."
+                                ),
+                            },
+                            "catalog": {
+                                "type": "string",
+                                "description": (
+                                    "Catalog value for a contradiction. Omit for invented."
+                                ),
+                            },
+                            "observed": {
+                                "type": "string",
+                                "description": "Text read on the image.",
+                            },
+                        },
+                        "required": ["kind", "observed"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["confidence", "reasoning", "observed_text", "mismatches"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 COMPRESSED_BRAND_DNA_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -91,7 +159,9 @@ COMPRESSED_BRAND_DNA_TOOL: dict[str, Any] = {
             "properties": {
                 "fonts": {
                     "type": "object",
-                    "description": "Typefaces named in Brand DNA. Omit a key if the source has none.",
+                    "description": (
+                        "Typefaces named in Brand DNA. Omit a key if the source has none."
+                    ),
                     "properties": {
                         "headline": {
                             "type": "string",

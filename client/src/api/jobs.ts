@@ -85,6 +85,26 @@ export interface JobListResponse {
 
 const listJobsInflight = new Map<string, Promise<JobListResponse>>()
 
+export interface ImageVerificationMismatch {
+  kind: string
+  source_field: string | null
+  catalog: string | null
+  observed: string | null
+}
+
+export interface ImageVerification {
+  v: number
+  status: string
+  model: string
+  attempt: number
+  confidence?: number | null
+  threshold?: number | null
+  reasoning?: string | null
+  observed_text?: string[] | null
+  mismatches?: ImageVerificationMismatch[] | null
+  error?: string | null
+}
+
 export interface SkuGenerationJobAttributeSlot {
   attribute_external_id: string
   name: string
@@ -97,6 +117,7 @@ export interface SkuGenerationJobAttributeSlot {
   value: string | null
   value_is_signed_url: boolean
   prompt: string | null
+  verification: ImageVerification | null
 }
 
 export interface RegenerateAttributeValueRequest {
@@ -117,6 +138,7 @@ export interface RegenerateAttributeValueResponse {
   value: string
   value_is_signed_url: boolean
   prompt: string | null
+  verification: ImageVerification | null
 }
 
 export interface SkuGenerationJobContentResponse {

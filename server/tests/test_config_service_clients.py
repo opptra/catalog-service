@@ -9,6 +9,7 @@ _REQUIRED_KWARGS = {
     "google_client_id": "client-id",
     "openrouter_text_model": "m",
     "openrouter_image_model": "m",
+    "openrouter_verify_model": "m",
 }
 
 

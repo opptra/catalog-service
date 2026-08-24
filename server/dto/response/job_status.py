@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class JobExpectedAttributeResponse(BaseModel):
@@ -59,6 +59,34 @@ class JobListResponse(BaseModel):
     items: list[JobListItemResponse]
 
 
+class ImageVerificationMismatchResponse(BaseModel):
+    """One on-image claim that disagrees with sku_master.attributes."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    kind: str
+    source_field: str | None = None
+    catalog: str | None = None
+    observed: str | None = None
+
+
+class ImageVerificationResponse(BaseModel):
+    """Per-version snapshot of product-data verification for an image slot."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    v: int
+    status: str
+    model: str
+    attempt: int
+    confidence: int | None = None
+    threshold: int | None = None
+    reasoning: str | None = None
+    observed_text: list[str] | None = None
+    mismatches: list[ImageVerificationMismatchResponse] | None = None
+    error: str | None = None
+
+
 class SkuGenerationJobAttributeSlotResponse(BaseModel):
     attribute_external_id: UUID
     name: str
@@ -73,6 +101,7 @@ class SkuGenerationJobAttributeSlotResponse(BaseModel):
     value_is_signed_url: bool = False
     # Unique brief for this version (v1 = slot/strategy brief; later = this regen's user note).
     prompt: str | None = None
+    verification: ImageVerificationResponse | None = None
 
 
 class RegenerateAttributeValueResponse(BaseModel):
@@ -87,6 +116,7 @@ class RegenerateAttributeValueResponse(BaseModel):
     value: str
     value_is_signed_url: bool
     prompt: str | None = None
+    verification: ImageVerificationResponse | None = None
 
 
 class SkuGenerationJobContentResponse(BaseModel):

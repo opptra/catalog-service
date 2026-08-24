@@ -157,6 +157,7 @@ function imageSlotsToGrid(
       label: `${formatAttributeLabel(slot.name)} ${slot.slot}`,
       valueExternalId: slot.value_external_id,
       version: slot.version,
+      verification: slot.verification,
     }))
 }
 
@@ -402,6 +403,7 @@ function BatchContent() {
       valueExternalId: image.valueExternalId,
       version: image.version,
       value: image.url,
+      verification: image.verification ?? null,
       canPrev: index > 0 && Boolean(images[index - 1]?.url),
       canNext: index < images.length - 1 && Boolean(images[index + 1]?.url),
       onPrev: () => {
