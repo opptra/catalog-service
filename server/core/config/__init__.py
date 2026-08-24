@@ -23,6 +23,12 @@ class Settings(BaseSettings):
 
     api_key: str | None = None
 
+    # Laptop-only: disk storage, auto-login, in-process job pipeline. Default off.
+    # Never set in Secret Manager / production.
+    dev_mode: bool = False
+    local_storage_dir: str = "../local-data/objects"
+    dev_user_email: str | None = None
+
     google_client_id: str
 
     # HS256 secret for catalog-issued session JWTs (httpOnly cookie). Required — no default.

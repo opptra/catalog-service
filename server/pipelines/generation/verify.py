@@ -86,6 +86,22 @@ class VerificationResult:
         return payload
 
 
+def persist_payload(
+    result: VerificationResult,
+    *,
+    previous: VerificationResult | None = None,
+) -> dict[str, Any]:
+    """JSONB written to ``sku_marketplace_attribute_value.verification``.
+
+    When a mismatch retry actually ran, ``previous`` is the attempt-1 snapshot so
+    the UI can still show why the first pass failed. Nested one level only.
+    """
+    payload = result.to_json()
+    if previous is not None:
+        payload["previous"] = previous.to_json()
+    return payload
+
+
 def error_result(*, model: str, attempt: int, error: str) -> VerificationResult:
     """Persistable failure when the verifier itself did not complete."""
     return VerificationResult(

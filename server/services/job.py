@@ -180,7 +180,7 @@ def _persist_attribute_value(
 
 def create_job(
     session: Session,
-    workflows: WorkflowsClient,
+    workflows: WorkflowsClient | None,
     *,
     created_by: UUID,
     sku_ids: Sequence[str],
@@ -291,15 +291,19 @@ def create_job(
         ],
     )
 
-    execution = workflows.trigger(
-        _JOB_PIPELINE_WORKFLOW,
-        {
-            "job_external_id": str(job.external_id),
-            "sku_generation_job_external_ids": [
-                str(sku_generation_job.external_id) for sku_generation_job in sku_generation_jobs
-            ],
-        },
-    )
+    workflow_execution: str | None = None
+    if workflows is not None:
+        execution = workflows.trigger(
+            _JOB_PIPELINE_WORKFLOW,
+            {
+                "job_external_id": str(job.external_id),
+                "sku_generation_job_external_ids": [
+                    str(sku_generation_job.external_id)
+                    for sku_generation_job in sku_generation_jobs
+                ],
+            },
+        )
+        workflow_execution = execution.name
 
     pk_to_business_sku_id = {sku_by_business_id[sku_id].id: sku_id for sku_id in sku_ids}
 
@@ -316,7 +320,7 @@ def create_job(
             for sku_generation_job in sku_generation_jobs
         ],
         "attribute_external_ids": attribute_external_ids,
-        "workflow_execution": execution.name,
+        "workflow_execution": workflow_execution,
     }
 
 
@@ -709,6 +713,27 @@ class _VerifiedSlotImage:
     verification: dict[str, Any]
 
 
+def _maybe_write_image_debug(
+    gcs: GcsClient,
+    gs_uri: str,
+    *,
+    name: AttributeName,
+    slot: int,
+    prompt: str,
+) -> None:
+    """Sidecar JSON next to a local image (LocalStorageClient only)."""
+    write_debug = getattr(gcs, "write_debug_json", None)
+    if write_debug is None:
+        return
+    object_name = gcs.object_name_from_gs_uri(gs_uri)
+    if object_name is None:
+        return
+    write_debug(
+        object_name,
+        {"attribute": name.value, "slot": slot, "prompt": prompt},
+    )
+
+
 def _safe_verify_image(
     client: OpenRouterClient,
     *,
@@ -770,6 +795,7 @@ def _render_verify_upload_slot(
 
     generation = render_fn(client, ctx, original_prompt, name, slot, aspect, session_id)
     gs_uri, signed = _upload(generation)
+    _maybe_write_image_debug(gcs, gs_uri, name=name, slot=slot, prompt=generation.prompt)
     result = _safe_verify_image(
         client,
         generated_image_url=signed,
@@ -777,7 +803,9 @@ def _render_verify_upload_slot(
         attempt=1,
         session_id=session_id,
     )
+    previous: verify.VerificationResult | None = None
     if result.below_threshold():
+        first = result
         retry_prompt = f"{original_prompt.strip()}\n\n{verify.retry_addendum(result)}"
         try:
             generation = render_fn(client, ctx, retry_prompt, name, slot, aspect, session_id)
@@ -789,6 +817,7 @@ def _render_verify_upload_slot(
                 attempt=2,
                 session_id=session_id,
             )
+            previous = first
         except Exception:  # noqa: BLE001 — keep the first image rather than failing the slot
             logger.exception(
                 "Image verification retry render failed for %s slot %s; keeping first render",
@@ -798,7 +827,7 @@ def _render_verify_upload_slot(
     return _VerifiedSlotImage(
         gs_uri=gs_uri,
         prompt=original_prompt,
-        verification=result.to_json(),
+        verification=verify.persist_payload(result, previous=previous),
     )
 
 
@@ -1567,7 +1596,9 @@ def _regenerate_attribute_value_body(
                 attempt=1,
                 session_id=session_id,
             )
+            previous: verify.VerificationResult | None = None
             if result.below_threshold():
+                first = result
                 retry_note = f"{improvement_text}\n\n{verify.retry_addendum(result)}"
                 try:
                     generation = regenerate.regenerate_image(
@@ -1587,6 +1618,7 @@ def _regenerate_attribute_value_body(
                         attempt=2,
                         session_id=session_id,
                     )
+                    previous = first
                 except Exception:  # noqa: BLE001 — keep the first regen
                     logger.exception(
                         "Image regen verification retry failed for %s; keeping first regen",
@@ -1601,7 +1633,7 @@ def _regenerate_attribute_value_body(
                 slot=latest.slot,
                 value=gs_uri,
                 prompt=improvement_text,
-                verification=result.to_json(),
+                verification=verify.persist_payload(result, previous=previous),
             )
             return {
                 "value_external_id": persisted["external_id"],

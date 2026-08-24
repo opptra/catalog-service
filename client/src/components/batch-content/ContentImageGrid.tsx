@@ -1,8 +1,6 @@
 import type { ContentImage } from './types'
-import {
-  isVerificationBelowThreshold,
-  verificationScoreLabel,
-} from '../../batch/imageVerification'
+import { verificationAriaSuffix } from '../../batch/imageVerification'
+import { VerificationMark } from './VerificationMark'
 
 interface ContentImageGridProps {
   title: string
@@ -23,9 +21,6 @@ function ContentImageGrid({ title, hint, images, onSelect }: ContentImageGridPro
           const url = image.url
           const ready = typeof url === 'string' && url.trim() !== ''
           const verification = image.verification
-          const score = verification ? verificationScoreLabel(verification) : null
-          const low = isVerificationBelowThreshold(verification)
-          const retried = (verification?.attempt ?? 1) > 1
           return (
             <button
               key={image.id}
@@ -35,7 +30,11 @@ function ContentImageGrid({ title, hint, images, onSelect }: ContentImageGridPro
                 if (ready) onSelect(index)
               }}
               disabled={!ready}
-              aria-label={ready ? `Open ${image.label}` : `Generating ${image.label}`}
+              aria-label={
+                ready
+                  ? `Open ${image.label}.${verificationAriaSuffix(verification)}`
+                  : `Generating ${image.label}`
+              }
               aria-busy={!ready}
             >
               {ready ? (
@@ -44,14 +43,7 @@ function ContentImageGrid({ title, hint, images, onSelect }: ContentImageGridPro
                 <span className="pdp-tile__empty content-shimmer" aria-hidden="true" />
               )}
               <span className="pdp-tile__badge">{index + 1}</span>
-              {score != null ? (
-                <span
-                  className={`pdp-tile__verify${low ? ' pdp-tile__verify--low' : ''}${retried ? ' pdp-tile__verify--retried' : ''}`}
-                >
-                  {score}
-                  {retried ? ' · retried' : ''}
-                </span>
-              ) : null}
+              {verification != null ? <VerificationMark verification={verification} /> : null}
             </button>
           )
         })}

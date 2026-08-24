@@ -62,6 +62,50 @@ def test_error_json_omits_score() -> None:
     assert "mismatches" not in payload
 
 
+def test_persist_payload_nests_previous_once() -> None:
+    first = verify.VerificationResult(
+        status=verify.STATUS_OK,
+        model="m",
+        attempt=1,
+        confidence=40,
+        reasoning="Wrong size.",
+        mismatches=(
+            verify.VerificationMismatch(
+                kind=verify.KIND_CONTRADICTION,
+                source_field="Size",
+                catalog="King",
+                observed="Queen",
+            ),
+        ),
+    )
+    second = verify.VerificationResult(
+        status=verify.STATUS_OK,
+        model="m",
+        attempt=2,
+        confidence=91,
+        reasoning="Size now King.",
+    )
+    payload = verify.persist_payload(second, previous=first)
+    assert payload["attempt"] == 2
+    assert payload["confidence"] == 91
+    assert payload["previous"]["attempt"] == 1
+    assert payload["previous"]["confidence"] == 40
+    assert payload["previous"]["reasoning"] == "Wrong size."
+    assert "previous" not in payload["previous"]
+
+
+def test_persist_payload_omits_previous_when_absent() -> None:
+    result = verify.VerificationResult(
+        status=verify.STATUS_OK,
+        model="m",
+        attempt=1,
+        confidence=90,
+        reasoning="Clean.",
+    )
+    payload = verify.persist_payload(result)
+    assert "previous" not in payload
+
+
 def test_retry_addendum_lists_mismatches() -> None:
     result = verify.VerificationResult(
         status=verify.STATUS_OK,

@@ -6,10 +6,7 @@ import {
   type ImageVerification,
   type RegenerateAttributeValueResponse,
 } from '../../api/jobs'
-import {
-  isVerificationBelowThreshold,
-  verificationScoreLabel,
-} from '../../batch/imageVerification'
+import { VerificationMark } from './VerificationMark'
 
 export type RegenDataType = 'IMAGE' | 'TEXT'
 
@@ -193,11 +190,13 @@ function ImagePreview({
   url,
   badge,
   emphasize,
+  verification,
 }: {
   label: string
   url: string
   badge: string
   emphasize?: boolean
+  verification?: ImageVerification | null
 }) {
   return (
     <div className={`attr-regen__panel${emphasize ? ' attr-regen__panel--new' : ''}`}>
@@ -209,6 +208,7 @@ function ImagePreview({
       </div>
       <div className="attr-regen__image">
         <img src={url} alt={label} />
+        {verification != null ? <VerificationMark verification={verification} /> : null}
       </div>
     </div>
   )
@@ -222,50 +222,6 @@ function PromptLog({ text }: { text: string }) {
         <p className="attr-regen__prompt-log-label">Prompt</p>
       </div>
       <blockquote className="attr-regen__prompt-log-text">{text}</blockquote>
-    </aside>
-  )
-}
-
-function VerificationPanel({
-  verification,
-}: {
-  verification: ImageVerification | null | undefined
-}) {
-  if (verification == null) return null
-  const score = verificationScoreLabel(verification)
-  const low = isVerificationBelowThreshold(verification)
-  const retried = verification.attempt > 1
-  const mismatches = verification.mismatches ?? []
-  return (
-    <aside className="img-modal__verify" aria-label="Product-data verification">
-      <div className="img-modal__verify-head">
-        <p className="img-modal__verify-label">Verification</p>
-        {score != null ? (
-          <p
-            className={`img-modal__verify-score${low ? ' img-modal__verify-score--low' : ''}`}
-          >
-            {score}
-            {retried ? ' · retried once' : ''}
-          </p>
-        ) : null}
-      </div>
-      {verification.status === 'error' ? (
-        <p className="img-modal__verify-reason">Verification unavailable.</p>
-      ) : null}
-      {verification.reasoning ? (
-        <p className="img-modal__verify-reason">{verification.reasoning}</p>
-      ) : null}
-      {mismatches.length > 0 ? (
-        <ul className="img-modal__verify-mismatches">
-          {mismatches.map((item, index) => (
-            <li key={`${item.kind}-${item.source_field ?? 'none'}-${index}`}>
-              {item.kind === 'invented'
-                ? `Invented: “${item.observed ?? ''}” is not in product data`
-                : `${item.source_field ?? 'Attribute'}: catalog ${item.catalog ?? '—'}, saw ${item.observed ?? '—'}`}
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </aside>
   )
 }
@@ -379,11 +335,13 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
             {isImage ? (
               <div className="img-modal__preview">
                 <img src={target.value} alt={target.label} />
+                {target.verification != null ? (
+                  <VerificationMark verification={target.verification} />
+                ) : null}
               </div>
             ) : (
               <TextPreview label={target.label} value={target.value} />
             )}
-            {isImage ? <VerificationPanel verification={target.verification} /> : null}
 
             <div className="img-modal__prompt-row">
               <input
@@ -450,7 +408,6 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
               The new version is now current. Keep the previous version if you want to undo.
             </p>
             {promptLog ? <PromptLog text={promptLog} /> : null}
-            {isImage ? <VerificationPanel verification={generated.verification} /> : null}
             <div className={`attr-regen__compare${isImage ? '' : ' attr-regen__compare--text'}`}>
               {isImage ? (
                 <>
@@ -458,12 +415,14 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                     label="Previous"
                     url={previous.value}
                     badge={`v${previous.version}`}
+                    verification={target.verification}
                   />
                   <ImagePreview
                     label="Newly generated"
                     url={generated.value}
                     badge={`v${generated.version} · new`}
                     emphasize
+                    verification={generated.verification}
                   />
                 </>
               ) : (

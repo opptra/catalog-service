@@ -92,7 +92,7 @@ export interface ImageVerificationMismatch {
   observed: string | null
 }
 
-export interface ImageVerification {
+export interface ImageVerificationSnapshot {
   v: number
   status: string
   model: string
@@ -103,6 +103,10 @@ export interface ImageVerification {
   observed_text?: string[] | null
   mismatches?: ImageVerificationMismatch[] | null
   error?: string | null
+}
+
+export interface ImageVerification extends ImageVerificationSnapshot {
+  previous?: ImageVerificationSnapshot | null
 }
 
 export interface SkuGenerationJobAttributeSlot {

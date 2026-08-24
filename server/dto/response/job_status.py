@@ -70,8 +70,8 @@ class ImageVerificationMismatchResponse(BaseModel):
     observed: str | None = None
 
 
-class ImageVerificationResponse(BaseModel):
-    """Per-version snapshot of product-data verification for an image slot."""
+class ImageVerificationSnapshotResponse(BaseModel):
+    """One verification attempt — current, or the replaced first pass."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -85,6 +85,12 @@ class ImageVerificationResponse(BaseModel):
     observed_text: list[str] | None = None
     mismatches: list[ImageVerificationMismatchResponse] | None = None
     error: str | None = None
+
+
+class ImageVerificationResponse(ImageVerificationSnapshotResponse):
+    """Per-version snapshot of product-data verification for an image slot."""
+
+    previous: ImageVerificationSnapshotResponse | None = None
 
 
 class SkuGenerationJobAttributeSlotResponse(BaseModel):
