@@ -3,17 +3,12 @@ export interface Brand {
   name: string
 }
 
-/** Placeholder until batch history is wired to the API. */
-export const STATIC_LAST_BATCH_LABEL = 'last batch · 2h ago'
-
 const SELECTED_BRAND_KEY = 'listingStudio.selectedBrand'
 
 function readRawSelectedBrand(): string | null {
   const fromSession = sessionStorage.getItem(SELECTED_BRAND_KEY)
   if (fromSession) return fromSession
 
-  // One-time migrate from the old shared localStorage key so this tab keeps
-  // its previous selection, then clear localStorage so tabs stay isolated.
   const fromLocal = localStorage.getItem(SELECTED_BRAND_KEY)
   if (fromLocal) {
     sessionStorage.setItem(SELECTED_BRAND_KEY, fromLocal)
@@ -57,4 +52,22 @@ export function setSelectedBrand(brand: Brand): void {
 export function clearSelectedBrand(): void {
   sessionStorage.removeItem(SELECTED_BRAND_KEY)
   localStorage.removeItem(SELECTED_BRAND_KEY)
+}
+
+export function formatLastBatchLabel(lastBatchAt: string | null | undefined): string {
+  if (!lastBatchAt) return 'No batches yet'
+  const then = new Date(lastBatchAt).getTime()
+  const now = Date.now()
+  const diffMs = Math.max(0, now - then)
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 1) return 'last batch · just now'
+  if (minutes < 60) return `last batch · ${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `last batch · ${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `last batch · ${days}d ago`
+  return `last batch · ${new Date(lastBatchAt).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+  })}`
 }

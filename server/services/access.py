@@ -14,6 +14,7 @@ from dto.response.access import (
 from entities.user_service.user import User
 from entities.user_service.user_access_grant import UserAccessGrant
 from repositories.catalog import brand as catalog_brand_repository
+from repositories.catalog import job as catalog_job_repository
 from repositories.user_service import role as role_repository
 from repositories.user_service import user as user_repository
 from repositories.user_service import user_access_grant as grant_repository
@@ -44,11 +45,16 @@ def list_accessible_brands(
         catalog_brand = catalog_brand_by_user_service_id.get(grant.external_id)
         if catalog_brand is None:
             continue
+        brand_jobs = catalog_job_repository.list_generation_by_brand(
+            catalog_session, catalog_brand.external_id
+        )
+        last_batch_at = brand_jobs[0].created_at if brand_jobs else None
         result.append(
             AccessibleBrandResponse(
                 external_id=catalog_brand.external_id,
                 name=catalog_brand.name,
                 granted_at=grant.granted_at,
+                last_batch_at=last_batch_at,
             )
         )
     return result

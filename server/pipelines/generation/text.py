@@ -8,6 +8,7 @@ from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
 from pipelines.generation import prompts, tools
 from pipelines.generation.context import GenerationContext
+from pipelines.generation.tools import TextLimit
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,7 @@ def generate_attribute(
     ctx: GenerationContext,
     name: AttributeName,
     *,
+    limit: TextLimit | None = None,
     session_id: str | None = None,
 ) -> TextGeneration:
     """Generate a single text attribute and return its value with the unique v1 brief.
@@ -46,7 +48,7 @@ def generate_attribute(
     )
 
     generation_parts = prompts.text_generation_parts(ctx, names, strategy)
-    result = _generate_via_tool(client, name, generation_parts, session_id=session_id)
+    result = _generate_via_tool(client, name, generation_parts, limit=limit, session_id=session_id)
     return TextGeneration(values=result.values, prompt=strategy.strip())
 
 
@@ -56,6 +58,7 @@ def generate_key_features(
     *,
     description: str,
     bullet_points: list[str],
+    limit: TextLimit | None = None,
     session_id: str | None = None,
 ) -> TextGeneration:
     """Derive KEY_FEATURES from the already-generated description + bullet points.
@@ -66,7 +69,7 @@ def generate_key_features(
     generation_parts = prompts.key_features_parts(
         ctx, description=description, bullet_points=bullet_points
     )
-    result = _generate_via_tool(client, name, generation_parts, session_id=session_id)
+    result = _generate_via_tool(client, name, generation_parts, limit=limit, session_id=session_id)
     return TextGeneration(values=result.values, prompt=_KEY_FEATURES_V1_BRIEF)
 
 
@@ -75,10 +78,12 @@ def _generate_via_tool(
     name: AttributeName,
     generation_parts: prompts.PromptParts,
     *,
+    limit: TextLimit | None,
     session_id: str | None,
 ) -> TextGeneration:
     """Call the generation tool once; fit oversize copy at a phrase/word boundary."""
-    tool = tools.text_attributes_tool([name])
+    limits = {name: limit} if limit is not None else None
+    tool = tools.text_attributes_tool([name], limits=limits)
     key = name.value
     parsed = client.call_tool(
         generation_parts.suffix,
@@ -90,6 +95,6 @@ def _generate_via_tool(
     if key not in parsed:
         raise ValueError(f"Text generation missing attribute: {key}")
     return TextGeneration(
-        values={key: tools.apply_text_limits(name, parsed[key])},
+        values={key: tools.apply_text_limits(name, parsed[key], limit)},
         prompt=generation_parts.as_sent(),
     )

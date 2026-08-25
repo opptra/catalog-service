@@ -8,14 +8,26 @@ class CreatedSkuGenerationJob(BaseModel):
     external_id: UUID
 
 
-class CreateJobResponse(BaseModel):
+class CreateJobChildResponse(BaseModel):
+    """One marketplace job created as part of a multi-marketplace group."""
+
     external_id: UUID
+    job_group_id: UUID
     status: str
     marketplace_external_id: UUID
+    marketplace_name: str | None = None
     sku_ids: list[str]
     sku_generation_jobs: list[CreatedSkuGenerationJob]
     attribute_external_ids: list[UUID]
     workflow_execution: str | None = None
+
+
+class CreateJobResponse(BaseModel):
+    """Response after creating one or more marketplace jobs that share a group id."""
+
+    job_group_id: UUID
+    jobs: list[CreateJobChildResponse]
+    sku_ids: list[str]
 
 
 class CompleteJobResponse(BaseModel):

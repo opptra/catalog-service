@@ -1,4 +1,4 @@
-"""Listing fill API — export a filled Amazon workbook for a generation job."""
+"""Listing fill API — export a filled listing workbook for a generation job group."""
 
 from fastapi import HTTPException
 
@@ -41,13 +41,13 @@ def fill_listing(
     dropbox: DropboxDep,
     openrouter: OpenRouterDep,
 ) -> FillListingResponse:
-    """Fill the category listing template using values from a generation job."""
+    """Fill the category listing template for the selected marketplace in a job group."""
     try:
-        authorization.assert_job_access(
+        authorization.assert_job_group_access(
             user_session,
             catalog_session,
             actor=user,
-            job_external_id=body.job_external_id,
+            job_group_id=body.job_group_id,
         )
     except BrandAccessDeniedError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -61,17 +61,18 @@ def fill_listing(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     try:
-        return listing_service.fill_listing_for_job(
+        return listing_service.fill_listing_for_group(
             catalog_session,
             gcs,
             dropbox,
             openrouter,
-            body.job_external_id,
+            job_group_id=body.job_group_id,
+            marketplace_external_id=body.marketplace_external_id,
         )
     except JobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ListingTemplateNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ListingFillError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (GcsError, DropboxError, OpenRouterError) as exc:

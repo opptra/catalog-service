@@ -2,7 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from dto.response.marketplace import MarketplaceResponse
+from dto.marketplace_attribute_config import MarketplaceAttributeConfig
 
 
 class UploadListingTemplateResponse(BaseModel):
@@ -19,10 +19,14 @@ class MarketplaceSelectionAttributeItemResponse(BaseModel):
     external_id: UUID
     name: str
     allows_quantity: bool
+    quantity: int = Field(description="Default slot count from marketplace_attribute.config.")
+    config: MarketplaceAttributeConfig = Field(
+        description="Marketplace rules for this attribute (text limits / image settings).",
+    )
 
 
 class MarketplaceSelectionAttributeResponse(BaseModel):
-    """Attribute group shown in the marketplace selection UI (label only for now)."""
+    """Attribute group shown in the marketplace selection UI."""
 
     id: str = Field(description="Stable id (attribute group label).")
     label: str = Field(description="Display name for the attribute group.")
@@ -31,8 +35,15 @@ class MarketplaceSelectionAttributeResponse(BaseModel):
     )
 
 
-class MarketplaceSelectionResponse(BaseModel):
-    """Payload for the marketplace selection step."""
+class MarketplaceSelectionMarketplaceResponse(BaseModel):
+    """One marketplace and the attribute groups it offers."""
 
-    marketplaces: list[MarketplaceResponse]
+    external_id: UUID
+    name: str
     attributes: list[MarketplaceSelectionAttributeResponse]
+
+
+class MarketplaceSelectionResponse(BaseModel):
+    """Payload for the marketplace selection step (attributes are per marketplace)."""
+
+    marketplaces: list[MarketplaceSelectionMarketplaceResponse]

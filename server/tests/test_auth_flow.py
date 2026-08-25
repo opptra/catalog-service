@@ -231,8 +231,12 @@ def test_create_job_without_grant_is_403(client, monkeypatch):
         headers={"Brand-Id": str(brand_id)},
         json={
             "sku_ids": ["SKU-1"],
-            "marketplace_external_id": str(uuid4()),
-            "attributes": [{"attribute_external_id": str(uuid4()), "quantity": 1}],
+            "marketplaces": [
+                {
+                    "marketplace_external_id": str(uuid4()),
+                    "attributes": [{"attribute_external_id": str(uuid4()), "quantity": 1}],
+                }
+            ],
         },
     )
     assert response.status_code == 403
