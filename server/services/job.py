@@ -181,7 +181,7 @@ def _persist_attribute_value(
 
 def create_job(
     session: Session,
-    workflows: WorkflowsClient | None,
+    workflows: WorkflowsClient,
     *,
     created_by: UUID,
     sku_ids: Sequence[str],
@@ -292,19 +292,16 @@ def create_job(
         ],
     )
 
-    workflow_execution: str | None = None
-    if workflows is not None:
-        execution = workflows.trigger(
-            _JOB_PIPELINE_WORKFLOW,
-            {
-                "job_external_id": str(job.external_id),
-                "sku_generation_job_external_ids": [
-                    str(sku_generation_job.external_id)
-                    for sku_generation_job in sku_generation_jobs
-                ],
-            },
-        )
-        workflow_execution = execution.name
+    execution = workflows.trigger(
+        _JOB_PIPELINE_WORKFLOW,
+        {
+            "job_external_id": str(job.external_id),
+            "sku_generation_job_external_ids": [
+                str(sku_generation_job.external_id) for sku_generation_job in sku_generation_jobs
+            ],
+        },
+    )
+    workflow_execution = execution.name
 
     pk_to_business_sku_id = {sku_by_business_id[sku_id].id: sku_id for sku_id in sku_ids}
 
@@ -714,27 +711,6 @@ class _VerifiedSlotImage:
     verification: dict[str, Any]
 
 
-def _maybe_write_image_debug(
-    gcs: GcsClient,
-    gs_uri: str,
-    *,
-    name: AttributeName,
-    slot: int,
-    prompt: str,
-) -> None:
-    """Sidecar JSON next to a local image (LocalStorageClient only)."""
-    write_debug = getattr(gcs, "write_debug_json", None)
-    if write_debug is None:
-        return
-    object_name = gcs.object_name_from_gs_uri(gs_uri)
-    if object_name is None:
-        return
-    write_debug(
-        object_name,
-        {"attribute": name.value, "slot": slot, "prompt": prompt},
-    )
-
-
 def _safe_verify_image(
     client: OpenRouterClient,
     *,
@@ -821,7 +797,6 @@ def _render_verify_upload_slot(
 
     generation = render_fn(client, ctx, original_prompt, name, slot, aspect, session_id)
     gs_uri, signed = _upload(generation)
-    _maybe_write_image_debug(gcs, gs_uri, name=name, slot=slot, prompt=generation.prompt)
     result = _safe_verify_image(
         client,
         generated_image_url=signed,

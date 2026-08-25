@@ -1,10 +1,9 @@
 from uuid import UUID
 
-from fastapi import BackgroundTasks, HTTPException, Request
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from core.auth import SecureAPIRouter, internal_api
-from core.config import settings
 from core.deps import (
     BrandAccessDep,
     CatalogSessionDep,
@@ -12,8 +11,8 @@ from core.deps import (
     DropboxDep,
     GcsDep,
     OpenRouterDep,
-    OptionalWorkflowsDep,
     UserSessionDep,
+    WorkflowsDep,
 )
 from core.exceptions import (
     ApplicationNotFoundError,
@@ -63,7 +62,7 @@ from dto.response.job_status import (
 )
 from dto.response.sku_generation_job import SkuGenerationJobExecutionResponse
 from entities.user_service.user import User
-from services import authorization, local_pipeline
+from services import authorization
 from services import content_export as content_export_service
 from services import job as job_service
 
@@ -389,17 +388,13 @@ def create_job(
     user: CurrentUserDep,
     catalog_session: CatalogSessionDep,
     brand_external_id: BrandAccessDep,
-    workflows: OptionalWorkflowsDep,
-    background_tasks: BackgroundTasks,
-    request: Request,
+    workflows: WorkflowsDep,
 ) -> CreateJobResponse:
     """Create a job for one or more SKUs, then start the Cloud Workflows pipeline."""
-    if not settings.dev_mode and workflows is None:
-        raise HTTPException(status_code=503, detail="Cloud Workflows is not configured")
     try:
         created = job_service.create_job(
             catalog_session,
-            None if settings.dev_mode else workflows,
+            workflows,
             created_by=user.external_id,
             sku_ids=body.sku_ids,
             brand_external_id=brand_external_id,
@@ -418,21 +413,6 @@ def create_job(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except WorkflowsError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    if settings.dev_mode:
-        openrouter = request.app.state.openrouter
-        gcs = request.app.state.gcs
-        if openrouter is None or gcs is None:
-            raise HTTPException(status_code=503, detail="OpenRouter or storage is not configured")
-        sku_ids = [item["external_id"] for item in created["sku_generation_jobs"]]
-        background_tasks.add_task(
-            local_pipeline.run_local_job_pipeline,
-            catalog_db=request.app.state.catalog_db,
-            openrouter=openrouter,
-            gcs=gcs,
-            job_external_id=created["external_id"],
-            sku_generation_job_ids=sku_ids,
-        )
 
     return CreateJobResponse.model_validate(created)
 

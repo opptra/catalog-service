@@ -1,4 +1,4 @@
-# Local Postgres only — used when DEV_MODE=true.
+# Optional local Postgres — Cloud SQL Auth Proxy is the default local path.
 # Does not replace docker-compose.yml (prod-like client+server images).
 #
 #   docker compose -f docker-compose.local.yml up -d

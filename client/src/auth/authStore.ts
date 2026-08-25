@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { loginWithGoogle, logout, type User } from '../api/auth'
 import { getCurrentUser } from '../api/users'
 import { setUnauthorizedHandler } from '../api/axios'
-import { DEV_MODE } from '../devMode'
 import { disableAutoSelect, setCredentialListener } from './google'
 
 interface AuthState {
@@ -46,11 +45,9 @@ export function bootstrapAuth(): void {
   if (bootstrapped) return
   bootstrapped = true
 
-  if (!DEV_MODE) {
-    setCredentialListener((idToken) => {
-      void useAuthStore.getState().handleCredential(idToken)
-    })
-  }
+  setCredentialListener((idToken) => {
+    void useAuthStore.getState().handleCredential(idToken)
+  })
 
   setUnauthorizedHandler(() => {
     const { user } = useAuthStore.getState()

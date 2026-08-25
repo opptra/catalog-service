@@ -94,13 +94,6 @@ def get_workflows_client(request: Request) -> WorkflowsClient:
 WorkflowsDep = Annotated[WorkflowsClient, Depends(get_workflows_client)]
 
 
-def get_optional_workflows_client(request: Request) -> WorkflowsClient | None:
-    return getattr(request.app.state, "workflows", None)
-
-
-OptionalWorkflowsDep = Annotated[WorkflowsClient | None, Depends(get_optional_workflows_client)]
-
-
 def get_current_user(request: Request) -> User:
     """The authenticated user resolved by ``SessionAuthenticator``.
 
