@@ -4,7 +4,7 @@ React client + FastAPI server, deployed as two Docker images on one GCE VM (Mumb
 
 ## Local development
 
-Step-by-step laptop setup (local Postgres, disk storage, in-process generation): **[docs/local-setup.md](docs/local-setup.md)**.
+Step-by-step laptop setup (Cloud SQL Auth Proxy, GCS, Cloud Workflows, Google login): **[docs/local-setup.md](docs/local-setup.md)**.
 
 ### Server (FastAPI)
 
