@@ -9,7 +9,6 @@ _REQUIRED_KWARGS = {
     "google_client_id": "client-id",
     "openrouter_text_model": "m",
     "openrouter_image_model": "m",
-    "openrouter_verify_model": "m",
 }
 
 
@@ -27,11 +26,6 @@ def test_multiple_service_clients_are_all_collected(monkeypatch):
         "catalog-workflows": "tok-a",
         "another-caller": "tok-b",
     }
-
-
-def test_dev_mode_defaults_off():
-    settings = Settings(**_REQUIRED_KWARGS)
-    assert settings.dev_mode is False
 
 
 def test_no_service_client_env_vars_yields_empty_map(monkeypatch):

@@ -1,9 +1,7 @@
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import ForeignKey, Identity, Integer, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import DateTime
@@ -42,8 +40,6 @@ class SkuMarketplaceAttributeValue(Base):
     value: Mapped[str] = mapped_column(Text, nullable=False)
     # Exact prompt that produced this value version (null for rows written before this column).
     prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Image-slot product-data verification snapshot (null = never verified).
-    verification: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     sku_generation_job_id: Mapped[int] = mapped_column(
         ForeignKey("sku_generation_job.id"),
         nullable=False,

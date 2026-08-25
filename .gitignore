@@ -6,7 +6,3 @@ node_modules/
 .tools/
 temp/
 tmp/
-local-data/
-*.dump
-catalog.dump
-user.dump
