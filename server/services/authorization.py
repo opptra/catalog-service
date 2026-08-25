@@ -94,6 +94,29 @@ def assert_job_access(
     return job.brand_id
 
 
+def assert_job_group_access(
+    user_session: Session,
+    catalog_session: Session,
+    *,
+    actor: User,
+    job_group_id: UUID,
+) -> UUID:
+    """Resolve any job in the group → brand and assert grant. Returns brand_external_id."""
+    members = job_repository.list_group_members(catalog_session, job_group_id)
+    if not members:
+        raise JobNotFoundError(f"Job group not found: {job_group_id}")
+    job = members[0]
+    if job.brand_id is None:
+        raise JobNotFoundError(f"Job group not found: {job_group_id}")
+    assert_brand_access(
+        user_session,
+        catalog_session,
+        actor=actor,
+        brand_external_id=job.brand_id,
+    )
+    return job.brand_id
+
+
 def assert_sku_generation_job_access(
     user_session: Session,
     catalog_session: Session,

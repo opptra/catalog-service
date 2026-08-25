@@ -18,6 +18,7 @@ from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.listing_template import ListingTemplate
 from entities.catalog.listing_template_column import ListingTemplateColumn
 from entities.catalog.marketplace import Marketplace
+from entities.catalog.marketplace_attribute import MarketplaceAttribute
 from entities.catalog.sku_generation_job import SkuGenerationJob
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from entities.catalog.sku_master import SkuMaster
@@ -35,6 +36,7 @@ __all__ = [
     "ListingTemplate",
     "ListingTemplateColumn",
     "Marketplace",
+    "MarketplaceAttribute",
     "SkuGenerationJob",
     "SkuMarketplaceAttributeValue",
     "SkuMaster",

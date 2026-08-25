@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import chevronRight from '../assets/chevron-right.svg'
 import { useBrands } from '../brands/useBrands'
 import AppHeader from '../components/AppHeader'
-import { STATIC_LAST_BATCH_LABEL } from '../data/brands'
+import { formatLastBatchLabel } from '../data/brands'
 
 function BrandSelect() {
   const navigate = useNavigate()
@@ -59,7 +59,9 @@ function BrandSelect() {
                     <span className="brand-card__name">{brand.name}</span>
                     <img src={chevronRight} alt="" className="brand-card__chevron" />
                   </div>
-                  <span className="brand-card__meta">{STATIC_LAST_BATCH_LABEL}</span>
+                  <span className="brand-card__meta">
+                    {formatLastBatchLabel(brand.last_batch_at)}
+                  </span>
                 </button>
               ))}
             </div>

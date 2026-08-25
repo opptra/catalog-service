@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -13,6 +14,12 @@ def get_by_id(session: Session, user_id: int) -> User | None:
 
 def get_by_external_id(session: Session, external_id: UUID) -> User | None:
     return session.scalar(select(User).where(User.external_id == external_id))
+
+
+def list_by_external_ids(session: Session, external_ids: Sequence[UUID]) -> Sequence[User]:
+    if not external_ids:
+        return []
+    return session.scalars(select(User).where(User.external_id.in_(list(external_ids)))).all()
 
 
 def get_by_google_sub(session: Session, google_sub: str) -> User | None:

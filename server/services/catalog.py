@@ -1,5 +1,6 @@
 """Catalog UI orchestration — composes category, marketplace, and attribute services."""
 
+from collections import OrderedDict
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -10,6 +11,7 @@ from dto.listing_config import ListingTemplateMetadata
 from dto.response.catalog import (
     MarketplaceSelectionAttributeItemResponse,
     MarketplaceSelectionAttributeResponse,
+    MarketplaceSelectionMarketplaceResponse,
     MarketplaceSelectionResponse,
     UploadListingTemplateResponse,
 )
@@ -26,7 +28,7 @@ from repositories.catalog import listing_template as listing_template_repo
 from repositories.catalog import marketplace as marketplace_repo
 from services import attribute as attribute_service
 from services import category as category_service
-from services import marketplace as marketplace_service
+from services import marketplace_attribute as marketplace_attribute_service
 from services.category import DEFAULT_LEAF_PAGE_SIZE
 from utils import flatfile as flatfile_utils
 
@@ -123,24 +125,56 @@ def upload_listing_template(
 
 
 def get_marketplace_selection(session: Session) -> MarketplaceSelectionResponse:
-    """Return available marketplaces and attribute groups for the marketplace selection step."""
-    marketplaces = marketplace_service.list_marketplaces(session).items
-    groups = attribute_service.list_attribute_groups(session).items
-    return MarketplaceSelectionResponse(
-        marketplaces=marketplaces,
-        attributes=[
-            MarketplaceSelectionAttributeResponse(
-                id=group.label,
-                label=attribute_service.display_label(group.label),
-                items=[
-                    MarketplaceSelectionAttributeItemResponse(
-                        external_id=item.external_id,
-                        name=item.name,
-                        allows_quantity=item.allows_quantity,
+    """Return marketplaces that have attribute mappings, each with its own attribute groups.
+
+    Marketplaces with no ``marketplace_attribute`` rows are omitted (not selectable yet).
+    """
+    marketplaces = list(marketplace_repo.list_all(session))
+    rules_by_marketplace = marketplace_attribute_service.list_rules_by_marketplace_ids(
+        session, [row.id for row in marketplaces]
+    )
+
+    items: list[MarketplaceSelectionMarketplaceResponse] = []
+    for marketplace in marketplaces:
+        rules = rules_by_marketplace.get(marketplace.id, [])
+        if not rules:
+            continue
+
+        grouped: OrderedDict[str, list[marketplace_attribute_service.MarketplaceAttributeRules]] = (
+            OrderedDict()
+        )
+        for rule in rules:
+            key = (
+                rule.master.group_label.value
+                if rule.master.group_label is not None
+                else rule.master.name.value
+            )
+            grouped.setdefault(key, []).append(rule)
+
+        items.append(
+            MarketplaceSelectionMarketplaceResponse(
+                external_id=marketplace.external_id,
+                name=marketplace.name,
+                attributes=[
+                    MarketplaceSelectionAttributeResponse(
+                        id=label,
+                        label=attribute_service.display_label(label),
+                        items=[
+                            MarketplaceSelectionAttributeItemResponse(
+                                external_id=rule.master.external_id,
+                                name=rule.master.name.value,
+                                allows_quantity=rule.master.allows_quantity,
+                                quantity=rule.image_quantity
+                                if rule.image_quantity is not None
+                                else 1,
+                                config=rule.config,
+                            )
+                            for rule in group_rules
+                        ],
                     )
-                    for item in group.attributes
+                    for label, group_rules in grouped.items()
                 ],
             )
-            for group in groups
-        ],
-    )
+        )
+
+    return MarketplaceSelectionResponse(marketplaces=items)

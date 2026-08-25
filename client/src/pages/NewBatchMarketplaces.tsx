@@ -10,16 +10,6 @@ import { useBrands } from '../brands/useBrands'
 import BatchShell from '../components/BatchShell'
 import { getBatchSubcategory } from '../data/batchDraft'
 
-/** Default image slot counts sent on job create. */
-const IMAGE_QUANTITIES: Record<string, number> = {
-  IMAGE: 7,
-  A_PLUS: 5,
-}
-
-function quantityForAttribute(name: string): number {
-  return IMAGE_QUANTITIES[name] ?? 1
-}
-
 /** Derived attributes and the selections they need in the same job (mirrors server check). */
 const ATTRIBUTE_DEPENDENCIES: Record<string, string[]> = {
   KEY_FEATURES: ['BULLET_POINTS', 'DESCRIPTION'],
@@ -37,7 +27,6 @@ function NewBatchMarketplaces() {
 
   const status = useMarketplaceSelectionStore((state) => state.status)
   const marketplaces = useMarketplaceSelectionStore((state) => state.marketplaces)
-  const attributes = useMarketplaceSelectionStore((state) => state.attributes)
   const ensureLoaded = useMarketplaceSelectionStore((state) => state.ensureLoaded)
   const reload = useMarketplaceSelectionStore((state) => state.reload)
 
@@ -50,8 +39,6 @@ function NewBatchMarketplaces() {
     document.title = 'Listing Studio · Marketplaces'
   }, [])
 
-  // Wizard draft is tab-memory + sessionStorage. If either required piece is gone
-  // (refresh, new deploy, deep-link), send the user back to the batch start.
   const draftMissing = !subcategory || skuCount === 0
   useEffect(() => {
     if (draftMissing) {
@@ -64,22 +51,28 @@ function NewBatchMarketplaces() {
     void ensureLoaded()
   }, [draftMissing, ensureLoaded])
 
-  // Seed checkbox state once per successful load payload (not on every render).
   const payloadKey =
     status === 'ready'
-      ? `${marketplaces.map((item) => item.external_id).join(',')}|${attributes.map((item) => item.id).join(',')}`
+      ? marketplaces
+          .map(
+            (item) =>
+              `${item.external_id}|${item.attributes.map((group) => group.id).join(',')}`,
+          )
+          .join(';')
       : null
 
   useEffect(() => {
     if (draftMissing || payloadKey == null || payloadKey === selectionSeed) return
     setSelectionSeed(payloadKey)
-    const attributeIds = attributes.map((attribute) => attribute.id)
     setSelected(
       Object.fromEntries(
-        marketplaces.map((marketplace) => [marketplace.external_id, new Set(attributeIds)]),
+        marketplaces.map((marketplace) => [
+          marketplace.external_id,
+          new Set(marketplace.attributes.map((attribute) => attribute.id)),
+        ]),
       ),
     )
-  }, [draftMissing, payloadKey, selectionSeed, marketplaces, attributes])
+  }, [draftMissing, payloadKey, selectionSeed, marketplaces])
 
   const selectedMarketplaceCount = useMemo(
     () => Object.values(selected).filter((set) => set.size > 0).length,
@@ -97,13 +90,27 @@ function NewBatchMarketplaces() {
   const loading = status === 'idle' || status === 'loading'
   const loadFailed = status === 'error'
 
+  function attributesForMarketplace(marketplace: MarketplaceSelectionMarketplace, groupIds: Set<string>) {
+    const byExternalId = new Map<string, { attribute_external_id: string; quantity: number }>()
+    for (const group of marketplace.attributes) {
+      if (!groupIds.has(group.id)) continue
+      for (const item of group.items) {
+        byExternalId.set(item.external_id, {
+          attribute_external_id: item.external_id,
+          quantity: item.quantity,
+        })
+      }
+    }
+    return [...byExternalId.values()]
+  }
+
   function toggleMarketplace(marketplace: MarketplaceSelectionMarketplace) {
     setSelected((current) => {
       const next = { ...current }
       const isOn = (current[marketplace.external_id]?.size ?? 0) > 0
       next[marketplace.external_id] = isOn
         ? new Set()
-        : new Set(attributes.map((attribute) => attribute.id))
+        : new Set(marketplace.attributes.map((attribute) => attribute.id))
       return next
     })
   }
@@ -113,33 +120,17 @@ function NewBatchMarketplaces() {
       const nextSet = new Set(current[marketplaceId] ?? [])
       if (nextSet.has(attributeId)) {
         nextSet.delete(attributeId)
-        // Deselecting a dependency also deselects anything derived from it.
         for (const [dependent, dependencies] of Object.entries(ATTRIBUTE_DEPENDENCIES)) {
           if (dependencies.includes(attributeId)) nextSet.delete(dependent)
         }
       } else {
         nextSet.add(attributeId)
-        // Selecting a derived attribute pulls in what it is generated from.
         for (const dependency of ATTRIBUTE_DEPENDENCIES[attributeId] ?? []) {
           nextSet.add(dependency)
         }
       }
       return { ...current, [marketplaceId]: nextSet }
     })
-  }
-
-  function attributesForGroups(groupIds: Set<string>) {
-    const byExternalId = new Map<string, { attribute_external_id: string; quantity: number }>()
-    for (const group of attributes) {
-      if (!groupIds.has(group.id)) continue
-      for (const item of group.items) {
-        byExternalId.set(item.external_id, {
-          attribute_external_id: item.external_id,
-          quantity: quantityForAttribute(item.name),
-        })
-      }
-    }
-    return [...byExternalId.values()]
   }
 
   async function handleGenerate() {
@@ -149,30 +140,25 @@ function NewBatchMarketplaces() {
     setSubmitting(true)
     setSubmitError(null)
     try {
-      // One run = one marketplace job (first selected).
-      const marketplace = marketplaces.find((item) => {
-        const groupIds = selected[item.external_id]
-        return groupIds != null && groupIds.size > 0
+      const marketplacesPayload = marketplaces.flatMap((marketplace) => {
+        const groupIds = selected[marketplace.external_id] ?? new Set<string>()
+        if (groupIds.size === 0) return []
+        const attributes = attributesForMarketplace(marketplace, groupIds)
+        if (attributes.length === 0) return []
+        return [{ marketplace_external_id: marketplace.external_id, attributes }]
       })
-      if (!marketplace) {
-        setSubmitError('Select a marketplace to generate.')
-        return
-      }
 
-      const groupIds = selected[marketplace.external_id] ?? new Set<string>()
-      const jobAttributes = attributesForGroups(groupIds)
-      if (jobAttributes.length === 0) {
-        setSubmitError('Select at least one content type to generate.')
+      if (marketplacesPayload.length === 0) {
+        setSubmitError('Select at least one marketplace and content type to generate.')
         return
       }
 
       const response = await createJob({
         sku_ids: skuIds,
-        marketplace_external_id: marketplace.external_id,
-        attributes: jobAttributes,
+        marketplaces: marketplacesPayload,
       })
 
-      navigate(`/batches/preview/${response.external_id}`)
+      navigate(`/batches/preview/${response.job_group_id}`)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Could not start generation.')
     } finally {
@@ -257,7 +243,7 @@ function NewBatchMarketplaces() {
                   ) : null}
                 </button>
                 <div className="marketplace-row__options">
-                  {attributes.map((attribute) => {
+                  {marketplace.attributes.map((attribute) => {
                     const attributeOn = selectedAttributes.has(attribute.id)
                     return (
                       <button

@@ -11,6 +11,14 @@ def get_by_id(session: Session, marketplace_id: int) -> Marketplace | None:
     return session.get(Marketplace, marketplace_id)
 
 
+def list_by_ids(session: Session, marketplace_ids: Sequence[int]) -> Sequence[Marketplace]:
+    if not marketplace_ids:
+        return []
+    return session.scalars(
+        select(Marketplace).where(Marketplace.id.in_(list(marketplace_ids)))
+    ).all()
+
+
 def get_by_external_id(session: Session, external_id: UUID) -> Marketplace | None:
     return session.scalar(select(Marketplace).where(Marketplace.external_id == external_id))
 
