@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { listAccessibleBrands, type AccessibleBrand } from '../api/access'
 import type { User } from '../api/auth'
 import { useAuthStore } from '../auth/authStore'
+import { DEV_MODE } from '../devMode'
 import {
   clearSelectedBrand as clearStoredBrand,
   getSelectedBrand,
@@ -64,6 +65,13 @@ export const useBrandsStore = create<BrandsState>((set, get) => ({
 
       const current = getSelectedBrand()
       if (!current) {
+        if (DEV_MODE && data.length > 0) {
+          const first = data[0]
+          const brand: Brand = { id: first.external_id, name: first.name }
+          persistSelectedBrand(brand)
+          set({ brands: data, loading: false, loadFailed: false, selectedBrand: brand })
+          return
+        }
         set({ brands: data, loading: false, loadFailed: false, selectedBrand: null })
         return
       }

@@ -23,6 +23,10 @@ def get_by_email(session: Session, email: str) -> User | None:
     return session.scalar(select(User).where(func.lower(User.email) == email.strip().lower()))
 
 
+def get_first(session: Session) -> User | None:
+    return session.scalar(select(User).order_by(User.id).limit(1))
+
+
 def create(
     session: Session,
     *,

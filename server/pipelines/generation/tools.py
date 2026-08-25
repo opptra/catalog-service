@@ -14,6 +14,7 @@ from entities.catalog.attribute_enums import AttributeName
 GALLERY_FACT_BOARD_TOOL_NAME = "submit_fact_board"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
 COMPRESSED_BRAND_DNA_TOOL_NAME = "submit_compressed_brand_dna"
+IMAGE_VERIFICATION_TOOL_NAME = "submit_image_verification"
 
 
 def gallery_fact_board_tool() -> dict[str, Any]:
@@ -78,6 +79,102 @@ def gallery_fact_board_tool() -> dict[str, Any]:
     }
 
 
+IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": IMAGE_VERIFICATION_TOOL_NAME,
+        "description": (
+            "Submit marketplace image QA for one generated catalog slot. "
+            "Score identity vs source photos, claims vs PRODUCT DATA, and quality."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "identity": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": (
+                        "0–100 same physical variant as source photos and catalog "
+                        "Color/pack/print/silhouette."
+                    ),
+                },
+                "claims": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": (
+                        "0–100 on-image text agrees with PRODUCT DATA (any key or value, "
+                        "including Description). Omission may be high. Invented only if "
+                        "the claim is nowhere in the JSON."
+                    ),
+                },
+                "quality": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": (
+                        "0–100 production fitness (crop, blur, readable type). Advisory."
+                    ),
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Short explanation covering identity and claims.",
+                },
+                "observed_text": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Shopper-facing words/badges read off the generated image.",
+                },
+                "mismatches": {
+                    "type": "array",
+                    "description": (
+                        "Failures only: contradiction, invented, identity, or quality. "
+                        "Empty if none."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": ["contradiction", "invented", "identity", "quality"],
+                            },
+                            "source_field": {
+                                "type": "string",
+                                "description": (
+                                    "Exact PRODUCT DATA key when mapped. Omit for invented/quality."
+                                ),
+                            },
+                            "catalog": {
+                                "type": "string",
+                                "description": (
+                                    "Catalog value when mapped. Omit for invented/quality."
+                                ),
+                            },
+                            "observed": {
+                                "type": "string",
+                                "description": "Text or look read on the generated image.",
+                            },
+                        },
+                        "required": ["kind", "observed"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": [
+                "identity",
+                "claims",
+                "quality",
+                "reasoning",
+                "observed_text",
+                "mismatches",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 COMPRESSED_BRAND_DNA_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -91,7 +188,9 @@ COMPRESSED_BRAND_DNA_TOOL: dict[str, Any] = {
             "properties": {
                 "fonts": {
                     "type": "object",
-                    "description": "Typefaces named in Brand DNA. Omit a key if the source has none.",
+                    "description": (
+                        "Typefaces named in Brand DNA. Omit a key if the source has none."
+                    ),
                     "properties": {
                         "headline": {
                             "type": "string",

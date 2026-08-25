@@ -41,25 +41,40 @@ class SessionAuthenticator:
     async def authenticate(self, request: Request) -> None:
         cookie_token = (request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
         if not cookie_token:
+            if settings.dev_mode:
+                await _bind_dev_user(request)
+                return
             raise AuthError(401, "Missing session cookie")
 
         try:
             claims = session_jwt.decode(cookie_token)
         except SessionJwtError as exc:
+            if settings.dev_mode:
+                await _bind_dev_user(request)
+                return
             raise AuthError(401, "Invalid session token") from exc
 
         sub = claims.get("sub")
         if not sub or not isinstance(sub, str):
+            if settings.dev_mode:
+                await _bind_dev_user(request)
+                return
             raise AuthError(401, "Invalid session token")
 
         try:
             user_external_id = UUID(sub)
         except ValueError as exc:
+            if settings.dev_mode:
+                await _bind_dev_user(request)
+                return
             raise AuthError(401, "Invalid session token") from exc
 
         try:
             user = await run_in_threadpool(_lookup_user_by_external_id, request, user_external_id)
         except UserNotFoundError as exc:
+            if settings.dev_mode:
+                await _bind_dev_user(request)
+                return
             raise AuthError(401, str(exc)) from exc
 
         request.state.user = user
@@ -99,3 +114,19 @@ def _lookup_user_by_external_id(request: Request, external_id: UUID):
         return user_service.get_user_by_external_id(session, external_id)
     finally:
         session.close()
+
+
+def _lookup_dev_user(request: Request):
+    session = request.app.state.user_db.session_factory()
+    try:
+        return user_service.get_dev_user(session, settings.dev_user_email)
+    finally:
+        session.close()
+
+
+async def _bind_dev_user(request: Request) -> None:
+    try:
+        user = await run_in_threadpool(_lookup_dev_user, request)
+    except UserNotFoundError as exc:
+        raise AuthError(401, str(exc)) from exc
+    request.state.user = user
