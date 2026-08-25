@@ -1,0 +1,28 @@
+# Local Postgres only — laptop development (port 5433).
+# Does not replace docker-compose.yml (prod-like client+server images).
+#
+#   docker compose -f docker-compose.local.yml up -d
+#
+# Port 5433 so Cloud SQL Auth Proxy can keep 5432 if it is still running
+# (stop the proxy before pointing the API at this instance).
+
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - catalog_local_pg:/var/lib/postgresql/data
+      - ./scripts/local-postgres-init.sh:/docker-entrypoint-initdb.d/01-init-user-service.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  catalog_local_pg:

@@ -1,6 +1,7 @@
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+extend-exclude = ["local"]
 
 [tool.ruff.lint]
 # E/W: pycodestyle, F: pyflakes, I: import sorting, B: bugbear (common bugs),
