@@ -3,8 +3,10 @@ import axios from 'axios'
 import {
   regenerateAttributeValue,
   restoreAttributeValue,
+  type ImageVerification,
   type RegenerateAttributeValueResponse,
 } from '../../api/jobs'
+import { VerificationMark } from './VerificationMark'
 
 export type RegenDataType = 'IMAGE' | 'TEXT'
 
@@ -16,6 +18,7 @@ export interface AttributeRegenTarget {
   version: number
   /** Signed image URL or text content. */
   value: string
+  verification?: ImageVerification | null
   /** Optional nav for image carousels. */
   canPrev?: boolean
   canNext?: boolean
@@ -187,11 +190,13 @@ function ImagePreview({
   url,
   badge,
   emphasize,
+  verification,
 }: {
   label: string
   url: string
   badge: string
   emphasize?: boolean
+  verification?: ImageVerification | null
 }) {
   return (
     <div className={`attr-regen__panel${emphasize ? ' attr-regen__panel--new' : ''}`}>
@@ -203,6 +208,7 @@ function ImagePreview({
       </div>
       <div className="attr-regen__image">
         <img src={url} alt={label} />
+        {verification != null ? <VerificationMark verification={verification} /> : null}
       </div>
     </div>
   )
@@ -329,6 +335,9 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
             {isImage ? (
               <div className="img-modal__preview">
                 <img src={target.value} alt={target.label} />
+                {target.verification != null ? (
+                  <VerificationMark verification={target.verification} />
+                ) : null}
               </div>
             ) : (
               <TextPreview label={target.label} value={target.value} />
@@ -406,12 +415,14 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                     label="Previous"
                     url={previous.value}
                     badge={`v${previous.version}`}
+                    verification={target.verification}
                   />
                   <ImagePreview
                     label="Newly generated"
                     url={generated.value}
                     badge={`v${generated.version} · new`}
                     emphasize
+                    verification={generated.verification}
                   />
                 </>
               ) : (

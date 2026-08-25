@@ -4,6 +4,8 @@ React client + FastAPI server, deployed as two Docker images on one GCE VM (Mumb
 
 ## Local development
 
+Step-by-step laptop setup (local Postgres, disk storage, in-process generation): **[docs/local-setup.md](docs/local-setup.md)**.
+
 ### Server (FastAPI)
 
 Production uses the same entrypoint as `server/Dockerfile`:
@@ -12,35 +14,35 @@ Production uses the same entrypoint as `server/Dockerfile`:
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-Locally (from `server/`):
+From `server/` (after `server/.env` is filled — see the local setup doc):
 
 ```bash
-cd server
-cp .env.example .env
-# fill DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, API_KEY
-
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- API: http://localhost:8000  
-- Health: http://localhost:8000/health  
-- OpenAPI docs: http://localhost:8000/docs  
+- API: http://localhost:8000
+- Health: http://localhost:8000/health
+- OpenAPI docs: http://localhost:8000/docs
 
 `--reload` is for local only; do not use it in the Docker image.
 
 ### Client (React / Vite)
 
+From `client/` (after `client/.env` is filled):
+
 ```bash
-cd client
-cp .env.example .env               # if present; set VITE_API_BASE_URL=http://localhost:8000
 npm install
 npm run dev
 ```
 
-### Local Docker (both services)
+Vite proxies `/api` to the server. Open http://localhost:5173
+
+### Local Docker (prod-like client + server images)
+
+This is **not** the laptop Postgres loop. It builds the same images as deploy.
 
 ```bash
 cp server/.env.example server/.env
