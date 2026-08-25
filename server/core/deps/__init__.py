@@ -45,10 +45,7 @@ UserSessionDep = Annotated[Session, Depends(get_user_session)]
 
 
 def get_google_auth_client(request: Request) -> GoogleAuthClient:
-    client: GoogleAuthClient | None = request.app.state.google_auth
-    if client is None:
-        raise HTTPException(status_code=503, detail="Google auth is not configured")
-    return client
+    return request.app.state.google_auth
 
 
 GoogleAuthClientDep = Annotated[GoogleAuthClient, Depends(get_google_auth_client)]
