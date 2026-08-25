@@ -99,9 +99,8 @@ def download_sku_images(
     catalog_session: CatalogSessionDep,
     user_session: UserSessionDep,
     gcs: GcsDep,
-    marketplace_external_id: Annotated[UUID, Query()],
 ) -> SkuImageDownloadResponse:
-    """Signed URLs for generated PDP / A+ images (client builds the zip)."""
+    """Signed URLs for generated PDP / A+ images across every marketplace in the group."""
     _require_job_group_access(
         user_session,
         catalog_session,
@@ -114,7 +113,6 @@ def download_sku_images(
             gcs,
             job_group_id=job_group_id,
             sku_id=sku_id,
-            marketplace_external_id=marketplace_external_id,
         )
     except JobNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

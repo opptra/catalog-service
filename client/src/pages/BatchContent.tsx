@@ -77,19 +77,6 @@ function marketplaceHasListing(name: string | null | undefined): boolean {
   return (name ?? '').trim().toLowerCase() === 'amazon'
 }
 
-function skuImageTasksReady(
-  skuJob: { tasks?: Record<string, string> } | null | undefined,
-  expected: JobExpectedAttribute[],
-): boolean {
-  if (!skuJob) return false
-  const imageNames = expected.filter((item) => item.data_type === 'IMAGE').map((item) => item.name)
-  if (imageNames.length === 0) return true
-  return imageNames.every((name) => {
-    const task = skuJob.tasks?.[name]
-    return task === 'COMPLETED' || task === 'FAILED'
-  })
-}
-
 type ImageModalSource =
   | { kind: 'pdp'; index: number }
   | { kind: 'attribute'; attributeName: string; index: number }
@@ -407,7 +394,6 @@ function BatchContent() {
     activeMarketplaceExternalId != null && marketplaceHasListing(activeMarketplace?.marketplace_name)
 
   const skuIdForDownload = activeSkuJob?.sku_id ?? content?.sku_id ?? null
-  const imagesReady = skuImageTasksReady(activeSkuJob, expected)
 
   const isFirstSku = safeSkuIndex <= 0
   const isLastSku = skuJobs.length === 0 || safeSkuIndex >= skuJobs.length - 1
@@ -506,23 +492,13 @@ function BatchContent() {
   }
 
   async function handleImageDownload() {
-    if (
-      !jobGroupId ||
-      !activeMarketplaceExternalId ||
-      !skuIdForDownload ||
-      imageDownloading ||
-      !imagesReady
-    ) {
+    if (!jobGroupId || !skuIdForDownload || imageDownloading) {
       return
     }
     setImageDownloading(true)
     setImageDownloadError(null)
     try {
-      const payload = await getSkuImageDownload(
-        jobGroupId,
-        skuIdForDownload,
-        activeMarketplaceExternalId,
-      )
+      const payload = await getSkuImageDownload(jobGroupId, skuIdForDownload)
       await downloadSkuImagesZip(payload)
     } catch (error) {
       let message = 'Could not download images. Please try again.'
@@ -814,7 +790,7 @@ function BatchContent() {
             <button
               type="button"
               className="btn-outline batch-content__sku-dock-btn"
-              disabled={!skuIdForDownload || !activeMarketplaceExternalId || !imagesReady || imageDownloading}
+              disabled={!skuIdForDownload || imageDownloading}
               onClick={() => void handleImageDownload()}
             >
               {imageDownloading ? 'Preparing…' : 'Download images'}

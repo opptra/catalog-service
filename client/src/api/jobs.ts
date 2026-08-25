@@ -287,6 +287,7 @@ export async function restoreAttributeValue(
 }
 
 export interface SkuImageDownloadItem {
+  marketplace: string
   folder: string
   filename: string
   url: string
@@ -294,20 +295,17 @@ export interface SkuImageDownloadItem {
 
 export interface SkuImageDownloadResponse {
   sku_id: string
-  marketplace_name: string
   filename: string
   images: SkuImageDownloadItem[]
 }
 
-/** Signed URLs for one SKU × marketplace — client downloads bytes and builds the zip. */
+/** Signed URLs for one SKU across every marketplace — client downloads bytes and builds the zip. */
 export async function getSkuImageDownload(
   jobGroupId: string,
   skuId: string,
-  marketplaceExternalId: string,
 ): Promise<SkuImageDownloadResponse> {
   const { data } = await api.get<SkuImageDownloadResponse>(
     `/job-groups/${jobGroupId}/skus/${skuId}/images`,
-    { params: { marketplace_external_id: marketplaceExternalId } },
   )
   return data
 }
