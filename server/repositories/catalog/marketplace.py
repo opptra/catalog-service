@@ -16,4 +16,9 @@ def get_by_external_id(session: Session, external_id: UUID) -> Marketplace | Non
 
 
 def list_all(session: Session) -> Sequence[Marketplace]:
-    return session.scalars(select(Marketplace).order_by(Marketplace.name.asc())).all()
+    """Return active marketplaces only, ordered by name."""
+    return session.scalars(
+        select(Marketplace)
+        .where(Marketplace.active.is_(True))
+        .order_by(Marketplace.name.asc())
+    ).all()
