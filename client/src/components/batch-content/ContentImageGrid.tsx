@@ -1,4 +1,6 @@
 import type { ContentImage } from './types'
+import { verificationAriaSuffix } from '../../batch/imageVerification'
+import { VerificationMark } from './VerificationMark'
 
 interface ContentImageGridProps {
   title: string
@@ -18,6 +20,7 @@ function ContentImageGrid({ title, hint, images, onSelect }: ContentImageGridPro
         {images.map((image, index) => {
           const url = image.url
           const ready = typeof url === 'string' && url.trim() !== ''
+          const verification = image.verification
           return (
             <button
               key={image.id}
@@ -27,7 +30,11 @@ function ContentImageGrid({ title, hint, images, onSelect }: ContentImageGridPro
                 if (ready) onSelect(index)
               }}
               disabled={!ready}
-              aria-label={ready ? `Open ${image.label}` : `Generating ${image.label}`}
+              aria-label={
+                ready
+                  ? `Open ${image.label}.${verificationAriaSuffix(verification)}`
+                  : `Generating ${image.label}`
+              }
               aria-busy={!ready}
             >
               {ready ? (
@@ -36,6 +43,7 @@ function ContentImageGrid({ title, hint, images, onSelect }: ContentImageGridPro
                 <span className="pdp-tile__empty content-shimmer" aria-hidden="true" />
               )}
               <span className="pdp-tile__badge">{index + 1}</span>
+              {verification != null ? <VerificationMark verification={verification} /> : null}
             </button>
           )
         })}

@@ -11,7 +11,7 @@ import json
 import logging
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -55,7 +55,16 @@ from entities.catalog.job_attribute import JobAttribute
 from entities.catalog.sku_generation_job import SkuGenerationJob
 from entities.catalog.sku_marketplace_attribute_value import SkuMarketplaceAttributeValue
 from entities.catalog.sku_master import SkuMaster
-from pipelines.generation import common_image, gallery, images, inputs, regenerate, text, tools
+from pipelines.generation import (
+    common_image,
+    gallery,
+    images,
+    inputs,
+    regenerate,
+    text,
+    tools,
+    verify,
+)
 from pipelines.generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
 from repositories.catalog import brand as brand_repo
@@ -79,6 +88,7 @@ _JOB_PIPELINE_WORKFLOW = "job-pipeline"
 # Cap concurrent OpenRouter image calls. Slots are independent after planning; text + gallery
 # planning stay sequential.
 _IMAGE_RENDER_WORKERS = 6
+_SIGNED_URL_TTL_SECONDS = 3600
 
 _EXECUTABLE_TASK_STATUSES = frozenset({TaskStatus.PENDING, TaskStatus.FAILED})
 
@@ -155,6 +165,7 @@ def _persist_attribute_value(
     slot: int,
     value: str,
     prompt: str | None,
+    verification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Insert a new versioned attribute value row; never update in place.
 
@@ -183,6 +194,7 @@ def _persist_attribute_value(
             version=version,
             value=value,
             prompt=prompt,
+            verification=verification,
             sku_generation_job_id=sku_generation_job.id,
         ),
     )
@@ -194,6 +206,7 @@ def _persist_attribute_value(
         "version": row.version,
         "value": row.value,
         "prompt": row.prompt,
+        "verification": row.verification,
     }
 
 
@@ -339,6 +352,7 @@ def create_job(
             ],
         },
     )
+    workflow_execution = execution.name
 
     pk_to_business_sku_id = {sku_by_business_id[sku_id].id: sku_id for sku_id in sku_ids}
 
@@ -357,7 +371,7 @@ def create_job(
             for sku_generation_job in sku_generation_jobs
         ],
         "attribute_external_ids": attribute_external_ids,
-        "workflow_execution": execution.name,
+        "workflow_execution": workflow_execution,
     }
 
 
@@ -783,9 +797,141 @@ def _key_features_inputs(
 # ``_FALLBACK_ASPECT_RATIO_BY_TYPE`` when a mapping row is missing.
 
 
-def _aspect_ratio_for(name: AttributeName) -> str:
-    """Legacy helper — prefer ``_aspect_ratio_for_marketplace`` when marketplace is known."""
-    return _FALLBACK_ASPECT_RATIO_BY_TYPE.get(name, _DEFAULT_ASPECT_RATIO)
+@dataclass(frozen=True, slots=True)
+class _VerifiedSlotImage:
+    gs_uri: str
+    prompt: str
+    verification: dict[str, Any]
+
+
+def _safe_verify_image(
+    client: OpenRouterClient,
+    *,
+    generated_image_url: str,
+    product: dict[str, Any],
+    attempt: int,
+    session_id: str | None,
+    source_image_urls: list[str] | None = None,
+    attribute_name: str | None = None,
+    role: str | None = None,
+    kind: str | None = None,
+) -> verify.VerificationResult:
+    """Run verification; never raise — errors become a persisted error snapshot."""
+    try:
+        return verify.verify_image(
+            client,
+            generated_image_url=generated_image_url,
+            product=product,
+            attempt=attempt,
+            source_image_urls=source_image_urls,
+            attribute_name=attribute_name,
+            role=role,
+            kind=kind,
+            session_id=session_id,
+        )
+    except Exception:  # noqa: BLE001 — keep the image; do not retry on verifier failure
+        logger.exception("Image product-data verification failed (attempt=%s)", attempt)
+        return verify.error_result(
+            model=settings.openrouter_verify_model,
+            attempt=attempt,
+            error="verify_tool_call_failed",
+        )
+
+
+def _slot_context_from_verification(blob: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """role / kind from a prior v2 verification snapshot (user regen has no SlotPlan)."""
+    if not isinstance(blob, dict):
+        return None, None
+    slot = blob.get("slot")
+    if not isinstance(slot, dict):
+        return None, None
+    role = slot.get("role")
+    kind = slot.get("kind")
+    return (
+        str(role).strip() or None if isinstance(role, str) else None,
+        str(kind).strip() or None if isinstance(kind, str) else None,
+    )
+
+
+def _render_verify_upload_slot(
+    gcs: GcsClient,
+    client: OpenRouterClient,
+    ctx: GenerationContext,
+    render_fn: RenderFn,
+    *,
+    job_external_id: UUID,
+    sku_generation_job_external_id: UUID,
+    name: AttributeName,
+    slot: int,
+    original_prompt: str,
+    role: str | None,
+    kind: str | None,
+    aspect_ratio: str,
+    session_id: str | None,
+) -> _VerifiedSlotImage:
+    """Render, upload, verify; one mismatch retry when enabled, then keep the image."""
+    aspect = aspect_ratio
+
+    def _upload(generation: images.ImageGeneration) -> tuple[str, str]:
+        uploaded = gcs.upload_bytes(
+            generation.content,
+            _gcs_image_object_name(
+                job_external_id,
+                sku_generation_job_external_id,
+                name,
+                slot,
+                generation.content_type,
+            ),
+            content_type=generation.content_type,
+        )
+        signed = gcs.signed_url_for_gs_uri(
+            uploaded.gs_uri, expiration_seconds=_SIGNED_URL_TTL_SECONDS
+        )
+        return uploaded.gs_uri, signed
+
+    generation = render_fn(client, ctx, original_prompt, name, slot, aspect, session_id)
+    gs_uri, signed = _upload(generation)
+    result = _safe_verify_image(
+        client,
+        generated_image_url=signed,
+        product=ctx.product,
+        attempt=1,
+        session_id=session_id,
+        source_image_urls=ctx.product_image_urls,
+        attribute_name=name.value,
+        role=role,
+        kind=kind,
+    )
+    previous: verify.VerificationResult | None = None
+    if verify.should_retry(result):
+        first = result
+        retry_prompt = f"{original_prompt.strip()}\n\n{verify.retry_addendum(result)}"
+        try:
+            generation = render_fn(client, ctx, retry_prompt, name, slot, aspect, session_id)
+            gs_uri, signed = _upload(generation)
+            result = _safe_verify_image(
+                client,
+                generated_image_url=signed,
+                product=ctx.product,
+                attempt=2,
+                session_id=session_id,
+                source_image_urls=ctx.product_image_urls,
+                attribute_name=name.value,
+                role=role,
+                kind=kind,
+            )
+            previous = first
+        except Exception:  # noqa: BLE001 — keep the first image rather than failing the slot
+            logger.exception(
+                "Image verification retry render failed for %s slot %s; keeping first render",
+                name.value,
+                slot,
+            )
+    return _VerifiedSlotImage(
+        gs_uri=gs_uri,
+        prompt=original_prompt,
+        verification=verify.persist_payload(result, previous=previous),
+    )
 
 
 def _run_images(
@@ -848,34 +994,29 @@ def _run_images(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
             pool.submit(
-                render_fn,
+                _render_verify_upload_slot,
+                gcs,
                 client,
                 ctx,
-                slot_plans[(name, slot)].prompt,
-                name,
-                slot,
-                _aspect_ratio_for_marketplace(
+                render_fn,
+                job_external_id=job.external_id,
+                sku_generation_job_external_id=sku_generation_job.external_id,
+                name=name,
+                slot=slot,
+                original_prompt=slot_plans[(name, slot)].prompt,
+                role=slot_plans[(name, slot)].role,
+                kind=slot_plans[(name, slot)].kind,
+                aspect_ratio=_aspect_ratio_for_marketplace(
                     session, job.marketplace_id, attribute_id_by_name[name], name
                 ),
-                session_id,
+                session_id=session_id,
             ): (name, slot)
             for name, slot in jobs
         }
         for future in as_completed(futures):
             name, slot = futures[future]
             try:
-                generation = future.result()
-                uploaded = gcs.upload_bytes(
-                    generation.content,
-                    _gcs_image_object_name(
-                        job.external_id,
-                        sku_generation_job.external_id,
-                        name,
-                        slot,
-                        generation.content_type,
-                    ),
-                    content_type=generation.content_type,
-                )
+                rendered = future.result()
                 persisted.append(
                     _persist_attribute_value(
                         session,
@@ -884,8 +1025,9 @@ def _run_images(
                         attribute_id=attribute_id_by_name[name],
                         name=name.value,
                         slot=slot,
-                        value=uploaded.gs_uri,
-                        prompt=generation.prompt,
+                        value=rendered.gs_uri,
+                        prompt=rendered.prompt,
+                        verification=rendered.verification,
                     )
                 )
             except Exception as exc:  # noqa: BLE001 — one failed slot fails the attribute
@@ -1143,9 +1285,6 @@ def _apply_flatfile_rows_to_sku_master(
 
     sku_master_repo.save_all(session, to_save)
     return applied
-
-
-_SIGNED_URL_TTL_SECONDS = 3600
 
 
 def _business_sku_id(sku: SkuMaster | None, fallback: str = "") -> str:
@@ -1560,6 +1699,7 @@ def get_sku_generation_job_content(
                     "value": value,
                     "value_is_signed_url": value_is_signed_url,
                     "prompt": row.prompt if row is not None else None,
+                    "verification": row.verification if row is not None else None,
                 }
             )
 
@@ -1738,16 +1878,73 @@ def _regenerate_attribute_value_body(
                 current_image_url=current_image_url,
                 session_id=session_id,
             )
-            uploaded = gcs.upload_bytes(
-                generation.content,
-                (
-                    f"jobs/{job.external_id}/sku_generation_jobs/"
-                    f"{sku_generation_job.external_id}/images/"
-                    f"{name.value}_{latest.slot}_v{latest.version + 1}"
-                    f"{files.extension_for_image_content_type(generation.content_type)}"
-                ),
-                content_type=generation.content_type,
+            version_key = latest.version + 1
+
+            def _upload_regen(image: images.ImageGeneration) -> tuple[str, str]:
+                uploaded = gcs.upload_bytes(
+                    image.content,
+                    (
+                        f"jobs/{job.external_id}/sku_generation_jobs/"
+                        f"{sku_generation_job.external_id}/images/"
+                        f"{name.value}_{latest.slot}_v{version_key}"
+                        f"{files.extension_for_image_content_type(image.content_type)}"
+                    ),
+                    content_type=image.content_type,
+                )
+                signed_url = gcs.signed_url_for_gs_uri(
+                    uploaded.gs_uri, expiration_seconds=_SIGNED_URL_TTL_SECONDS
+                )
+                return uploaded.gs_uri, signed_url
+
+            gs_uri, signed = _upload_regen(generation)
+            regen_role, regen_kind = _slot_context_from_verification(
+                latest.verification if isinstance(latest.verification, dict) else None
             )
+            result = _safe_verify_image(
+                client,
+                generated_image_url=signed,
+                product=ctx.product,
+                attempt=1,
+                session_id=session_id,
+                source_image_urls=ctx.product_image_urls,
+                attribute_name=name.value,
+                role=regen_role,
+                kind=regen_kind,
+            )
+            previous: verify.VerificationResult | None = None
+            if verify.should_retry(result):
+                first = result
+                retry_note = f"{improvement_text}\n\n{verify.retry_addendum(result)}"
+                try:
+                    generation = regenerate.regenerate_image(
+                        client,
+                        ctx,
+                        origin_brief=origin_brief,
+                        improvement=retry_note,
+                        aspect_ratio=_aspect_ratio_for_marketplace(
+                            session, job.marketplace_id, master.id, name
+                        ),
+                        current_image_url=signed,
+                        session_id=session_id,
+                    )
+                    gs_uri, signed = _upload_regen(generation)
+                    result = _safe_verify_image(
+                        client,
+                        generated_image_url=signed,
+                        product=ctx.product,
+                        attempt=2,
+                        session_id=session_id,
+                        source_image_urls=ctx.product_image_urls,
+                        attribute_name=name.value,
+                        role=regen_role,
+                        kind=regen_kind,
+                    )
+                    previous = first
+                except Exception:  # noqa: BLE001 — keep the first regen
+                    logger.exception(
+                        "Image regen verification retry failed for %s; keeping first regen",
+                        value_external_id,
+                    )
             persisted = _persist_attribute_value(
                 session,
                 sku_generation_job=sku_generation_job,
@@ -1755,11 +1952,9 @@ def _regenerate_attribute_value_body(
                 attribute_id=master.id,
                 name=name.value,
                 slot=latest.slot,
-                value=uploaded.gs_uri,
-                prompt=generation.prompt,
-            )
-            signed = gcs.signed_url_for_gs_uri(
-                uploaded.gs_uri, expiration_seconds=_SIGNED_URL_TTL_SECONDS
+                value=gs_uri,
+                prompt=improvement_text,
+                verification=verify.persist_payload(result, previous=previous),
             )
             return {
                 "value_external_id": persisted["external_id"],
@@ -1770,7 +1965,8 @@ def _regenerate_attribute_value_body(
                 "version": persisted["version"],
                 "value": signed,
                 "value_is_signed_url": True,
-                "prompt": generation.prompt,
+                "prompt": improvement_text,
+                "verification": persisted.get("verification"),
             }
         except AttributeValueRegenerationError:
             raise
@@ -1808,6 +2004,7 @@ def _regenerate_attribute_value_body(
             "value": text_result.value,
             "value_is_signed_url": False,
             "prompt": text_result.prompt,
+            "verification": None,
         }
     except AttributeValueRegenerationError:
         raise
@@ -1864,6 +2061,7 @@ def restore_attribute_value_version(
             "value": value,
             "value_is_signed_url": value_is_signed_url,
             "prompt": source.prompt,
+            "verification": source.verification,
         }
 
     persisted = _persist_attribute_value(
@@ -1875,6 +2073,7 @@ def restore_attribute_value_version(
         slot=source.slot,
         value=source.value,
         prompt=source.prompt,
+        verification=source.verification,
     )
 
     value = persisted["value"]
@@ -1893,4 +2092,5 @@ def restore_attribute_value_version(
         "value": value,
         "value_is_signed_url": value_is_signed_url,
         "prompt": persisted.get("prompt"),
+        "verification": persisted.get("verification"),
     }

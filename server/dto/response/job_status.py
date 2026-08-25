@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from dto.marketplace_attribute_config import MarketplaceAttributeConfig
 
@@ -105,6 +105,58 @@ class JobListResponse(BaseModel):
     has_more: bool = False
 
 
+class ImageVerificationMismatchResponse(BaseModel):
+    """One on-image claim or look that disagrees with catalog / source photos."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    kind: str
+    source_field: str | None = None
+    catalog: str | None = None
+    observed: str | None = None
+
+
+class ImageVerificationAxesResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    identity: int | None = None
+    claims: int | None = None
+    quality: int | None = None
+
+
+class ImageVerificationSlotContextResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str | None = None
+    role: str | None = None
+    kind: str | None = None
+
+
+class ImageVerificationSnapshotResponse(BaseModel):
+    """One verification attempt — current, or the replaced first pass."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    v: int
+    status: str
+    model: str
+    attempt: int
+    confidence: int | None = None
+    threshold: int | None = None
+    reasoning: str | None = None
+    observed_text: list[str] | None = None
+    mismatches: list[ImageVerificationMismatchResponse] | None = None
+    axes: ImageVerificationAxesResponse | None = None
+    slot: ImageVerificationSlotContextResponse | None = None
+    error: str | None = None
+
+
+class ImageVerificationResponse(ImageVerificationSnapshotResponse):
+    """Per-version snapshot of product-data verification for an image slot."""
+
+    previous: ImageVerificationSnapshotResponse | None = None
+
+
 class SkuGenerationJobAttributeSlotResponse(BaseModel):
     attribute_external_id: UUID
     name: str
@@ -119,6 +171,7 @@ class SkuGenerationJobAttributeSlotResponse(BaseModel):
     value_is_signed_url: bool = False
     # Unique brief for this version (v1 = slot/strategy brief; later = this regen's user note).
     prompt: str | None = None
+    verification: ImageVerificationResponse | None = None
 
 
 class RegenerateAttributeValueResponse(BaseModel):
@@ -133,6 +186,7 @@ class RegenerateAttributeValueResponse(BaseModel):
     value: str
     value_is_signed_url: bool
     prompt: str | None = None
+    verification: ImageVerificationResponse | None = None
 
 
 class SkuGenerationJobContentResponse(BaseModel):
