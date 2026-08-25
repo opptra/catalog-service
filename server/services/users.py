@@ -15,19 +15,6 @@ def get_user_by_external_id(session: Session, external_id: UUID) -> User:
     return user
 
 
-def get_dev_user(session: Session, email: str | None) -> User:
-    """DEV_MODE login target: configured email, else the first user row."""
-    if email and email.strip():
-        user = user_repository.get_by_email(session, email)
-        if user is None:
-            raise UserNotFoundError(email.strip())
-        return user
-    user = user_repository.get_first(session)
-    if user is None:
-        raise UserNotFoundError("no users in local database")
-    return user
-
-
 def upsert_google_user(session: Session, claims: dict[str, Any]) -> User:
     if not claims.get("email_verified"):
         raise InvalidGoogleClaimsError("Google email is not verified")

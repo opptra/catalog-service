@@ -10,7 +10,6 @@ from core.clients.db import DatabaseClient
 from core.clients.dropbox import DropboxClient
 from core.clients.gcs import GcsClient
 from core.clients.google_auth import GoogleAuthClient
-from core.clients.local_storage import LocalStorageClient
 from core.clients.openrouter import OpenRouterClient
 from core.clients.workflows import WorkflowsClient
 from core.config import settings
@@ -32,9 +31,7 @@ async def lifespan(app: FastAPI):
     user_db = DatabaseClient(settings.user_database_url)
     app.state.catalog_db = catalog_db
     app.state.user_db = user_db
-    app.state.google_auth = (
-        None if settings.dev_mode else GoogleAuthClient(settings.google_client_id)
-    )
+    app.state.google_auth = GoogleAuthClient(settings.google_client_id)
     app.state.openrouter = (
         OpenRouterClient(
             settings.openrouter_api_key,
@@ -43,31 +40,26 @@ async def lifespan(app: FastAPI):
         if settings.openrouter_api_key
         else None
     )
-    if settings.dev_mode:
-        app.state.gcs = LocalStorageClient(settings.local_storage_dir)
-        app.state.dropbox = None
-        app.state.workflows = None
-    else:
-        app.state.gcs = (
-            GcsClient(
-                settings.gcs_bucket,
-                signer_service_account_email=settings.gcs_signer_service_account_email,
-            )
-            if settings.gcs_bucket
-            else None
+    app.state.gcs = (
+        GcsClient(
+            settings.gcs_bucket,
+            signer_service_account_email=settings.gcs_signer_service_account_email,
         )
-        if settings.dropbox_configured:
-            # dropbox_configured guarantees all three are non-empty.
-            app.state.dropbox = DropboxClient(
-                app_key=settings.dropbox_app_key or "",
-                app_secret=settings.dropbox_app_secret or "",
-                refresh_token=settings.dropbox_refresh_token or "",
-                root_path=settings.dropbox_root_path,
-            )
-        else:
-            app.state.dropbox = None
-        gcp_project = _resolve_gcp_project()
-        app.state.workflows = WorkflowsClient(gcp_project, settings.region) if gcp_project else None
+        if settings.gcs_bucket
+        else None
+    )
+    if settings.dropbox_configured:
+        # dropbox_configured guarantees all three are non-empty.
+        app.state.dropbox = DropboxClient(
+            app_key=settings.dropbox_app_key or "",
+            app_secret=settings.dropbox_app_secret or "",
+            refresh_token=settings.dropbox_refresh_token or "",
+            root_path=settings.dropbox_root_path,
+        )
+    else:
+        app.state.dropbox = None
+    gcp_project = _resolve_gcp_project()
+    app.state.workflows = WorkflowsClient(gcp_project, settings.region) if gcp_project else None
     try:
         yield
     finally:
@@ -105,7 +97,3 @@ app.include_router(job.router, prefix=API_PREFIX)
 app.include_router(catalog.router, prefix=API_PREFIX)
 app.include_router(listing.router, prefix=API_PREFIX)
 app.include_router(access.router, prefix=API_PREFIX)
-if settings.dev_mode:
-    from routers import local_storage
-
-    app.include_router(local_storage.router, prefix=API_PREFIX)

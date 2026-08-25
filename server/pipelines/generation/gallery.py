@@ -28,16 +28,13 @@ class SlotPlan:
     """One slot, ready for the image model.
 
     ``prompt`` is the assembled slot brief sent to the image model (CI recipe,
-    owned facts, and JSON DNA). ``role`` / ``kind`` are CI slot fields passed to
-    the verifier as context only. No separate Scene rewrite.
+    owned facts, and JSON DNA). No separate Scene rewrite.
     """
 
     name: AttributeName
     slot: int
     prompt: str
     concept: str | None = None
-    role: str | None = None
-    kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,8 +452,8 @@ def _slot_prompt(
             "do not omit, paraphrase, restyle, or invent facts."
         )
         lines.append(
-            'Paint ONLY each object\'s "value" string on the image. Do not paint '
-            '"claim", "source_field", JSON keys, braces, quotes, or commas.'
+            "Paint ONLY each object's \"value\" string on the image. Do not paint "
+            "\"claim\", \"source_field\", JSON keys, braces, quotes, or commas."
         )
         lines.append(_facts_block(assigned_facts))
         lines.append(
@@ -536,7 +533,5 @@ def plan_selected_slots(
             slot=slot_position,
             prompt=final_prompt,
             concept=item.concept,
-            role=_slot_text_field(item.slot_def, "role") or None,
-            kind=_slot_text_field(item.slot_def, "kind") or None,
         )
     return out
