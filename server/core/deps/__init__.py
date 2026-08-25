@@ -45,10 +45,7 @@ UserSessionDep = Annotated[Session, Depends(get_user_session)]
 
 
 def get_google_auth_client(request: Request) -> GoogleAuthClient:
-    client: GoogleAuthClient | None = request.app.state.google_auth
-    if client is None:
-        raise HTTPException(status_code=503, detail="Google auth is not configured")
-    return client
+    return request.app.state.google_auth
 
 
 GoogleAuthClientDep = Annotated[GoogleAuthClient, Depends(get_google_auth_client)]
@@ -92,13 +89,6 @@ def get_workflows_client(request: Request) -> WorkflowsClient:
 
 
 WorkflowsDep = Annotated[WorkflowsClient, Depends(get_workflows_client)]
-
-
-def get_optional_workflows_client(request: Request) -> WorkflowsClient | None:
-    return getattr(request.app.state, "workflows", None)
-
-
-OptionalWorkflowsDep = Annotated[WorkflowsClient | None, Depends(get_optional_workflows_client)]
 
 
 def get_current_user(request: Request) -> User:

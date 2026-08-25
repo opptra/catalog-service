@@ -23,12 +23,6 @@ class Settings(BaseSettings):
 
     api_key: str | None = None
 
-    # Laptop-only: disk storage, auto-login, in-process job pipeline. Default off.
-    # Never set in Secret Manager / production.
-    dev_mode: bool = False
-    local_storage_dir: str = "../local-data/objects"
-    dev_user_email: str | None = None
-
     google_client_id: str
 
     # HS256 secret for catalog-issued session JWTs (httpOnly cookie). Required — no default.
@@ -53,8 +47,6 @@ class Settings(BaseSettings):
     # known comparison IDs (see .env.example) to pick gemini / gpt path.
     openrouter_text_model: str
     openrouter_image_model: str
-    # Vision model for post-render product-data verification (OCR vs sku attributes).
-    openrouter_verify_model: str = "openai/gpt-4o"
 
     # Google Cloud — credentials + project from ADC (not settings).
     # REGION is required from env / Secret Manager (same key everywhere).
