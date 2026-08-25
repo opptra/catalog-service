@@ -187,7 +187,7 @@ def create_job(
         raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
 
     marketplace = marketplace_repo.get_by_external_id(session, marketplace_external_id)
-    if marketplace is None:
+    if marketplace is None or not marketplace.active:
         raise MarketplaceNotFoundError(f"marketplace_external_id={marketplace_external_id}")
 
     if not sku_ids:
