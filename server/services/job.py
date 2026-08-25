@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
@@ -76,6 +76,7 @@ from repositories.catalog import sku_generation_job as sku_generation_job_repo
 from repositories.catalog import sku_marketplace_attribute_value as attribute_value_repo
 from repositories.catalog import sku_master as sku_master_repo
 from services import category as category_service
+from services import marketplace_attribute as marketplace_attribute_service
 from utils import files
 from utils import flatfile as flatfile_utils
 
@@ -91,10 +92,40 @@ _SIGNED_URL_TTL_SECONDS = 3600
 
 _EXECUTABLE_TASK_STATUSES = frozenset({TaskStatus.PENDING, TaskStatus.FAILED})
 
+# Legacy Amazon image ratios — used when marketplace_attribute has no image config.
+_FALLBACK_ASPECT_RATIO_BY_TYPE: dict[AttributeName, str] = {
+    AttributeName.IMAGE: "1:1",
+    AttributeName.A_PLUS: "3:2",
+}
+_DEFAULT_ASPECT_RATIO = "1:1"
+
 RenderFn = Callable[
     [OpenRouterClient, GenerationContext, str, AttributeName, int, str | None, str | None],
     images.ImageGeneration,
 ]
+
+
+def _text_limit_for(
+    session: Session, marketplace_id: int, attribute_id: int, name: AttributeName
+) -> tools.TextLimit | None:
+    rules = marketplace_attribute_service.get_rules_for_attribute(
+        session, marketplace_id=marketplace_id, attribute_id=attribute_id
+    )
+    if rules is None:
+        return tools.FALLBACK_TEXT_LIMITS.get(name)
+    return tools.text_limit_from_config(rules.config) or tools.FALLBACK_TEXT_LIMITS.get(name)
+
+
+def _aspect_ratio_for_marketplace(
+    session: Session, marketplace_id: int, attribute_id: int, name: AttributeName
+) -> str:
+    """Aspect ratio from marketplace_attribute.config.image, else legacy defaults."""
+    rules = marketplace_attribute_service.get_rules_for_attribute(
+        session, marketplace_id=marketplace_id, attribute_id=attribute_id
+    )
+    if rules is not None and rules.aspect_ratio:
+        return rules.aspect_ratio
+    return _FALLBACK_ASPECT_RATIO_BY_TYPE.get(name, _DEFAULT_ASPECT_RATIO)
 
 
 def _task_needs_run(tasks: dict[str, Any], attribute_name: str) -> bool:
@@ -188,19 +219,21 @@ def create_job(
     brand_external_id: UUID,
     marketplace_external_id: UUID,
     attributes: Sequence[tuple[UUID, int]],
+    job_group_id: UUID | None = None,
 ) -> dict[str, Any]:
     """Create a job + job_attribute rows + one sku_generation_job per SKU, then start the pipeline.
 
     ``sku_ids`` are business string ids (``sku_master.attributes.SKU``).
     ``attributes`` is ``(attribute_external_id, quantity)`` pairs. Quantity must be 1 when the
     attribute does not allow quantity. Returns identifiers the UI needs to track the job.
+    ``job_group_id`` links sibling marketplace jobs from one wizard submit; generated when omitted.
     """
     brand = brand_repo.get_by_external_id(session, brand_external_id)
     if brand is None:
         raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
 
     marketplace = marketplace_repo.get_by_external_id(session, marketplace_external_id)
-    if marketplace is None:
+    if marketplace is None or not marketplace.active:
         raise MarketplaceNotFoundError(f"marketplace_external_id={marketplace_external_id}")
 
     if not sku_ids:
@@ -234,14 +267,29 @@ def create_job(
     if missing:
         raise AttributeNotFoundError(f"Unknown attribute_external_id(s): {missing}")
 
+    # Attributes must be offered by this marketplace (when mappings exist).
+    marketplace_rules = {
+        rule.master.id: rule
+        for rule in marketplace_attribute_service.list_rules_for_marketplace(
+            session, marketplace.id
+        )
+    }
+
     resolved: list[tuple[AttributeMaster, int]] = []
     for external_id, quantity in attributes:
         master = by_external_id[external_id]
+        if marketplace_rules and master.id not in marketplace_rules:
+            raise InvalidJobAttributesError(
+                f"attribute_external_id={external_id} ({master.name.value}) "
+                f"is not configured for marketplace {marketplace.name}"
+            )
         if not master.allows_quantity and quantity != 1:
             raise InvalidJobAttributesError(
                 f"attribute_external_id={external_id} ({master.name.value}) "
                 "does not allow quantity>1"
             )
+        # Prefer client quantity; if mapping defines image quantity and client sent 1
+        # for an allows_quantity attribute, keep client value (wizard sends mapping qty).
         resolved.append((master, quantity))
 
     # KEY_FEATURES is derived from the job's own DESCRIPTION + BULLET_POINTS output,
@@ -258,12 +306,15 @@ def create_job(
                 f"KEY_FEATURES requires {', '.join(missing_sources)} in the same job"
             )
 
+    group_id = job_group_id if job_group_id is not None else uuid4()
+
     job = job_repo.save(
         session,
         Job(
             created_by=created_by,
             brand_id=brand.external_id,
             job_type=JobType.GENERATION.value,
+            job_group_id=group_id,
             marketplace_id=marketplace.id,
             category_id=None,
             status=JobStatus.PENDING.value,
@@ -307,8 +358,10 @@ def create_job(
 
     return {
         "external_id": job.external_id,
+        "job_group_id": group_id,
         "status": job.status,
         "marketplace_external_id": marketplace.external_id,
+        "marketplace_name": marketplace.name,
         "sku_ids": list(sku_ids),
         "sku_generation_jobs": [
             {
@@ -319,6 +372,49 @@ def create_job(
         ],
         "attribute_external_ids": attribute_external_ids,
         "workflow_execution": workflow_execution,
+    }
+
+
+def create_jobs_for_marketplaces(
+    session: Session,
+    workflows: WorkflowsClient,
+    *,
+    created_by: UUID,
+    sku_ids: Sequence[str],
+    brand_external_id: UUID,
+    marketplaces: Sequence[tuple[UUID, Sequence[tuple[UUID, int]]]],
+) -> dict[str, Any]:
+    """Create one generation job per marketplace, sharing a single ``job_group_id``.
+
+    ``marketplaces`` is ``(marketplace_external_id, attributes)`` where attributes are
+    ``(attribute_external_id, quantity)`` pairs.
+    """
+    if not marketplaces:
+        raise InvalidJobAttributesError("marketplaces must not be empty")
+    marketplace_ids = [marketplace_external_id for marketplace_external_id, _ in marketplaces]
+    if len(marketplace_ids) != len(set(marketplace_ids)):
+        raise InvalidJobAttributesError("Duplicate marketplace_external_id in marketplaces")
+
+    group_id = uuid4()
+    jobs: list[dict[str, Any]] = []
+    for marketplace_external_id, attributes in marketplaces:
+        jobs.append(
+            create_job(
+                session,
+                workflows,
+                created_by=created_by,
+                sku_ids=sku_ids,
+                brand_external_id=brand_external_id,
+                marketplace_external_id=marketplace_external_id,
+                attributes=attributes,
+                job_group_id=group_id,
+            )
+        )
+
+    return {
+        "job_group_id": group_id,
+        "jobs": jobs,
+        "sku_ids": list(sku_ids),
     }
 
 
@@ -571,7 +667,13 @@ def _run_text(
     for attribute in stage_one:
         name = AttributeName(attribute.name)
         try:
-            generation = text.generate_attribute(client, ctx, name, session_id=session_id)
+            generation = text.generate_attribute(
+                client,
+                ctx,
+                name,
+                limit=_text_limit_for(session, marketplace_id, attribute.id, name),
+                session_id=session_id,
+            )
             raw = generation.values.get(name.value)
             raw_values[name.value] = raw
             persisted.append(
@@ -607,6 +709,7 @@ def _run_text(
                 ctx,
                 description=description,
                 bullet_points=bullet_points,
+                limit=_text_limit_for(session, marketplace_id, attribute.id, name),
                 session_id=session_id,
             )
             raw = generation.values.get(name.value)
@@ -689,19 +792,9 @@ def _key_features_inputs(
     return description, [str(bullet) for bullet in bullets]
 
 
-# Fixed aspect ratio per image type, decided HERE — never taken from the AI plan. A+ content
-# images target ~970x600 min (~3:2 is the closest GPT-supported ratio); IMAGE (PDP gallery)
-# is square 1:1.
-_ASPECT_RATIO_BY_TYPE: dict[AttributeName, str] = {
-    AttributeName.IMAGE: "1:1",
-    AttributeName.A_PLUS: "3:2",
-}
-_DEFAULT_ASPECT_RATIO = "1:1"
-
-
-def _aspect_ratio_for(name: AttributeName) -> str:
-    """The single fixed aspect ratio for this image type (never AI-chosen)."""
-    return _ASPECT_RATIO_BY_TYPE.get(name, _DEFAULT_ASPECT_RATIO)
+# Fixed aspect ratio per image type is decided from marketplace_attribute.config —
+# never taken from the AI plan. Legacy Amazon defaults live in
+# ``_FALLBACK_ASPECT_RATIO_BY_TYPE`` when a mapping row is missing.
 
 
 @dataclass(frozen=True, slots=True)
@@ -773,10 +866,11 @@ def _render_verify_upload_slot(
     original_prompt: str,
     role: str | None,
     kind: str | None,
+    aspect_ratio: str,
     session_id: str | None,
 ) -> _VerifiedSlotImage:
     """Render, upload, verify; one mismatch retry when enabled, then keep the image."""
-    aspect = _aspect_ratio_for(name)
+    aspect = aspect_ratio
 
     def _upload(generation: images.ImageGeneration) -> tuple[str, str]:
         uploaded = gcs.upload_bytes(
@@ -912,6 +1006,9 @@ def _run_images(
                 original_prompt=slot_plans[(name, slot)].prompt,
                 role=slot_plans[(name, slot)].role,
                 kind=slot_plans[(name, slot)].kind,
+                aspect_ratio=_aspect_ratio_for_marketplace(
+                    session, job.marketplace_id, attribute_id_by_name[name], name
+                ),
                 session_id=session_id,
             ): (name, slot)
             for name, slot in jobs
@@ -1210,20 +1307,28 @@ def _display_name(sku: SkuMaster | None, business_sku_id: str) -> str | None:
 
 def list_jobs(
     session: Session,
+    user_session: Session,
     *,
     brand_external_id: UUID,
+    offset: int = 0,
+    limit: int = 50,
 ) -> dict[str, Any]:
-    """List all generation jobs for a brand (newest first) with SKU counts.
+    """List generation executions for a brand, one row per job group (newest first).
 
     Scoped by ``job.brand_id`` (stores ``brand.external_id``), not by creator.
+    Sibling marketplace jobs that share ``job_group_id`` collapse to one row.
+    Legacy jobs with NULL ``job_group_id`` appear as their own group keyed by
+    ``job.external_id``.
     """
+    from repositories.user_service import user as user_repo
+
     brand = brand_repo.get_by_external_id(session, brand_external_id)
     if brand is None:
         raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
 
     jobs = list(job_repo.list_generation_by_brand(session, brand.external_id))
     if not jobs:
-        return {"items": []}
+        return {"items": [], "next_offset": None, "has_more": False}
 
     sku_jobs = list(sku_generation_job_repo.list_by_job_ids(session, [job.id for job in jobs]))
     counts_by_job: dict[int, dict[str, int]] = {
@@ -1258,30 +1363,177 @@ def list_jobs(
         )
     }
 
-    items: list[dict[str, Any]] = []
+    creator_ids = {job.created_by for job in jobs}
+    creators = {
+        user.external_id: user
+        for user in user_repo.list_by_external_ids(user_session, list(creator_ids))
+    }
+
+    # Group jobs: key = job_group_id or external_id for legacy.
+    groups: dict[UUID, list[Job]] = {}
+    group_order: list[UUID] = []
     for job in jobs:
-        counts = counts_by_job[job.id]
-        marketplace = (
-            marketplaces.get(job.marketplace_id) if job.marketplace_id is not None else None
-        )
-        category = categories.get(job.category_id) if job.category_id is not None else None
+        key = job.job_group_id if job.job_group_id is not None else job.external_id
+        if key not in groups:
+            groups[key] = []
+            group_order.append(key)
+        groups[key].append(job)
+
+    items: list[dict[str, Any]] = []
+    for key in group_order:
+        members = groups[key]
+        marketplace_items: list[dict[str, Any]] = []
+        statuses: list[str] = []
+        max_sku = {"total": 0, "completed": 0, "failed": 0, "pending": 0}
+        started_at = min(member.created_at for member in members)
+        updated_at = max(member.updated_at for member in members)
+        category_name: str | None = None
+        creator = creators.get(members[0].created_by)
+
+        for member in members:
+            counts = counts_by_job[member.id]
+            # SKUs are the same set across sibling jobs — take max, do not sum.
+            for field in ("total", "completed", "failed", "pending"):
+                if counts[field] > max_sku[field]:
+                    max_sku[field] = counts[field]
+            statuses.append(member.status)
+            marketplace = (
+                marketplaces.get(member.marketplace_id)
+                if member.marketplace_id is not None
+                else None
+            )
+            if marketplace is not None:
+                marketplace_items.append(
+                    {
+                        "external_id": marketplace.external_id,
+                        "name": marketplace.name,
+                        "status": member.status,
+                    }
+                )
+            category = (
+                categories.get(member.category_id) if member.category_id is not None else None
+            )
+            if category is not None and category_name is None:
+                category_name = category.name
+
         items.append(
             {
-                "external_id": job.external_id,
-                "status": job.status,
-                "started_at": job.created_at,
-                "updated_at": job.updated_at,
-                "brand_external_id": job.brand_id,
-                "marketplace_name": marketplace.name if marketplace else None,
-                "category_name": category.name if category else None,
-                "sku_count": counts["total"],
-                "completed_sku_count": counts["completed"],
-                "failed_sku_count": counts["failed"],
-                "pending_sku_count": counts["pending"],
+                "job_group_id": key,
+                "external_id": key,
+                "status": _rollup_status(statuses),
+                "started_at": started_at,
+                "updated_at": updated_at,
+                "brand_external_id": members[0].brand_id,
+                "marketplace_name": ", ".join(item["name"] for item in marketplace_items) or None,
+                "marketplaces": marketplace_items,
+                "category_name": category_name,
+                "created_by_name": creator.name if creator is not None else None,
+                "sku_count": max_sku["total"],
+                "completed_sku_count": max_sku["completed"],
+                "failed_sku_count": max_sku["failed"],
+                "pending_sku_count": max_sku["pending"],
             }
         )
 
-    return {"items": items}
+    total_items = len(items)
+    for index, item in enumerate(items):
+        item["execution_number"] = total_items - index
+
+    paged_items = items[offset : offset + limit]
+    next_offset = offset + len(paged_items)
+    has_more = next_offset < len(items)
+
+    return {
+        "items": paged_items,
+        "next_offset": next_offset if has_more else None,
+        "has_more": has_more,
+    }
+
+
+def _rollup_status(statuses: Sequence[str]) -> str:
+    """pending if any pending; else failed if any failed; else completed."""
+    if any(status == JobStatus.PENDING.value for status in statuses):
+        return JobStatus.PENDING.value
+    if any(status == JobStatus.FAILED.value for status in statuses):
+        return JobStatus.FAILED.value
+    return JobStatus.COMPLETED.value
+
+
+def get_job_group_status(
+    session: Session,
+    user_session: Session,
+    group_key: UUID,
+    *,
+    marketplace_external_id: UUID | None = None,
+) -> dict[str, Any]:
+    """Status for a job group (preview page). Optionally focus one marketplace job."""
+    from repositories.user_service import user as user_repo
+
+    members = list(job_repo.list_group_members(session, group_key))
+    if not members:
+        raise JobNotFoundError(f"job group not found: {group_key}")
+
+    marketplace_rows: list[dict[str, Any]] = []
+    statuses: list[str] = []
+    active_job: Job | None = None
+
+    for member in members:
+        marketplace = (
+            marketplace_repo.get_by_id(session, member.marketplace_id)
+            if member.marketplace_id is not None
+            else None
+        )
+        if marketplace is None:
+            continue
+        statuses.append(member.status)
+        marketplace_rows.append(
+            {
+                "job_external_id": member.external_id,
+                "marketplace_external_id": marketplace.external_id,
+                "marketplace_name": marketplace.name,
+                "status": member.status,
+            }
+        )
+        if marketplace_external_id is not None:
+            if marketplace.external_id == marketplace_external_id:
+                active_job = member
+        elif active_job is None:
+            active_job = member
+
+    if active_job is None and members:
+        active_job = members[0]
+
+    # SKU counts from the active job (same SKUs across siblings).
+    sku_jobs = (
+        list(sku_generation_job_repo.list_by_job_id(session, active_job.id))
+        if active_job is not None
+        else []
+    )
+    completed = sum(1 for sj in sku_jobs if sj.status == SkuGenerationJobStatus.COMPLETED.value)
+    failed = sum(1 for sj in sku_jobs if sj.status == SkuGenerationJobStatus.FAILED.value)
+    pending = len(sku_jobs) - completed - failed
+
+    creator = user_repo.get_by_external_id(user_session, members[0].created_by)
+    group_id = (
+        members[0].job_group_id if members[0].job_group_id is not None else members[0].external_id
+    )
+
+    active_payload = get_job_status(session, active_job.external_id) if active_job else None
+
+    return {
+        "job_group_id": group_id,
+        "status": _rollup_status(statuses) if statuses else JobStatus.PENDING.value,
+        "started_at": min(member.created_at for member in members),
+        "updated_at": max(member.updated_at for member in members),
+        "brand_external_id": members[0].brand_id,
+        "created_by_name": creator.name if creator is not None else None,
+        "sku_count": len(sku_jobs),
+        "completed_sku_count": completed,
+        "failed_sku_count": failed,
+        "pending_sku_count": pending,
+        "marketplaces": marketplace_rows,
+        "active_job": active_payload,
+    }
 
 
 def get_job_status(
@@ -1324,6 +1576,15 @@ def get_job_status(
         if master is None:
             continue
         group = master.group_label.value if master.group_label is not None else None
+        config = None
+        if job.marketplace_id is not None:
+            rules = marketplace_attribute_service.get_rules_for_attribute(
+                session,
+                marketplace_id=job.marketplace_id,
+                attribute_id=master.id,
+            )
+            if rules is not None:
+                config = rules.config.model_dump(exclude_none=True)
         expected_attributes.append(
             {
                 "attribute_external_id": master.external_id,
@@ -1331,6 +1592,7 @@ def get_job_status(
                 "data_type": master.data_type.value,
                 "quantity": ja.quantity,
                 "group_label": group,
+                "config": config,
             }
         )
 
@@ -1350,6 +1612,7 @@ def get_job_status(
 
     return {
         "external_id": job.external_id,
+        "job_group_id": job.job_group_id if job.job_group_id is not None else job.external_id,
         "status": job.status,
         "started_at": job.created_at,
         "updated_at": job.updated_at,
@@ -1445,6 +1708,7 @@ def get_sku_generation_job_content(
     return {
         "external_id": sku_generation_job.external_id,
         "job_external_id": job.external_id,
+        "job_group_id": job.job_group_id if job.job_group_id is not None else job.external_id,
         "sku_id": business_id,
         "display_name": _display_name(sku, business_id),
         "status": sku_generation_job.status,
@@ -1608,7 +1872,9 @@ def _regenerate_attribute_value_body(
                 ctx,
                 origin_brief=origin_brief,
                 improvement=improvement_text,
-                aspect_ratio=_aspect_ratio_for(name),
+                aspect_ratio=_aspect_ratio_for_marketplace(
+                    session, job.marketplace_id, master.id, name
+                ),
                 current_image_url=current_image_url,
                 session_id=session_id,
             )
@@ -1655,7 +1921,9 @@ def _regenerate_attribute_value_body(
                         ctx,
                         origin_brief=origin_brief,
                         improvement=retry_note,
-                        aspect_ratio=_aspect_ratio_for(name),
+                        aspect_ratio=_aspect_ratio_for_marketplace(
+                            session, job.marketplace_id, master.id, name
+                        ),
                         current_image_url=signed,
                         session_id=session_id,
                     )
@@ -1713,6 +1981,7 @@ def _regenerate_attribute_value_body(
             origin_brief=origin_brief,
             current_value=latest.value,
             improvement=improvement_text,
+            limit=_text_limit_for(session, job.marketplace_id, master.id, name),
             session_id=session_id,
         )
         persisted = _persist_attribute_value(

@@ -7,7 +7,9 @@ import {
 } from '../../api/listing'
 
 interface ListingExportPanelProps {
-  jobExternalId: string
+  jobGroupId: string
+  marketplaceExternalId: string
+  marketplaceName: string
   /** When false, show a locked hint (generation still running). */
   enabled: boolean
 }
@@ -32,7 +34,12 @@ function groupGapsBySku(gaps: ListingFillGap[]): Array<{ skuId: string; items: L
   return [...map.entries()].map(([skuId, items]) => ({ skuId, items }))
 }
 
-function ListingExportPanel({ jobExternalId, enabled }: ListingExportPanelProps) {
+function ListingExportPanel({
+  jobGroupId,
+  marketplaceExternalId,
+  marketplaceName,
+  enabled,
+}: ListingExportPanelProps) {
   const [filling, setFilling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<FillListingResponse | null>(null)
@@ -43,7 +50,10 @@ function ListingExportPanel({ jobExternalId, enabled }: ListingExportPanelProps)
     setFilling(true)
     setError(null)
     try {
-      const next = await fillListing(jobExternalId)
+      const next = await fillListing({
+        job_group_id: jobGroupId,
+        marketplace_external_id: marketplaceExternalId,
+      })
       setResult(next)
       setGapsOpen(next.gaps.length > 0)
       if (next.filled_file_url) {
@@ -65,7 +75,7 @@ function ListingExportPanel({ jobExternalId, enabled }: ListingExportPanelProps)
           <p className="listing-export__eyebrow">Listing file</p>
           <p className="listing-export__title">
             {enabled
-              ? 'Download the filled Amazon listing workbook'
+              ? `Download the filled ${marketplaceName} listing workbook`
               : 'Available when generation completes'}
           </p>
           <p className="listing-export__hint">

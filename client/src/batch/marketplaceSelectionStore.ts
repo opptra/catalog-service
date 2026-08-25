@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import {
   getMarketplaceSelection,
-  type MarketplaceSelectionAttribute,
   type MarketplaceSelectionMarketplace,
 } from '../api/catalog'
 
@@ -10,10 +9,7 @@ export type MarketplaceSelectionStatus = 'idle' | 'loading' | 'ready' | 'error'
 interface MarketplaceSelectionState {
   status: MarketplaceSelectionStatus
   marketplaces: MarketplaceSelectionMarketplace[]
-  attributes: MarketplaceSelectionAttribute[]
-  /** Load once; concurrent callers share the same in-flight request. */
   ensureLoaded: () => Promise<void>
-  /** Force a new fetch (e.g. retry after error). */
   reload: () => Promise<void>
   clear: () => void
 }
@@ -36,13 +32,11 @@ async function loadSelection(
       set({
         status: 'ready',
         marketplaces: data.marketplaces,
-        attributes: data.attributes,
       })
     } catch {
       set({
         status: 'error',
         marketplaces: [],
-        attributes: [],
       })
     } finally {
       inFlight = null
@@ -55,7 +49,6 @@ async function loadSelection(
 export const useMarketplaceSelectionStore = create<MarketplaceSelectionState>((set, get) => ({
   status: 'idle',
   marketplaces: [],
-  attributes: [],
 
   ensureLoaded: () => loadSelection(set, get, false),
 
@@ -66,7 +59,6 @@ export const useMarketplaceSelectionStore = create<MarketplaceSelectionState>((s
     set({
       status: 'idle',
       marketplaces: [],
-      attributes: [],
     })
   },
 }))

@@ -26,6 +26,9 @@ class Job(Base):
     # without joining through SKUs.
     brand_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     job_type: Mapped[str] = mapped_column(Text, nullable=False, default="GENERATION")
+    # Shared across sibling marketplace jobs created in one wizard submit.
+    # NULL for legacy jobs — list/preview use COALESCE(job_group_id, external_id).
+    job_group_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     marketplace_id: Mapped[int | None] = mapped_column(
         ForeignKey("marketplace.id"),
         nullable=True,

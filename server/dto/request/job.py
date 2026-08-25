@@ -8,10 +8,16 @@ class CreateJobAttribute(BaseModel):
     quantity: int = Field(default=1, ge=1)
 
 
-class CreateJobRequest(BaseModel):
-    sku_ids: list[str] = Field(min_length=1)
+class CreateJobMarketplace(BaseModel):
     marketplace_external_id: UUID
     attributes: list[CreateJobAttribute] = Field(min_length=1)
+
+
+class CreateJobRequest(BaseModel):
+    """Create one generation job per marketplace, sharing a job_group_id."""
+
+    sku_ids: list[str] = Field(min_length=1)
+    marketplaces: list[CreateJobMarketplace] = Field(min_length=1)
 
 
 class FlatfileImageFile(BaseModel):

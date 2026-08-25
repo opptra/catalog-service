@@ -2,7 +2,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from dto.marketplace_attribute_config import MarketplaceAttributeConfig
 
 
 class JobExpectedAttributeResponse(BaseModel):
@@ -11,6 +13,7 @@ class JobExpectedAttributeResponse(BaseModel):
     data_type: str
     quantity: int
     group_label: str | None = None
+    config: MarketplaceAttributeConfig | None = None
 
 
 class JobSkuGenerationStatusItem(BaseModel):
@@ -23,6 +26,7 @@ class JobSkuGenerationStatusItem(BaseModel):
 
 class JobStatusResponse(BaseModel):
     external_id: UUID
+    job_group_id: UUID | None = None
     status: str
     started_at: datetime
     updated_at: datetime
@@ -39,16 +43,56 @@ class JobStatusResponse(BaseModel):
     sku_generation_jobs: list[JobSkuGenerationStatusItem]
 
 
-class JobListItemResponse(BaseModel):
-    """Summary row for the brand execution history list."""
+class JobGroupMarketplaceStatus(BaseModel):
+    """One marketplace job inside a job group (drives preview tabs)."""
 
+    job_external_id: UUID
+    marketplace_external_id: UUID
+    marketplace_name: str
+    status: str
+
+
+class JobGroupStatusResponse(BaseModel):
+    """Aggregated status for a multi-marketplace execution group."""
+
+    job_group_id: UUID
+    status: str
+    started_at: datetime
+    updated_at: datetime
+    brand_external_id: UUID | None = None
+    created_by_name: str | None = None
+    sku_count: int
+    completed_sku_count: int
+    failed_sku_count: int
+    pending_sku_count: int
+    marketplaces: list[JobGroupMarketplaceStatus]
+    # Active job payload (first marketplace, or the one requested via query).
+    active_job: JobStatusResponse | None = None
+
+
+class JobListMarketplaceItem(BaseModel):
     external_id: UUID
+    name: str
+    status: str
+
+
+class JobListItemResponse(BaseModel):
+    """Summary row for the brand execution history list (one row per job group)."""
+
+    # Group key used by preview URL — COALESCE(job_group_id, job.external_id).
+    job_group_id: UUID
+    external_id: UUID = Field(
+        description="Same as job_group_id (kept for clients that navigate on external_id).",
+    )
     status: str
     started_at: datetime
     updated_at: datetime
     brand_external_id: UUID | None = None
     marketplace_name: str | None = None
+    marketplaces: list[JobListMarketplaceItem] = Field(default_factory=list)
     category_name: str | None = None
+    created_by_name: str | None = None
+    execution_number: int
     sku_count: int
     completed_sku_count: int
     failed_sku_count: int
@@ -57,6 +101,8 @@ class JobListItemResponse(BaseModel):
 
 class JobListResponse(BaseModel):
     items: list[JobListItemResponse]
+    next_offset: int | None = None
+    has_more: bool = False
 
 
 class ImageVerificationMismatchResponse(BaseModel):
@@ -146,6 +192,7 @@ class RegenerateAttributeValueResponse(BaseModel):
 class SkuGenerationJobContentResponse(BaseModel):
     external_id: UUID
     job_external_id: UUID
+    job_group_id: UUID | None = None
     sku_id: str
     display_name: str | None = None
     status: str

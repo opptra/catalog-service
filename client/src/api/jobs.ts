@@ -1,14 +1,34 @@
 import api from './axios'
 
+export interface MarketplaceAttributeConfig {
+  text?: {
+    chars?: { min?: number; max?: number }
+    items?: {
+      count?: number
+      min?: number
+      max?: number
+      chars?: { min?: number; max?: number }
+    }
+  }
+  image?: {
+    quantity?: number
+    aspect_ratio?: string
+  }
+}
+
 export interface CreateJobAttribute {
   attribute_external_id: string
   quantity?: number
 }
 
-export interface CreateJobRequest {
-  sku_ids: string[]
+export interface CreateJobMarketplace {
   marketplace_external_id: string
   attributes: CreateJobAttribute[]
+}
+
+export interface CreateJobRequest {
+  sku_ids: string[]
+  marketplaces: CreateJobMarketplace[]
 }
 
 export interface CreatedSkuGenerationJob {
@@ -16,14 +36,22 @@ export interface CreatedSkuGenerationJob {
   external_id: string
 }
 
-export interface CreateJobResponse {
+export interface CreateJobChildResponse {
   external_id: string
+  job_group_id: string
   status: string
   marketplace_external_id: string
+  marketplace_name: string | null
   sku_ids: string[]
   sku_generation_jobs: CreatedSkuGenerationJob[]
   attribute_external_ids: string[]
   workflow_execution: string | null
+}
+
+export interface CreateJobResponse {
+  job_group_id: string
+  jobs: CreateJobChildResponse[]
+  sku_ids: string[]
 }
 
 export interface CompleteJobResponse {
@@ -37,6 +65,7 @@ export interface JobExpectedAttribute {
   data_type: 'TEXT' | 'IMAGE' | string
   quantity: number
   group_label: string | null
+  config?: MarketplaceAttributeConfig | null
 }
 
 export interface JobSkuGenerationStatusItem {
@@ -49,6 +78,7 @@ export interface JobSkuGenerationStatusItem {
 
 export interface JobStatusResponse {
   external_id: string
+  job_group_id: string | null
   status: string
   started_at: string
   updated_at: string
@@ -65,14 +95,46 @@ export interface JobStatusResponse {
   sku_generation_jobs: JobSkuGenerationStatusItem[]
 }
 
+export interface JobGroupMarketplaceStatus {
+  job_external_id: string
+  marketplace_external_id: string
+  marketplace_name: string
+  status: string
+}
+
+export interface JobGroupStatusResponse {
+  job_group_id: string
+  status: string
+  started_at: string
+  updated_at: string
+  brand_external_id: string | null
+  created_by_name: string | null
+  sku_count: number
+  completed_sku_count: number
+  failed_sku_count: number
+  pending_sku_count: number
+  marketplaces: JobGroupMarketplaceStatus[]
+  active_job: JobStatusResponse | null
+}
+
+export interface JobListMarketplaceItem {
+  external_id: string
+  name: string
+  status: string
+}
+
 export interface JobListItem {
+  job_group_id: string
   external_id: string
   status: string
   started_at: string
   updated_at: string
   brand_external_id: string | null
   marketplace_name: string | null
+  marketplaces: JobListMarketplaceItem[]
   category_name: string | null
+  created_by_name: string | null
+  execution_number: number
   sku_count: number
   completed_sku_count: number
   failed_sku_count: number
@@ -81,6 +143,8 @@ export interface JobListItem {
 
 export interface JobListResponse {
   items: JobListItem[]
+  next_offset: number | null
+  has_more: boolean
 }
 
 const listJobsInflight = new Map<string, Promise<JobListResponse>>()
@@ -162,6 +226,7 @@ export interface RegenerateAttributeValueResponse {
 export interface SkuGenerationJobContentResponse {
   external_id: string
   job_external_id: string
+  job_group_id: string | null
   sku_id: string
   display_name: string | null
   status: string
@@ -171,23 +236,28 @@ export interface SkuGenerationJobContentResponse {
   attributes: SkuGenerationJobAttributeSlot[]
 }
 
-export async function listJobs(brandExternalId: string): Promise<JobListResponse> {
-  // brandExternalId is only used for in-flight dedupe; Brand-Id is set by axios.
-  const existing = listJobsInflight.get(brandExternalId)
+export async function listJobs(
+  brandExternalId: string,
+  options: { offset?: number; limit?: number } = {},
+): Promise<JobListResponse> {
+  const offset = options.offset ?? 0
+  const limit = options.limit ?? 50
+  const cacheKey = `${brandExternalId}:${offset}:${limit}`
+  const existing = listJobsInflight.get(cacheKey)
   if (existing) {
     return existing
   }
 
   const request = api
-    .get<JobListResponse>('/jobs')
+    .get<JobListResponse>('/jobs', { params: { offset, limit } })
     .then(({ data }) => data)
     .finally(() => {
-      if (listJobsInflight.get(brandExternalId) === request) {
-        listJobsInflight.delete(brandExternalId)
+      if (listJobsInflight.get(cacheKey) === request) {
+        listJobsInflight.delete(cacheKey)
       }
     })
 
-  listJobsInflight.set(brandExternalId, request)
+  listJobsInflight.set(cacheKey, request)
   return request
 }
 
@@ -206,26 +276,15 @@ export async function getJobStatus(jobExternalId: string): Promise<JobStatusResp
   return data
 }
 
-export interface JobContentExportColumn {
-  key: string
-  label: string
-  data_type: string
-}
-
-export interface JobContentExportResponse {
-  job_external_id: string
-  marketplace_external_id: string | null
-  marketplace_name: string | null
-  columns: JobContentExportColumn[]
-  rows: Array<Record<string, string | null>>
-}
-
-export async function getJobContentExport(
-  jobExternalId: string,
-): Promise<JobContentExportResponse> {
-  const { data } = await api.get<JobContentExportResponse>(
-    `/jobs/${jobExternalId}/content-export`,
-  )
+export async function getJobGroupStatus(
+  jobGroupId: string,
+  marketplaceExternalId?: string,
+): Promise<JobGroupStatusResponse> {
+  const { data } = await api.get<JobGroupStatusResponse>(`/job-groups/${jobGroupId}/status`, {
+    params: marketplaceExternalId
+      ? { marketplace_external_id: marketplaceExternalId }
+      : undefined,
+  })
   return data
 }
 
@@ -282,6 +341,30 @@ export async function restoreAttributeValue(
   const { data } = await api.post<RegenerateAttributeValueResponse>(
     `/jobs/attribute-values/${valueExternalId}/restore`,
     body,
+  )
+  return data
+}
+
+export interface SkuImageDownloadItem {
+  marketplace: string
+  folder: string
+  filename: string
+  url: string
+}
+
+export interface SkuImageDownloadResponse {
+  sku_id: string
+  filename: string
+  images: SkuImageDownloadItem[]
+}
+
+/** Signed URLs for one SKU across every marketplace — client downloads bytes and builds the zip. */
+export async function getSkuImageDownload(
+  jobGroupId: string,
+  skuId: string,
+): Promise<SkuImageDownloadResponse> {
+  const { data } = await api.get<SkuImageDownloadResponse>(
+    `/job-groups/${jobGroupId}/skus/${skuId}/images`,
   )
   return data
 }
