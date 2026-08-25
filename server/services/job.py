@@ -30,6 +30,7 @@ from core.exceptions import (
     CategoryNotFoundError,
     FlatfileUploadIncompleteError,
     FlatfileValidationError,
+    GcsError,
     InvalidJobAttributesError,
     JobNotFoundError,
     MarketplaceNotFoundError,
@@ -219,7 +220,7 @@ def create_job(
         raise BrandNotFoundError(f"brand_external_id={brand_external_id}")
 
     marketplace = marketplace_repo.get_by_external_id(session, marketplace_external_id)
-    if marketplace is None:
+    if marketplace is None or not marketplace.active:
         raise MarketplaceNotFoundError(f"marketplace_external_id={marketplace_external_id}")
 
     if not sku_ids:
@@ -1576,6 +1577,37 @@ def get_sku_generation_job_content(
         "marketplace_name": marketplace.name if marketplace else None,
         "attributes": attributes,
     }
+
+
+def list_sku_product_images(
+    session: Session,
+    gcs: GcsClient,
+    external_id: UUID,
+) -> dict[str, Any]:
+    """Signed GET URLs for the SKU's source photos in GCS (flatfile uploads)."""
+    sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
+    if sku_generation_job is None:
+        raise SkuGenerationJobNotFoundError(f"SKU generation job not found: {external_id}")
+
+    sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
+    business_id = _business_sku_id(sku, fallback="")
+    if not business_id:
+        raise ProductNotFoundError(f"SKU generation job {external_id} is missing attributes.SKU")
+
+    prefix = flatfile_utils.product_image_prefix(business_id)
+    object_names = sorted(gcs.list_object_names(prefix))
+    images: list[dict[str, str]] = []
+    for object_name in object_names:
+        filename = object_name.rsplit("/", 1)[-1]
+        if not filename:
+            continue
+        try:
+            url = gcs.signed_url(object_name, expiration_seconds=_SIGNED_URL_TTL_SECONDS)
+        except GcsError:
+            logger.warning("skip unsigned product image object=%s", object_name)
+            continue
+        images.append({"filename": filename, "url": url})
+    return {"sku_id": business_id, "images": images}
 
 
 def _origin_brief(session: Session, value_external_id: UUID, latest_prompt: str) -> str:

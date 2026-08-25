@@ -56,6 +56,7 @@ from dto.response.job_status import (
     JobStatusResponse,
     RegenerateAttributeValueResponse,
     SkuGenerationJobContentResponse,
+    SkuProductImagesResponse,
 )
 from dto.response.sku_generation_job import SkuGenerationJobExecutionResponse
 from entities.user_service.user import User
@@ -211,6 +212,33 @@ def get_sku_generation_job_content(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return SkuGenerationJobContentResponse.model_validate(content)
+
+
+@router.get("/sku/{external_id}/product-images", response_model=SkuProductImagesResponse)
+def get_sku_product_images(
+    external_id: UUID,
+    user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+    user_session: UserSessionDep,
+    gcs: GcsDep,
+) -> SkuProductImagesResponse:
+    """Signed URLs for this SKU's source product photos in GCS."""
+    _require_sku_job_access(
+        user_session,
+        catalog_session,
+        actor=user,
+        sku_generation_job_external_id=external_id,
+    )
+    try:
+        listed = job_service.list_sku_product_images(catalog_session, gcs, external_id)
+    except SkuGenerationJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProductNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GcsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return SkuProductImagesResponse.model_validate(listed)
 
 
 @router.post(

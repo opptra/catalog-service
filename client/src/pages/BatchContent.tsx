@@ -19,6 +19,7 @@ import AttributeRegenModal, {
   type AttributeRegenTarget,
 } from '../components/batch-content/AttributeRegenModal'
 import ListingExportPanel from '../components/batch-content/ListingExportPanel'
+import ProductImagesCarousel from '../components/batch-content/ProductImagesCarousel'
 import PipelineProgressBar from '../components/batch-content/PipelineProgressBar'
 import AppHeader from '../components/AppHeader'
 import type { ContentImage } from '../components/batch-content/types'
@@ -209,6 +210,7 @@ function BatchContent() {
   const [contentRefreshKey, setContentRefreshKey] = useState(0)
   const [imageDownloading, setImageDownloading] = useState(false)
   const [imageDownloadError, setImageDownloadError] = useState<string | null>(null)
+  const [productImagesOpen, setProductImagesOpen] = useState(false)
 
   const status: JobStatusResponse | null = groupStatus?.active_job ?? null
 
@@ -403,6 +405,7 @@ function BatchContent() {
     setSkuIndex(next)
     setExpandedText({})
     setRegenTarget(null)
+    setProductImagesOpen(false)
     setContent(null)
     setContentLoading(true)
     setContentError(null)
@@ -798,6 +801,17 @@ function BatchContent() {
             <button
               type="button"
               className="btn-outline batch-content__sku-dock-btn"
+              disabled={activeSkuJobId == null}
+              onClick={() => {
+                setRegenTarget(null)
+                setProductImagesOpen(true)
+              }}
+            >
+              View input images
+            </button>
+            <button
+              type="button"
+              className="btn-outline batch-content__sku-dock-btn"
               onClick={() => goSku(safeSkuIndex - 1)}
               disabled={isFirstSku}
               aria-disabled={isFirstSku}
@@ -826,6 +840,15 @@ function BatchContent() {
         onApplied={() => {
           void refreshActiveSkuContent()
         }}
+      />
+
+      <ProductImagesCarousel
+        open={productImagesOpen}
+        skuGenerationJobExternalId={activeSkuJobId}
+        skuLabel={
+          content?.display_name ?? activeSkuJob?.display_name ?? activeSkuJob?.sku_id ?? 'SKU'
+        }
+        onClose={() => setProductImagesOpen(false)}
       />
 
       <span className="visually-hidden">

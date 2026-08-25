@@ -146,3 +146,13 @@ class SkuGenerationJobContentResponse(BaseModel):
     marketplace_external_id: UUID | None = None
     marketplace_name: str | None = None
     attributes: list[SkuGenerationJobAttributeSlotResponse]
+
+
+class SkuProductImageResponse(BaseModel):
+    filename: str
+    url: str
+
+
+class SkuProductImagesResponse(BaseModel):
+    sku_id: str
+    images: list[SkuProductImageResponse]
