@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from dto.response.job_status import ImageVerificationResponse
+
 
 class SkuGenerationJobAttributeValueResponse(BaseModel):
     external_id: UUID
@@ -12,6 +14,7 @@ class SkuGenerationJobAttributeValueResponse(BaseModel):
     version: int
     value: str
     prompt: str | None = None
+    verification: ImageVerificationResponse | None = None
 
 
 class SkuGenerationJobExecutionResponse(BaseModel):

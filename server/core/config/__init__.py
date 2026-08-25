@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     # known comparison IDs (see .env.example) to pick gemini / gpt path.
     openrouter_text_model: str
     openrouter_image_model: str
+    # Vision model for post-render product-data verification (OCR vs sku attributes).
+    openrouter_verify_model: str = "openai/gpt-4o"
 
     # Google Cloud — credentials + project from ADC (not settings).
     # REGION is required from env / Secret Manager (same key everywhere).
