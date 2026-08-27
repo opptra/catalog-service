@@ -142,7 +142,9 @@ def fill_listing_for_job(
 
     for sku_job in sku_jobs:
         sku = sku_by_id.get(sku_job.sku_id)
-        business_sku_id = _business_sku_id(sku, fallback=str(sku_job.sku_id))
+        business_sku_id = product_attributes_service.business_sku_id(
+            sku, fallback=str(sku_job.sku_id)
+        )
         sku_states.append(
             _SkuFillState(
                 business_sku_id=business_sku_id,
@@ -322,14 +324,6 @@ def _job_values_bag(
             continue
         bag[(name, row.slot)] = _JobAttrValue(value=row.value, external_id=row.external_id)
     return bag
-
-
-def _business_sku_id(sku: Any, *, fallback: str) -> str:
-    if sku is None:
-        return fallback
-    attributes = dict(sku.attributes or {})
-    value = str(attributes.get("SKU") or "").strip()
-    return value or fallback
 
 
 def _product_image_urls(gcs: GcsClient, business_sku_id: str) -> list[str]:

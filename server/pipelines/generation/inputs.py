@@ -60,21 +60,9 @@ def load_context(
     )
 
 
-def _has_attribute_value(value: Any) -> bool:
-    """True when a SKU-master value is usable as a product fact."""
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, (list, dict, tuple, set)):
-        return bool(value)
-    return True
-
-
 def _product_from_sku(session: Session, sku: SkuMaster) -> dict[str, Any]:
     """Return allowed SKU attributes that have a value. Empty keys are omitted."""
-    filtered = product_attributes_service.for_skus(session, [sku]).get(sku.id, {})
-    attributes = {key: value for key, value in filtered.items() if _has_attribute_value(value)}
+    attributes = product_attributes_service.facts_for_sku(session, sku)
     business_sku_id = str(attributes.get("SKU") or "").strip()
     if not business_sku_id:
         raise ProductNotFoundError(f"SKU id={sku.id} is missing attributes.SKU")

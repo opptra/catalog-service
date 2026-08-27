@@ -205,7 +205,8 @@ function NewBatchUpload() {
             SKU value.
             <br />
             Minimum one image per folder. Print CMYK JPEGs and TIFFs are converted
-            to sRGB JPEG before upload so colors stay as they look on your computer.
+            to sRGB JPEG and stored as .jpg before upload so colors stay as they
+            look on your computer.
           </p>
         </div>
       </div>

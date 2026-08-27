@@ -245,11 +245,11 @@ def create_job(
         raise InvalidJobAttributesError("sku_ids must not contain blank values")
 
     found_skus = list(sku_master_repo.list_live_by_attribute_sku_ids(session, sku_ids))
-    sku_by_business_id = {
-        str(sku.attributes.get("SKU")): sku
-        for sku in found_skus
-        if sku.attributes.get("SKU") is not None
-    }
+    sku_by_business_id: dict[str, SkuMaster] = {}
+    for sku in found_skus:
+        business_id = product_attributes_service.business_sku_id(sku)
+        if business_id:
+            sku_by_business_id[business_id] = sku
     missing_skus = [sku_id for sku_id in sku_ids if sku_id not in sku_by_business_id]
     if missing_skus:
         raise SkuNotFoundError(f"Unknown or deleted sku_id(s): {missing_skus}")
@@ -1278,42 +1278,19 @@ def _apply_flatfile_rows_to_sku_master(
             raise FlatfileValidationError("Missing SKU value")
 
         sku = sku_master_repo.get_live_by_attribute_sku_id(session, sku_id)
-        attributes = product_attributes_service.filter_allowed(
-            flatfile_utils.build_sku_attributes(
-                row,
-                sku_id=sku_id,
-                existing_attributes=dict(sku.attributes or {}) if sku is not None else None,
-            ),
-            allowed_names,
+        merged = flatfile_utils.build_sku_attributes(
+            row,
+            sku_id=sku_id,
+            existing_attributes=product_attributes_service.merge_base(sku),
         )
-
         if sku is None:
-            sku = SkuMaster(category_id=category_id, attributes=attributes)
-        else:
-            sku.attributes = attributes
+            sku = SkuMaster(category_id=category_id, attributes={})
+        product_attributes_service.apply_write(sku, merged, allowed_names)
         to_save.append(sku)
         applied.append(sku_id)
 
     sku_master_repo.save_all(session, to_save)
     return applied
-
-
-def _business_sku_id(sku: SkuMaster | None, fallback: str = "") -> str:
-    if sku is None:
-        return fallback
-    raw = (sku.attributes or {}).get("SKU")
-    return str(raw) if raw else fallback
-
-
-def _display_name(sku: SkuMaster | None, business_sku_id: str) -> str | None:
-    if sku is None:
-        return business_sku_id or None
-    attrs = sku.attributes or {}
-    for key in ("title", "name", "product_name"):
-        value = attrs.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return business_sku_id or None
 
 
 def list_jobs(
@@ -1610,12 +1587,12 @@ def get_job_status(
     sku_generation_jobs: list[dict[str, Any]] = []
     for sj in sku_jobs:
         sku = sku_by_id.get(sj.sku_id)
-        business_id = _business_sku_id(sku, fallback=str(sj.sku_id))
+        business_id = product_attributes_service.business_sku_id(sku, fallback=str(sj.sku_id))
         sku_generation_jobs.append(
             {
                 "external_id": sj.external_id,
                 "sku_id": business_id,
-                "display_name": _display_name(sku, business_id),
+                "display_name": product_attributes_service.display_name(sku, business_id),
                 "status": sj.status,
                 "tasks": dict(sj.tasks or {}),
             }
@@ -1668,7 +1645,9 @@ def get_sku_generation_job_content(
     values_by_key = {(row.attribute_id, row.slot): row for row in value_rows}
 
     sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
-    business_id = _business_sku_id(sku, fallback=str(sku_generation_job.sku_id))
+    business_id = product_attributes_service.business_sku_id(
+        sku, fallback=str(sku_generation_job.sku_id)
+    )
     marketplace = (
         marketplace_repo.get_by_id(session, job.marketplace_id)
         if job.marketplace_id is not None
@@ -1721,7 +1700,7 @@ def get_sku_generation_job_content(
         "job_external_id": job.external_id,
         "job_group_id": job.job_group_id if job.job_group_id is not None else job.external_id,
         "sku_id": business_id,
-        "display_name": _display_name(sku, business_id),
+        "display_name": product_attributes_service.display_name(sku, business_id),
         "status": sku_generation_job.status,
         "tasks": tasks,
         "marketplace_external_id": marketplace.external_id if marketplace else None,
@@ -1741,7 +1720,7 @@ def list_sku_product_images(
         raise SkuGenerationJobNotFoundError(f"SKU generation job not found: {external_id}")
 
     sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
-    business_id = _business_sku_id(sku, fallback="")
+    business_id = product_attributes_service.business_sku_id(sku, fallback="")
     if not business_id:
         raise ProductNotFoundError(f"SKU generation job {external_id} is missing attributes.SKU")
 
@@ -1759,6 +1738,23 @@ def list_sku_product_images(
             continue
         images.append({"filename": filename, "url": url})
     return {"sku_id": business_id, "images": images}
+
+
+def list_sku_attributes(session: Session, external_id: UUID) -> dict[str, Any]:
+    """Filled category-allowed attributes for one SKU — same bag generation sees."""
+    sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
+    if sku_generation_job is None:
+        raise SkuGenerationJobNotFoundError(f"SKU generation job not found: {external_id}")
+
+    sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
+    business_id = product_attributes_service.business_sku_id(sku, fallback="")
+    if sku is None or not business_id:
+        raise ProductNotFoundError(f"SKU generation job {external_id} is missing attributes.SKU")
+
+    return {
+        "sku_id": business_id,
+        "attributes": product_attributes_service.present_for_sku(session, sku),
+    }
 
 
 def _origin_brief(session: Session, value_external_id: UUID, latest_prompt: str) -> str:

@@ -451,12 +451,27 @@ def _slot_prompt(
     if assigned_facts:
         lines.append(
             "This shot has required on-image facts as JSON below. Render every fact "
-            "visibly and legibly in the finished image. Preserve each value exactly: "
-            "do not omit, paraphrase, restyle, or invent facts."
+            "visibly and legibly in the finished image."
         )
         lines.append(
-            'Paint ONLY each object\'s "value" string on the image. Do not paint '
-            '"claim", "source_field", JSON keys, braces, quotes, or commas.'
+            'Each object\'s "value" is the immutable source of truth — paint those '
+            "digits/words exactly; never change, round, nearby-number, omit, paraphrase, "
+            "or invent them (40 stays 40, never 46 / 48 / 40.5)."
+        )
+        lines.append(
+            '"source_field" is reference only: read it for the attribute kind and any '
+            "unit or name already in the key. When the cell is a bare number that would "
+            "be ambiguous alone, append that qualifier after the exact value "
+            '(e.g. "Item Height (CM)" + "40" → "40 cm"; "Thread Count" + "210" → '
+            '"210 thread count"). Add only what the key already implies — never invent '
+            'a different unit or marketing token (not "210 TC" unless the key says TC). '
+            "If the value is already complete (a word, phrase, or number with a unit), "
+            "paint it as-is "
+            '(e.g. "Color" + "White" → "White", not "White Color").'
+        )
+        lines.append(
+            'Do not paint "claim", the raw source_field string, JSON keys, braces, '
+            "quotes, or commas."
         )
         lines.append(_facts_block(assigned_facts))
         lines.append(

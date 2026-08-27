@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ImageVerification, ImageVerificationSnapshot } from '../../api/jobs'
 import {
@@ -139,9 +139,13 @@ function VerificationTipCard({ verification }: { verification: ImageVerification
 function VerificationTip({
   anchor,
   children,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   anchor: HTMLElement
   children: ReactNode
+  onMouseEnter: () => void
+  onMouseLeave: () => void
 }) {
   const tipRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
@@ -176,6 +180,8 @@ function VerificationTip({
       ref={tipRef}
       className="verify-mark__tip"
       role="tooltip"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={{
         position: 'fixed',
         top: pos?.top ?? 0,
@@ -190,10 +196,57 @@ function VerificationTip({
   )
 }
 
+const CLOSE_DELAY_MS = 500
+
+let hoverCloser: (() => void) | null = null
+
+function claimHover(closeNow: () => void): void {
+  if (hoverCloser !== null && hoverCloser !== closeNow) {
+    hoverCloser()
+  }
+  hoverCloser = closeNow
+}
+
+function releaseHover(closeNow: () => void): void {
+  if (hoverCloser === closeNow) hoverCloser = null
+}
+
 export function VerificationMark({ verification }: { verification: ImageVerification }) {
   const anchorRef = useRef<HTMLSpanElement>(null)
+  const closeTimerRef = useRef<number | null>(null)
+  const closeNowRef = useRef<() => void>(() => {})
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+
+  const cancelClose = useCallback(() => {
+    if (closeTimerRef.current === null) return
+    window.clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
+  }, [])
+
+  const closeNow = useCallback(() => {
+    cancelClose()
+    setOpen(false)
+    setAnchor(null)
+    releaseHover(closeNowRef.current)
+  }, [cancelClose])
+  closeNowRef.current = closeNow
+
+  const showTip = useCallback(() => {
+    claimHover(closeNowRef.current)
+    cancelClose()
+    setAnchor(anchorRef.current)
+    setOpen(true)
+  }, [cancelClose])
+
+  const hideTipSoon = useCallback(() => {
+    cancelClose()
+    closeTimerRef.current = window.setTimeout(() => {
+      closeNowRef.current()
+    }, CLOSE_DELAY_MS)
+  }, [cancelClose])
+
+  useEffect(() => () => closeNowRef.current(), [])
 
   if (verification.status === 'skipped') return null
 
@@ -207,14 +260,8 @@ export function VerificationMark({ verification }: { verification: ImageVerifica
       ref={anchorRef}
       className={`verify-mark verify-mark--${tone}`}
       aria-hidden="true"
-      onMouseEnter={() => {
-        setAnchor(anchorRef.current)
-        setOpen(true)
-      }}
-      onMouseLeave={() => {
-        setOpen(false)
-        setAnchor(null)
-      }}
+      onMouseEnter={showTip}
+      onMouseLeave={hideTipSoon}
       onClick={(event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -223,7 +270,7 @@ export function VerificationMark({ verification }: { verification: ImageVerifica
       {passed ? <PassCircleIcon /> : verification.status === 'error' ? <WarnCircleIcon /> : <FailCircleIcon />}
       <span className="verify-mark__label">{label}</span>
       {open && anchor ? (
-        <VerificationTip anchor={anchor}>
+        <VerificationTip anchor={anchor} onMouseEnter={showTip} onMouseLeave={hideTipSoon}>
           <VerificationTipCard verification={verification} />
         </VerificationTip>
       ) : null}

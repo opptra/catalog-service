@@ -316,6 +316,25 @@ export async function getSkuProductImages(
   return data
 }
 
+export interface SkuAttributeItem {
+  name: string
+  value: string
+}
+
+export interface SkuAttributesResponse {
+  sku_id: string
+  attributes: SkuAttributeItem[]
+}
+
+export async function getSkuAttributes(
+  skuGenerationJobExternalId: string,
+): Promise<SkuAttributesResponse> {
+  const { data } = await api.get<SkuAttributesResponse>(
+    `/jobs/sku/${skuGenerationJobExternalId}/attributes`,
+  )
+  return data
+}
+
 /** Re-run only the PENDING/FAILED tasks of one SKU generation job. */
 export async function retrySkuGenerationJob(
   skuGenerationJobExternalId: string,
