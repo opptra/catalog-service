@@ -5,7 +5,7 @@ import {
   isIgnoredZipName,
   resolveZipRootPrefix,
 } from './batchZip'
-import { needsSrgbJpegConvert } from './ensureSrgbImage'
+import { needsSrgbJpegConvert, storedImageTarget } from './ensureSrgbImage'
 
 export type ValidationStepId =
   | 'read_product'
@@ -212,6 +212,8 @@ interface FolderImages {
   imageCount: number
   files: string[]
   cmykCount: number
+  collisions: string[]
+  claimedStored: Map<string, string>
 }
 
 /**
@@ -239,7 +241,13 @@ async function readZipFolders(file: File): Promise<Map<string, FolderImages>> {
   function ensureFolder(name: string): FolderImages {
     const existing = folders.get(name)
     if (existing) return existing
-    const created = { imageCount: 0, files: [] as string[], cmykCount: 0 }
+    const created = {
+      imageCount: 0,
+      files: [] as string[],
+      cmykCount: 0,
+      collisions: [] as string[],
+      claimedStored: new Map<string, string>(),
+    }
     folders.set(name, created)
     return created
   }
@@ -273,6 +281,15 @@ async function readZipFolders(file: File): Promise<Map<string, FolderImages>> {
       if (zipEntry) {
         const bytes = await zipEntry.async('uint8array')
         if (needsSrgbJpegConvert(bytes)) current.cmykCount += 1
+        const stored = storedImageTarget(fileName, bytes).storedFilename
+        const prior = current.claimedStored.get(stored)
+        if (prior !== undefined) {
+          current.collisions.push(
+            `“${prior}” and “${fileName}” would both upload as ${stored}`,
+          )
+        } else {
+          current.claimedStored.set(stored, fileName)
+        }
       }
     }
   }
@@ -482,6 +499,18 @@ export async function validateBatchFiles(options: {
     }
 
     matchedFolders.add(sku)
+    if (folder.collisions.length > 0) {
+      for (const message of folder.collisions) {
+        issues.push({
+          group: 'FILES',
+          key: sku,
+          message,
+          ok: false,
+        })
+      }
+      rowProblems.add(index)
+      return
+    }
     if (folder.imageCount === 0) {
       issues.push({
         group: 'CSV ↔ ZIP MAPPING',
@@ -593,7 +622,7 @@ function finalize(
     )
     if (cmykCount > 0) {
       successItems.push(
-        `${cmykCount} print ${cmykCount === 1 ? 'image' : 'images'} (CMYK JPEG or TIFF) will be converted to sRGB JPEG before upload`,
+        `${cmykCount} print ${cmykCount === 1 ? 'image' : 'images'} (CMYK JPEG or TIFF) will be converted to sRGB JPEG and stored as .jpg before upload`,
       )
     }
   }

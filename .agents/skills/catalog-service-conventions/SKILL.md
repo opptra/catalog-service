@@ -127,6 +127,26 @@ router → service → repository → entity → Postgres
   exceptions from `core/exceptions/`, not HTTP ones.
 - **Naming:** modules and functions `snake_case`; entity/DTO classes `PascalCase`.
 
+### SKU product attributes (enforced)
+
+`sku_master.attributes` is a JSONB bag of template columns. Extra keys must not be
+written at ingest or reach generation, listing fill, verification, or inspection UIs.
+
+**The only module allowed to read or assign `sku.attributes` is
+`server/services/product_attributes.py`.** Repositories may use `SkuMaster.attributes`
+for JSONB path queries (lookup by `attributes.SKU`). Everyone else:
+
+| Need | Call |
+|------|------|
+| Product facts (generation, listing) | `for_sku` / `for_skus` / `facts_for_sku` |
+| Inspector UI (filled fields only) | `present_for_sku(session, sku)` |
+| Persist a bag | `apply_write(sku, incoming, allowed_names)` |
+| Business SKU id / label | `business_sku_id` / `display_name` |
+
+Do not take a raw `dict` from `sku.attributes` and filter it "later" at the callsite —
+that is how the allowed list gets skipped. `present_for_sku` takes `(session, sku)`
+so it cannot skip `for_skus`. CI: `tests/test_product_attributes_gate.py`.
+
 ### External-service clients (object storage, LLMs, HTTP APIs, the database)
 
 The server-side equivalent of the frontend's single axios instance: reach every external service through

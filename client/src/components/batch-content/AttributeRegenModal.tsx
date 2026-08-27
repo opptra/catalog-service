@@ -366,11 +366,10 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                 type="button"
                 className="img-modal__regen"
                 onClick={() => void handleRegenerate()}
-                aria-label="Regenerate"
-                title="Regenerate"
                 disabled={phase === 'loading' || improvement.trim().length === 0}
               >
                 <RefreshIcon />
+                Regenerate
               </button>
             </div>
 

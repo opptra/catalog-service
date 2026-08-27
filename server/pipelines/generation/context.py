@@ -1,7 +1,8 @@
 """Shared value object carrying everything a generation step reasons over.
 
-The three inputs play distinct roles: ``product`` (``sku_master.attributes``) is the
-authoritative source of facts, ``category_intelligence`` (from the
+The three inputs play distinct roles: ``product`` (``sku_master.attributes``
+intersected with the category allowed list) is the authoritative source of facts,
+``category_intelligence`` (from the
 ``category_intelligence`` table) is guidance on how to optimize the listing, and
 ``brand_dna`` (from ``brand.brand_dna``) is voice/guardrails. ``product_image_urls``
 are signed GCS HTTPS URLs for the SKU's source photos under

@@ -52,16 +52,6 @@ export async function completeFlatfileJob(
   return data
 }
 
-export function guessImageContentType(filename: string): string {
-  const lower = filename.toLowerCase()
-  if (lower.endsWith('.png')) return 'image/png'
-  if (lower.endsWith('.gif')) return 'image/gif'
-  if (lower.endsWith('.webp')) return 'image/webp'
-  if (lower.endsWith('.bmp')) return 'image/bmp'
-  if (lower.endsWith('.tif') || lower.endsWith('.tiff')) return 'image/tiff'
-  return 'image/jpeg'
-}
-
 export function guessTemplateContentType(filename: string): string {
   const lower = filename.toLowerCase()
   if (lower.endsWith('.csv')) return 'text/csv'

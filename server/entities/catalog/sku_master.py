@@ -26,6 +26,8 @@ class SkuMaster(Base):
         ForeignKey("categories.id", ondelete="RESTRICT"),
         nullable=False,
     )
+    # JSONB PIM bag. Services/pipelines must not read or assign this column —
+    # use services.product_attributes (for_sku / facts_for_sku / apply_write).
     attributes: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,

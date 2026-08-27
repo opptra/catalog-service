@@ -11,7 +11,15 @@ Prefer the installed skills over guessing:
 - Project structure, client/server API contract, and repo conventions → **catalog-service-conventions**
 - FastAPI, Pydantic, Postgres, and React specifics → the matching framework skill
 
-This file does not repeat those rules. It sets the operating loop below.
+This file does not repeat the rest of those rules. It sets the operating loop below.
+
+## SKU attributes JSON — non-negotiable
+
+**Never read or write `sku.attributes` in services, pipelines, or routers.**
+Use `server/services/product_attributes.py` only (`for_sku` / `facts_for_sku` /
+`present_for_sku` / `apply_write`). Do not add a helper that takes a raw attributes
+dict and skips the allowed list. `tests/test_product_attributes_gate.py` fails the
+PR if this is bypassed.
 
 ## Definition of done — non-negotiable
 
