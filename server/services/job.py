@@ -1319,20 +1319,11 @@ def list_jobs(
         return {"items": [], "next_offset": None, "has_more": False}
 
     sku_jobs = list(sku_generation_job_repo.list_by_job_ids(session, [job.id for job in jobs]))
-    counts_by_job: dict[int, dict[str, int]] = {
-        job.id: {"total": 0, "completed": 0, "failed": 0, "pending": 0} for job in jobs
-    }
+    sku_jobs_by_job_id: dict[int, list[Any]] = {job.id: [] for job in jobs}
     for sj in sku_jobs:
-        bucket = counts_by_job.get(sj.job_id)
-        if bucket is None:
-            continue
-        bucket["total"] += 1
-        if sj.status == SkuGenerationJobStatus.COMPLETED.value:
-            bucket["completed"] += 1
-        elif sj.status == SkuGenerationJobStatus.FAILED.value:
-            bucket["failed"] += 1
-        else:
-            bucket["pending"] += 1
+        bucket = sku_jobs_by_job_id.get(sj.job_id)
+        if bucket is not None:
+            bucket.append(sj)
 
     marketplace_ids = {job.marketplace_id for job in jobs if job.marketplace_id is not None}
     marketplaces = {}
@@ -1372,18 +1363,15 @@ def list_jobs(
         members = groups[key]
         marketplace_items: list[dict[str, Any]] = []
         statuses: list[str] = []
-        max_sku = {"total": 0, "completed": 0, "failed": 0, "pending": 0}
         started_at = min(member.created_at for member in members)
         updated_at = max(member.updated_at for member in members)
         category_name: str | None = None
         creator = creators.get(members[0].created_by)
+        sku_progress = _unique_sku_progress(
+            [sj for member in members for sj in sku_jobs_by_job_id[member.id]]
+        )
 
         for member in members:
-            counts = counts_by_job[member.id]
-            # SKUs are the same set across sibling jobs — take max, do not sum.
-            for field in ("total", "completed", "failed", "pending"):
-                if counts[field] > max_sku[field]:
-                    max_sku[field] = counts[field]
             statuses.append(member.status)
             marketplace = (
                 marketplaces.get(member.marketplace_id)
@@ -1416,10 +1404,10 @@ def list_jobs(
                 "marketplaces": marketplace_items,
                 "category_name": category_name,
                 "created_by_name": creator.name if creator is not None else None,
-                "sku_count": max_sku["total"],
-                "completed_sku_count": max_sku["completed"],
-                "failed_sku_count": max_sku["failed"],
-                "pending_sku_count": max_sku["pending"],
+                "sku_count": sku_progress["total"],
+                "completed_sku_count": sku_progress["completed"],
+                "failed_sku_count": sku_progress["failed"],
+                "pending_sku_count": sku_progress["pending"],
             }
         )
 
@@ -1447,6 +1435,35 @@ def _rollup_status(statuses: Sequence[str]) -> str:
     return JobStatus.COMPLETED.value
 
 
+def _unique_sku_progress(sku_jobs: Sequence[Any]) -> dict[str, int]:
+    """Count unique ``sku_id``s across sibling marketplace jobs.
+
+    A SKU is pending if any marketplace is still pending, failed if none are
+    pending and any failed, and completed only when every marketplace completed.
+    """
+    statuses_by_sku: dict[int, list[str]] = {}
+    for sku_job in sku_jobs:
+        statuses_by_sku.setdefault(sku_job.sku_id, []).append(sku_job.status)
+
+    completed = 0
+    failed = 0
+    pending = 0
+    for statuses in statuses_by_sku.values():
+        rolled = _rollup_status(statuses)
+        if rolled == JobStatus.COMPLETED.value:
+            completed += 1
+        elif rolled == JobStatus.FAILED.value:
+            failed += 1
+        else:
+            pending += 1
+    return {
+        "total": len(statuses_by_sku),
+        "completed": completed,
+        "failed": failed,
+        "pending": pending,
+    }
+
+
 def get_job_group_status(
     session: Session,
     user_session: Session,
@@ -1454,7 +1471,11 @@ def get_job_group_status(
     *,
     marketplace_external_id: UUID | None = None,
 ) -> dict[str, Any]:
-    """Status for a job group (preview page). Optionally focus one marketplace job."""
+    """Status for a job group (preview page). Optionally focus one marketplace job.
+
+    SKU counts are unique products across every marketplace in the group.
+    ``active_job`` stays the focused marketplace payload for content tabs.
+    """
     from repositories.user_service import user as user_repo
 
     members = list(job_repo.list_group_members(session, group_key))
@@ -1491,15 +1512,11 @@ def get_job_group_status(
     if active_job is None and members:
         active_job = members[0]
 
-    # SKU counts from the active job (same SKUs across siblings).
-    sku_jobs = (
-        list(sku_generation_job_repo.list_by_job_id(session, active_job.id))
-        if active_job is not None
-        else []
+    # Unique SKUs across every marketplace job in the group — not the active tab.
+    sku_jobs = list(
+        sku_generation_job_repo.list_by_job_ids(session, [member.id for member in members])
     )
-    completed = sum(1 for sj in sku_jobs if sj.status == SkuGenerationJobStatus.COMPLETED.value)
-    failed = sum(1 for sj in sku_jobs if sj.status == SkuGenerationJobStatus.FAILED.value)
-    pending = len(sku_jobs) - completed - failed
+    sku_progress = _unique_sku_progress(sku_jobs)
 
     creator = user_repo.get_by_external_id(user_session, members[0].created_by)
     group_id = (
@@ -1515,10 +1532,10 @@ def get_job_group_status(
         "updated_at": max(member.updated_at for member in members),
         "brand_external_id": members[0].brand_id,
         "created_by_name": creator.name if creator is not None else None,
-        "sku_count": len(sku_jobs),
-        "completed_sku_count": completed,
-        "failed_sku_count": failed,
-        "pending_sku_count": pending,
+        "sku_count": sku_progress["total"],
+        "completed_sku_count": sku_progress["completed"],
+        "failed_sku_count": sku_progress["failed"],
+        "pending_sku_count": sku_progress["pending"],
         "marketplaces": marketplace_rows,
         "active_job": active_payload,
     }
