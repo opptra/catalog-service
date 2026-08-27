@@ -803,7 +803,7 @@ function BatchContent() {
               disabled={!skuIdForDownload || imageDownloading}
               onClick={() => void handleImageDownload()}
             >
-              {imageDownloading ? 'Preparing…' : 'Download images'}
+              {imageDownloading ? 'Preparing…' : 'Download output images'}
             </button>
             <button
               type="button"
@@ -815,7 +815,7 @@ function BatchContent() {
                 setProductAttributesOpen(true)
               }}
             >
-              View attributes
+              View input attributes
             </button>
             <button
               type="button"

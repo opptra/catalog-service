@@ -141,11 +141,11 @@ function SkuAttributesModal({
         className="img-modal__dialog sku-attributes-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={`Product attributes · ${skuLabel}`}
+        aria-label={`Input attributes · ${skuLabel}`}
       >
         <div className="img-modal__header">
           <p className="img-modal__context">
-            Product attributes · {skuLabel}
+            Input attributes · {skuLabel}
             {!loading && error == null
               ? needle
                 ? ` · ${visible.length} of ${attributes.length}`
