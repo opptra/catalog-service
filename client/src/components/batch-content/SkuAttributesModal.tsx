@@ -22,6 +22,20 @@ function CloseIcon() {
   )
 }
 
+function DownloadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8 2.5V10.5M8 10.5L5 7.5M8 10.5L11 7.5M3 13.5H13"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function formatLoadError(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const detail = error.response?.data?.detail
@@ -38,23 +52,29 @@ function SkuAttributesModal({
   skuLabel,
   onClose,
 }: SkuAttributesModalProps) {
+  const [skuId, setSkuId] = useState('')
   const [attributes, setAttributes] = useState<SkuAttributeItem[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open || skuGenerationJobExternalId == null) return
 
     let cancelled = false
+    setSkuId('')
     setAttributes([])
     setQuery('')
     setError(null)
+    setExportError(null)
     setLoading(true)
 
     void getSkuAttributes(skuGenerationJobExternalId)
       .then((data) => {
         if (cancelled) return
+        setSkuId(data.sku_id)
         setAttributes(data.attributes)
       })
       .catch((err: unknown) => {
@@ -89,6 +109,23 @@ function SkuAttributesModal({
           item.value.toLowerCase().includes(needle),
       )
     : attributes
+  const canExport = !loading && error == null && attributes.length > 0 && !exporting
+
+  function handleExportCsv() {
+    if (!canExport) return
+    setExportError(null)
+    setExporting(true)
+    void import('../../lib/downloadSkuAttributesCsv')
+      .then(({ downloadSkuAttributesCsv }) => {
+        downloadSkuAttributesCsv(skuId || skuLabel, attributes)
+      })
+      .catch((err: unknown) => {
+        setExportError(err instanceof Error && err.message ? err.message : 'Could not export CSV.')
+      })
+      .finally(() => {
+        setExporting(false)
+      })
+  }
 
   if (!open) return null
 
@@ -115,10 +152,25 @@ function SkuAttributesModal({
                 : ` · ${attributes.length}`
               : ''}
           </p>
-          <button type="button" className="img-modal__close" onClick={onClose} aria-label="Close">
-            <CloseIcon />
-          </button>
+          <div className="img-modal__header-actions">
+            <button
+              type="button"
+              className="img-modal__export"
+              onClick={handleExportCsv}
+              disabled={!canExport}
+            >
+              <DownloadIcon />
+              {exporting ? 'Exporting…' : 'Export as CSV'}
+            </button>
+            <button type="button" className="img-modal__close" onClick={onClose} aria-label="Close">
+              <CloseIcon />
+            </button>
+          </div>
         </div>
+
+        {exportError != null ? (
+          <p className="sku-attributes-modal__export-error">{exportError}</p>
+        ) : null}
 
         {!loading && error == null && attributes.length > 0 ? (
           <label className="sku-attributes-modal__search">
