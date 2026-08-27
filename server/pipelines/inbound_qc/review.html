@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inbound QC review</title>
+    <style>
+      :root {
+        --bg: #f3efe8;
+        --panel: #fffcf8;
+        --ink: #1c1915;
+        --muted: #6b645b;
+        --line: #e4ddd3;
+        --warn: #b45309;
+        --warn-bg: #fff4e5;
+        --block: #b42318;
+        --block-bg: #fde8e6;
+        --ok: #3f6212;
+        --ok-bg: #ecfccb;
+        --accent: #1f4a3a;
+        --accent-soft: #e8f0ec;
+        --highlight: #fde68a;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+      header p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.8rem; }
+      .stats { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+      .chip {
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      .layout { display: grid; grid-template-columns: 280px 1fr; height: calc(100% - 73px); }
+      aside {
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .filters { padding: 0.75rem; display: grid; gap: 0.5rem; }
+      input[type="search"], select {
+        width: 100%;
+        padding: 0.45rem 0.6rem;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font: inherit;
+        background: #fff;
+      }
+      .sku-list { overflow: auto; padding: 0 0.5rem 0.75rem; }
+      .sku {
+        width: 100%;
+        text-align: left;
+        border: 0;
+        background: transparent;
+        padding: 0.55rem 0.6rem;
+        border-radius: 8px;
+        cursor: pointer;
+        font: inherit;
+      }
+      .sku:hover, .sku.active { background: var(--accent-soft); }
+      .sku strong { display: block; font-size: 0.9rem; }
+      .sku span { color: var(--muted); font-size: 0.75rem; font-family: ui-sans-serif, system-ui, sans-serif; }
+      main { overflow: auto; padding: 1rem 1.25rem 2rem; }
+      .empty { color: var(--muted); padding: 2rem 0; }
+      section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+      section h2 { margin: 0 0 0.75rem; font-size: 0.95rem; }
+      .attrs { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: 0.35rem 1rem; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.85rem; }
+      .attrs dt { color: var(--muted); }
+      .attrs dd { margin: 0; overflow-wrap: anywhere; }
+      .findings { display: grid; gap: 0.6rem; }
+      .finding {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.7rem 0.8rem;
+        cursor: pointer;
+        background: #fff;
+      }
+      .finding.active { outline: 2px solid var(--accent); }
+      .finding.warning { background: var(--warn-bg); }
+      .finding.blocker { background: var(--block-bg); }
+      .finding.priority { border-color: var(--block); background: var(--block-bg); }
+      .badge.priority { background: var(--block-bg); color: var(--block); }
+      .scores {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 0.35rem;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-size: 0.8rem;
+      }
+      .analysis { margin-top: 0.35rem; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.85rem; }
+      .finding header-row, .meta { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+      .badge {
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 0.12rem 0.4rem;
+        border-radius: 999px;
+        background: #eee;
+      }
+      .badge.type { background: var(--accent-soft); color: var(--accent); text-transform: none; letter-spacing: 0; }
+      .badge.warning { background: var(--warn-bg); color: var(--warn); }
+      .badge.blocker { background: var(--block-bg); color: var(--block); }
+      .compare { margin: 0.4rem 0 0; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.85rem; }
+      .compare del { color: var(--muted); text-decoration: none; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem; }
+      figure {
+        margin: 0;
+        border: 2px solid transparent;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #fff;
+        cursor: zoom-in;
+      }
+      figure.flagged { border-color: var(--warn); }
+      figure.active { border-color: var(--accent); box-shadow: 0 0 0 4px var(--highlight); }
+      figure img { display: block; width: 100%; height: 180px; object-fit: contain; background: #faf7f2; }
+      figcaption { padding: 0.35rem 0.5rem; font-size: 0.75rem; font-family: ui-sans-serif, system-ui, sans-serif; color: var(--muted); }
+      dialog { border: 0; padding: 0; max-width: min(92vw, 1100px); background: transparent; }
+      dialog::backdrop { background: rgba(20, 16, 12, 0.72); }
+      dialog img { max-width: 92vw; max-height: 88vh; display: block; }
+      @media (max-width: 800px) {
+        .layout { grid-template-columns: 1fr; height: auto; }
+        aside { max-height: 40vh; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Inbound QC review</h1>
+        <p id="paths">Loading report…</p>
+      </div>
+      <div class="stats" id="stats"></div>
+    </header>
+    <div class="layout">
+      <aside>
+        <div class="filters">
+          <input type="search" id="search" placeholder="Filter SKUs" />
+          <select id="filter">
+            <option value="all">All SKUs</option>
+            <option value="issues">With findings</option>
+            <option value="priority">Priority only</option>
+            <option value="blockers">Blockers only</option>
+            <option value="clean">No findings</option>
+          </select>
+        </div>
+        <div class="sku-list" id="sku-list"></div>
+      </aside>
+      <main id="detail">
+        <p class="empty">Select a SKU to see catalog values, photos, and findings.</p>
+      </main>
+    </div>
+    <dialog id="lightbox"><img alt="" /></dialog>
+    <script>
+      const state = { batch: null, selected: null, activeFinding: null, sku: null };
+
+      const $ = (id) => document.getElementById(id);
+
+      function chip(text) {
+        const el = document.createElement("span");
+        el.className = "chip";
+        el.textContent = text;
+        return el;
+      }
+
+      function badge(kind, extra) {
+        const el = document.createElement("span");
+        el.className = `badge ${extra || ""}`;
+        el.textContent = kind;
+        return el;
+      }
+
+      function renderList() {
+        const q = $("search").value.trim().toLowerCase();
+        const filter = $("filter").value;
+        const list = $("sku-list");
+        list.replaceChildren();
+        for (const sku of state.batch.skus) {
+          if (q && !sku.sku_id.toLowerCase().includes(q)) continue;
+          if (filter === "issues" && sku.finding_count === 0) continue;
+          if (filter === "priority" && sku.priority_count === 0) continue;
+          if (filter === "blockers" && sku.blocker_count === 0) continue;
+          if (filter === "clean" && sku.finding_count > 0) continue;
+          const btn = document.createElement("button");
+          btn.className = "sku" + (sku.sku_id === state.selected ? " active" : "");
+          btn.type = "button";
+          const title = document.createElement("strong");
+          title.textContent = sku.sku_id;
+          const meta = document.createElement("span");
+          meta.textContent = sku.finding_count
+            ? `${sku.finding_count} finding${sku.finding_count === 1 ? "" : "s"}` +
+              (sku.priority_count ? ` · ${sku.priority_count} priority` : "") +
+              (sku.max_certainty != null ? ` · ${sku.max_certainty}%` : "")
+            : "no findings";
+          btn.append(title, meta);
+          btn.addEventListener("click", () => selectSku(sku.sku_id));
+          list.append(btn);
+        }
+      }
+
+      function imageUrl(skuId, filename) {
+        return `/api/sku/${encodeURIComponent(skuId)}/image/${encodeURIComponent(filename)}`;
+      }
+
+      function highlightFromFinding(finding) {
+        state.activeFinding = finding;
+        const wanted = new Set(finding ? finding.image_files : []);
+        for (const fig of document.querySelectorAll("figure[data-file]")) {
+          fig.classList.toggle("active", wanted.has(fig.dataset.file));
+        }
+        for (const card of document.querySelectorAll(".finding")) {
+          card.classList.toggle("active", finding && card.dataset.field === finding.field && card.dataset.kind === finding.kind);
+        }
+      }
+
+      function renderDetail(sku) {
+        state.sku = sku;
+        const root = $("detail");
+        root.replaceChildren();
+
+        const intro = document.createElement("section");
+        const heading = document.createElement("h2");
+        heading.textContent = sku.sku_id;
+        const summary = document.createElement("p");
+        summary.style.margin = "0";
+        summary.style.color = "var(--muted)";
+        summary.style.fontFamily = "ui-sans-serif, system-ui, sans-serif";
+        summary.style.fontSize = "0.85rem";
+        summary.textContent = sku.finding_count
+          ? `${sku.finding_count} findings` +
+            (sku.priority_count ? ` · ${sku.priority_count} priority` : "") +
+            ` · ${sku.kinds.join(", ") || "—"}`
+          : "No remaining findings for this SKU.";
+        intro.append(heading, summary);
+        root.append(intro);
+
+        const findingSection = document.createElement("section");
+        findingSection.append(Object.assign(document.createElement("h2"), { textContent: "Findings" }));
+        if (!sku.findings.length) {
+          findingSection.append(Object.assign(document.createElement("p"), { className: "empty", textContent: "Nothing to review." }));
+        } else {
+          const wrap = document.createElement("div");
+          wrap.className = "findings";
+          for (const finding of sku.findings) {
+            const card = document.createElement("article");
+            card.className = "finding " + finding.severity + (finding.priority ? " priority" : "");
+            card.dataset.field = finding.field;
+            card.dataset.kind = finding.kind;
+            const row = document.createElement("div");
+            row.className = "meta";
+            if (finding.priority) row.append(badge("priority", "priority"));
+            row.append(badge(finding.conflict_type || finding.kind, "type"), badge(finding.field));
+            const compare = document.createElement("div");
+            compare.className = "compare";
+            const obs1 = finding.observation_1 || finding.catalog_value;
+            const obs2 = finding.observation_2 || finding.observed;
+            if (obs1) {
+              const one = document.createElement("div");
+              one.innerHTML = `<strong>Observation 1</strong> ${escapeHtml(obs1)}`;
+              compare.append(one);
+            }
+            if (obs2) {
+              const two = document.createElement("div");
+              two.innerHTML = `<strong>Observation 2</strong> ${escapeHtml(obs2)}`;
+              compare.append(two);
+            }
+            const analysisText = finding.notes || "";
+            if (analysisText) {
+              const analysis = document.createElement("div");
+              analysis.className = "analysis";
+              const label = document.createElement("strong");
+              label.textContent = "Analysis ";
+              analysis.append(label, document.createTextNode(analysisText));
+              compare.append(analysis);
+            }
+            const scores = document.createElement("div");
+            scores.className = "scores";
+            if (finding.confidence != null) {
+              scores.append(chip(`Certainty ${finding.confidence}%`));
+            }
+            if (finding.similarity != null) {
+              const similar = finding.similarity > 50 ? " · near-match" : "";
+              scores.append(chip(`Similarity ${finding.similarity}%${similar}`));
+            }
+            if (scores.childNodes.length) compare.append(scores);
+            card.append(row, compare);
+            card.addEventListener("click", () => highlightFromFinding(finding));
+            wrap.append(card);
+          }
+          findingSection.append(wrap);
+        }
+        root.append(findingSection);
+
+        const imageSection = document.createElement("section");
+        imageSection.append(Object.assign(document.createElement("h2"), { textContent: "Photos" }));
+        if (!sku.images.length) {
+          imageSection.append(Object.assign(document.createElement("p"), { className: "empty", textContent: "No photos in the ZIP for this SKU." }));
+        } else {
+          const grid = document.createElement("div");
+          grid.className = "grid";
+          for (const image of sku.images) {
+            const fig = document.createElement("figure");
+            fig.dataset.file = image.filename;
+            if (image.flagged) fig.classList.add("flagged");
+            const img = document.createElement("img");
+            img.alt = image.filename;
+            img.loading = "lazy";
+            img.src = imageUrl(sku.sku_id, image.filename);
+            const cap = document.createElement("figcaption");
+            cap.textContent = image.filename + (image.flagged ? " · cited in a finding" : "");
+            fig.append(img, cap);
+            fig.addEventListener("click", () => openLightbox(img.src, image.filename));
+            grid.append(fig);
+          }
+          imageSection.append(grid);
+        }
+        root.append(imageSection);
+
+        const attrSection = document.createElement("section");
+        attrSection.append(Object.assign(document.createElement("h2"), { textContent: "Catalog row" }));
+        const dl = document.createElement("dl");
+        dl.className = "attrs";
+        for (const attr of sku.attributes) {
+          if (!attr.value) continue;
+          const dt = document.createElement("dt");
+          dt.textContent = attr.name;
+          const dd = document.createElement("dd");
+          dd.textContent = attr.value;
+          dl.append(dt, dd);
+        }
+        attrSection.append(dl);
+        root.append(attrSection);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function openLightbox(src, alt) {
+        const dialog = $("lightbox");
+        const img = dialog.querySelector("img");
+        img.src = src;
+        img.alt = alt;
+        dialog.showModal();
+      }
+
+      $("lightbox").addEventListener("click", () => $("lightbox").close());
+
+      async function selectSku(skuId) {
+        state.selected = skuId;
+        state.activeFinding = null;
+        renderList();
+        const response = await fetch(`/api/sku/${encodeURIComponent(skuId)}`);
+        const payload = await response.json();
+        if (!response.ok) {
+          $("detail").innerHTML = `<p class="empty">${escapeHtml(payload.error || "SKU failed to load")}</p>`;
+          return;
+        }
+        renderDetail(payload);
+      }
+
+      async function boot() {
+        const response = await fetch("/api/batch");
+        if (!response.ok) {
+          $("paths").textContent = "Could not load the report.";
+          return;
+        }
+        state.batch = await response.json();
+        $("paths").textContent = `${state.batch.report_dir}  ·  ${state.batch.product}`;
+        const stats = $("stats");
+        stats.replaceChildren(
+          chip(`${state.batch.sku_count} SKUs`),
+          chip(`${state.batch.skus_with_priority || 0} priority`),
+          chip(`${state.batch.skus_with_findings} with findings`),
+          chip(`${state.batch.finding_count} findings`),
+          chip(`${state.batch.skus_with_blockers} blockers`)
+        );
+        $("search").addEventListener("input", renderList);
+        $("filter").addEventListener("change", renderList);
+        renderList();
+        const firstIssue =
+          state.batch.skus.find((sku) => sku.priority_count > 0) ||
+          state.batch.skus.find((sku) => sku.finding_count > 0);
+        if (firstIssue) selectSku(firstIssue.sku_id);
+      }
+
+      boot();
+    </script>
+  </body>
+</html>
