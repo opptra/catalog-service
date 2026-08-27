@@ -2,8 +2,8 @@
 
 Call ``for_skus`` whenever PIM facts are needed. Unique categories are loaded
 once, allowed names are resolved once per category, then each SKU is mapped.
-Extra keys on ``sku_master.attributes`` must not reach generation, listing fill,
-or verification.
+Extra keys on ``sku_master.attributes`` must not be written at ingest or reach
+generation, listing fill, or verification.
 """
 
 from collections.abc import Sequence

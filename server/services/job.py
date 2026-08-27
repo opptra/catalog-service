@@ -77,6 +77,7 @@ from repositories.catalog import sku_marketplace_attribute_value as attribute_va
 from repositories.catalog import sku_master as sku_master_repo
 from services import category as category_service
 from services import marketplace_attribute as marketplace_attribute_service
+from services import product_attributes as product_attributes_service
 from utils import files
 from utils import flatfile as flatfile_utils
 
@@ -1229,6 +1230,7 @@ def complete_flatfile_job(
 
     template = category_service.get_category_template(session, category.external_id)
     mandatory_names = [field.name for field in template.fields if field.mandatory]
+    allowed_names = frozenset(field.name for field in template.fields)
 
     try:
         headers, rows = flatfile_utils.parse_template_rows(
@@ -1240,6 +1242,7 @@ def complete_flatfile_job(
             session,
             rows,
             category_id=category.id,
+            allowed_names=allowed_names,
         )
     except (FlatfileValidationError, SkuNotFoundError) as exc:
         job.status = FlatfileJobStatus.FAILED.value
@@ -1260,8 +1263,13 @@ def _apply_flatfile_rows_to_sku_master(
     rows: list[dict[str, str]],
     *,
     category_id: int,
+    allowed_names: frozenset[str],
 ) -> list[str]:
-    """Upsert by string attributes.SKU: update if found, else insert (one save_all)."""
+    """Upsert by string attributes.SKU: update if found, else insert (one save_all).
+
+    Only category-allowed keys (plus ``SKU``) are written. Extra spreadsheet
+    columns and leftover keys from a previous ingest are dropped.
+    """
     to_save: list[SkuMaster] = []
     applied: list[str] = []
     for row in rows:
@@ -1270,10 +1278,13 @@ def _apply_flatfile_rows_to_sku_master(
             raise FlatfileValidationError("Missing SKU value")
 
         sku = sku_master_repo.get_live_by_attribute_sku_id(session, sku_id)
-        attributes = flatfile_utils.build_sku_attributes(
-            row,
-            sku_id=sku_id,
-            existing_attributes=dict(sku.attributes or {}) if sku is not None else None,
+        attributes = product_attributes_service.filter_allowed(
+            flatfile_utils.build_sku_attributes(
+                row,
+                sku_id=sku_id,
+                existing_attributes=dict(sku.attributes or {}) if sku is not None else None,
+            ),
+            allowed_names,
         )
 
         if sku is None:
