@@ -210,3 +210,13 @@ class SkuProductImageResponse(BaseModel):
 class SkuProductImagesResponse(BaseModel):
     sku_id: str
     images: list[SkuProductImageResponse]
+
+
+class SkuAttributeItemResponse(BaseModel):
+    name: str
+    value: str
+
+
+class SkuAttributesResponse(BaseModel):
+    sku_id: str
+    attributes: list[SkuAttributeItemResponse]

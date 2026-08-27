@@ -20,6 +20,7 @@ import AttributeRegenModal, {
 } from '../components/batch-content/AttributeRegenModal'
 import ListingExportPanel from '../components/batch-content/ListingExportPanel'
 import ProductImagesCarousel from '../components/batch-content/ProductImagesCarousel'
+import SkuAttributesModal from '../components/batch-content/SkuAttributesModal'
 import PipelineProgressBar from '../components/batch-content/PipelineProgressBar'
 import AppHeader from '../components/AppHeader'
 import type { ContentImage } from '../components/batch-content/types'
@@ -212,6 +213,7 @@ function BatchContent() {
   const [imageDownloading, setImageDownloading] = useState(false)
   const [imageDownloadError, setImageDownloadError] = useState<string | null>(null)
   const [productImagesOpen, setProductImagesOpen] = useState(false)
+  const [productAttributesOpen, setProductAttributesOpen] = useState(false)
 
   const status: JobStatusResponse | null = groupStatus?.active_job ?? null
 
@@ -407,6 +409,7 @@ function BatchContent() {
     setExpandedText({})
     setRegenTarget(null)
     setProductImagesOpen(false)
+    setProductAttributesOpen(false)
     setContent(null)
     setContentLoading(true)
     setContentError(null)
@@ -727,6 +730,8 @@ function BatchContent() {
                       setContent(null)
                       setExpandedText({})
                       setRegenTarget(null)
+                      setProductImagesOpen(false)
+                      setProductAttributesOpen(false)
                       setImageDownloadError(null)
                     }}
                   >
@@ -798,7 +803,7 @@ function BatchContent() {
               disabled={!skuIdForDownload || imageDownloading}
               onClick={() => void handleImageDownload()}
             >
-              {imageDownloading ? 'Preparing…' : 'Download images'}
+              {imageDownloading ? 'Preparing…' : 'Download output images'}
             </button>
             <button
               type="button"
@@ -806,6 +811,19 @@ function BatchContent() {
               disabled={activeSkuJobId == null}
               onClick={() => {
                 setRegenTarget(null)
+                setProductImagesOpen(false)
+                setProductAttributesOpen(true)
+              }}
+            >
+              View input attributes
+            </button>
+            <button
+              type="button"
+              className="btn-outline batch-content__sku-dock-btn"
+              disabled={activeSkuJobId == null}
+              onClick={() => {
+                setRegenTarget(null)
+                setProductAttributesOpen(false)
                 setProductImagesOpen(true)
               }}
             >
@@ -851,6 +869,15 @@ function BatchContent() {
           content?.display_name ?? activeSkuJob?.display_name ?? activeSkuJob?.sku_id ?? 'SKU'
         }
         onClose={() => setProductImagesOpen(false)}
+      />
+
+      <SkuAttributesModal
+        open={productAttributesOpen}
+        skuGenerationJobExternalId={activeSkuJobId}
+        skuLabel={
+          content?.display_name ?? activeSkuJob?.display_name ?? activeSkuJob?.sku_id ?? 'SKU'
+        }
+        onClose={() => setProductAttributesOpen(false)}
       />
 
       <span className="visually-hidden">

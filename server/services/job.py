@@ -77,6 +77,7 @@ from repositories.catalog import sku_marketplace_attribute_value as attribute_va
 from repositories.catalog import sku_master as sku_master_repo
 from services import category as category_service
 from services import marketplace_attribute as marketplace_attribute_service
+from services import product_attributes as product_attributes_service
 from utils import files
 from utils import flatfile as flatfile_utils
 
@@ -244,11 +245,11 @@ def create_job(
         raise InvalidJobAttributesError("sku_ids must not contain blank values")
 
     found_skus = list(sku_master_repo.list_live_by_attribute_sku_ids(session, sku_ids))
-    sku_by_business_id = {
-        str(sku.attributes.get("SKU")): sku
-        for sku in found_skus
-        if sku.attributes.get("SKU") is not None
-    }
+    sku_by_business_id: dict[str, SkuMaster] = {}
+    for sku in found_skus:
+        business_id = product_attributes_service.business_sku_id(sku)
+        if business_id:
+            sku_by_business_id[business_id] = sku
     missing_skus = [sku_id for sku_id in sku_ids if sku_id not in sku_by_business_id]
     if missing_skus:
         raise SkuNotFoundError(f"Unknown or deleted sku_id(s): {missing_skus}")
@@ -1229,6 +1230,7 @@ def complete_flatfile_job(
 
     template = category_service.get_category_template(session, category.external_id)
     mandatory_names = [field.name for field in template.fields if field.mandatory]
+    allowed_names = frozenset(field.name for field in template.fields)
 
     try:
         headers, rows = flatfile_utils.parse_template_rows(
@@ -1240,6 +1242,7 @@ def complete_flatfile_job(
             session,
             rows,
             category_id=category.id,
+            allowed_names=allowed_names,
         )
     except (FlatfileValidationError, SkuNotFoundError) as exc:
         job.status = FlatfileJobStatus.FAILED.value
@@ -1260,8 +1263,13 @@ def _apply_flatfile_rows_to_sku_master(
     rows: list[dict[str, str]],
     *,
     category_id: int,
+    allowed_names: frozenset[str],
 ) -> list[str]:
-    """Upsert by string attributes.SKU: update if found, else insert (one save_all)."""
+    """Upsert by string attributes.SKU: update if found, else insert (one save_all).
+
+    Only category-allowed keys (plus ``SKU``) are written. Extra spreadsheet
+    columns and leftover keys from a previous ingest are dropped.
+    """
     to_save: list[SkuMaster] = []
     applied: list[str] = []
     for row in rows:
@@ -1270,39 +1278,19 @@ def _apply_flatfile_rows_to_sku_master(
             raise FlatfileValidationError("Missing SKU value")
 
         sku = sku_master_repo.get_live_by_attribute_sku_id(session, sku_id)
-        attributes = flatfile_utils.build_sku_attributes(
+        merged = flatfile_utils.build_sku_attributes(
             row,
             sku_id=sku_id,
-            existing_attributes=dict(sku.attributes or {}) if sku is not None else None,
+            existing_attributes=product_attributes_service.merge_base(sku),
         )
-
         if sku is None:
-            sku = SkuMaster(category_id=category_id, attributes=attributes)
-        else:
-            sku.attributes = attributes
+            sku = SkuMaster(category_id=category_id, attributes={})
+        product_attributes_service.apply_write(sku, merged, allowed_names)
         to_save.append(sku)
         applied.append(sku_id)
 
     sku_master_repo.save_all(session, to_save)
     return applied
-
-
-def _business_sku_id(sku: SkuMaster | None, fallback: str = "") -> str:
-    if sku is None:
-        return fallback
-    raw = (sku.attributes or {}).get("SKU")
-    return str(raw) if raw else fallback
-
-
-def _display_name(sku: SkuMaster | None, business_sku_id: str) -> str | None:
-    if sku is None:
-        return business_sku_id or None
-    attrs = sku.attributes or {}
-    for key in ("title", "name", "product_name"):
-        value = attrs.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return business_sku_id or None
 
 
 def list_jobs(
@@ -1331,20 +1319,11 @@ def list_jobs(
         return {"items": [], "next_offset": None, "has_more": False}
 
     sku_jobs = list(sku_generation_job_repo.list_by_job_ids(session, [job.id for job in jobs]))
-    counts_by_job: dict[int, dict[str, int]] = {
-        job.id: {"total": 0, "completed": 0, "failed": 0, "pending": 0} for job in jobs
-    }
+    sku_jobs_by_job_id: dict[int, list[Any]] = {job.id: [] for job in jobs}
     for sj in sku_jobs:
-        bucket = counts_by_job.get(sj.job_id)
-        if bucket is None:
-            continue
-        bucket["total"] += 1
-        if sj.status == SkuGenerationJobStatus.COMPLETED.value:
-            bucket["completed"] += 1
-        elif sj.status == SkuGenerationJobStatus.FAILED.value:
-            bucket["failed"] += 1
-        else:
-            bucket["pending"] += 1
+        bucket = sku_jobs_by_job_id.get(sj.job_id)
+        if bucket is not None:
+            bucket.append(sj)
 
     marketplace_ids = {job.marketplace_id for job in jobs if job.marketplace_id is not None}
     marketplaces = {}
@@ -1384,18 +1363,15 @@ def list_jobs(
         members = groups[key]
         marketplace_items: list[dict[str, Any]] = []
         statuses: list[str] = []
-        max_sku = {"total": 0, "completed": 0, "failed": 0, "pending": 0}
         started_at = min(member.created_at for member in members)
         updated_at = max(member.updated_at for member in members)
         category_name: str | None = None
         creator = creators.get(members[0].created_by)
+        sku_progress = _unique_sku_progress(
+            [sj for member in members for sj in sku_jobs_by_job_id[member.id]]
+        )
 
         for member in members:
-            counts = counts_by_job[member.id]
-            # SKUs are the same set across sibling jobs — take max, do not sum.
-            for field in ("total", "completed", "failed", "pending"):
-                if counts[field] > max_sku[field]:
-                    max_sku[field] = counts[field]
             statuses.append(member.status)
             marketplace = (
                 marketplaces.get(member.marketplace_id)
@@ -1428,10 +1404,10 @@ def list_jobs(
                 "marketplaces": marketplace_items,
                 "category_name": category_name,
                 "created_by_name": creator.name if creator is not None else None,
-                "sku_count": max_sku["total"],
-                "completed_sku_count": max_sku["completed"],
-                "failed_sku_count": max_sku["failed"],
-                "pending_sku_count": max_sku["pending"],
+                "sku_count": sku_progress["total"],
+                "completed_sku_count": sku_progress["completed"],
+                "failed_sku_count": sku_progress["failed"],
+                "pending_sku_count": sku_progress["pending"],
             }
         )
 
@@ -1459,6 +1435,35 @@ def _rollup_status(statuses: Sequence[str]) -> str:
     return JobStatus.COMPLETED.value
 
 
+def _unique_sku_progress(sku_jobs: Sequence[Any]) -> dict[str, int]:
+    """Count unique ``sku_id``s across sibling marketplace jobs.
+
+    A SKU is pending if any marketplace is still pending, failed if none are
+    pending and any failed, and completed only when every marketplace completed.
+    """
+    statuses_by_sku: dict[int, list[str]] = {}
+    for sku_job in sku_jobs:
+        statuses_by_sku.setdefault(sku_job.sku_id, []).append(sku_job.status)
+
+    completed = 0
+    failed = 0
+    pending = 0
+    for statuses in statuses_by_sku.values():
+        rolled = _rollup_status(statuses)
+        if rolled == JobStatus.COMPLETED.value:
+            completed += 1
+        elif rolled == JobStatus.FAILED.value:
+            failed += 1
+        else:
+            pending += 1
+    return {
+        "total": len(statuses_by_sku),
+        "completed": completed,
+        "failed": failed,
+        "pending": pending,
+    }
+
+
 def get_job_group_status(
     session: Session,
     user_session: Session,
@@ -1466,7 +1471,11 @@ def get_job_group_status(
     *,
     marketplace_external_id: UUID | None = None,
 ) -> dict[str, Any]:
-    """Status for a job group (preview page). Optionally focus one marketplace job."""
+    """Status for a job group (preview page). Optionally focus one marketplace job.
+
+    SKU counts are unique products across every marketplace in the group.
+    ``active_job`` stays the focused marketplace payload for content tabs.
+    """
     from repositories.user_service import user as user_repo
 
     members = list(job_repo.list_group_members(session, group_key))
@@ -1503,15 +1512,11 @@ def get_job_group_status(
     if active_job is None and members:
         active_job = members[0]
 
-    # SKU counts from the active job (same SKUs across siblings).
-    sku_jobs = (
-        list(sku_generation_job_repo.list_by_job_id(session, active_job.id))
-        if active_job is not None
-        else []
+    # Unique SKUs across every marketplace job in the group — not the active tab.
+    sku_jobs = list(
+        sku_generation_job_repo.list_by_job_ids(session, [member.id for member in members])
     )
-    completed = sum(1 for sj in sku_jobs if sj.status == SkuGenerationJobStatus.COMPLETED.value)
-    failed = sum(1 for sj in sku_jobs if sj.status == SkuGenerationJobStatus.FAILED.value)
-    pending = len(sku_jobs) - completed - failed
+    sku_progress = _unique_sku_progress(sku_jobs)
 
     creator = user_repo.get_by_external_id(user_session, members[0].created_by)
     group_id = (
@@ -1527,10 +1532,10 @@ def get_job_group_status(
         "updated_at": max(member.updated_at for member in members),
         "brand_external_id": members[0].brand_id,
         "created_by_name": creator.name if creator is not None else None,
-        "sku_count": len(sku_jobs),
-        "completed_sku_count": completed,
-        "failed_sku_count": failed,
-        "pending_sku_count": pending,
+        "sku_count": sku_progress["total"],
+        "completed_sku_count": sku_progress["completed"],
+        "failed_sku_count": sku_progress["failed"],
+        "pending_sku_count": sku_progress["pending"],
         "marketplaces": marketplace_rows,
         "active_job": active_payload,
     }
@@ -1599,12 +1604,12 @@ def get_job_status(
     sku_generation_jobs: list[dict[str, Any]] = []
     for sj in sku_jobs:
         sku = sku_by_id.get(sj.sku_id)
-        business_id = _business_sku_id(sku, fallback=str(sj.sku_id))
+        business_id = product_attributes_service.business_sku_id(sku, fallback=str(sj.sku_id))
         sku_generation_jobs.append(
             {
                 "external_id": sj.external_id,
                 "sku_id": business_id,
-                "display_name": _display_name(sku, business_id),
+                "display_name": product_attributes_service.display_name(sku, business_id),
                 "status": sj.status,
                 "tasks": dict(sj.tasks or {}),
             }
@@ -1657,7 +1662,9 @@ def get_sku_generation_job_content(
     values_by_key = {(row.attribute_id, row.slot): row for row in value_rows}
 
     sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
-    business_id = _business_sku_id(sku, fallback=str(sku_generation_job.sku_id))
+    business_id = product_attributes_service.business_sku_id(
+        sku, fallback=str(sku_generation_job.sku_id)
+    )
     marketplace = (
         marketplace_repo.get_by_id(session, job.marketplace_id)
         if job.marketplace_id is not None
@@ -1710,7 +1717,7 @@ def get_sku_generation_job_content(
         "job_external_id": job.external_id,
         "job_group_id": job.job_group_id if job.job_group_id is not None else job.external_id,
         "sku_id": business_id,
-        "display_name": _display_name(sku, business_id),
+        "display_name": product_attributes_service.display_name(sku, business_id),
         "status": sku_generation_job.status,
         "tasks": tasks,
         "marketplace_external_id": marketplace.external_id if marketplace else None,
@@ -1730,7 +1737,7 @@ def list_sku_product_images(
         raise SkuGenerationJobNotFoundError(f"SKU generation job not found: {external_id}")
 
     sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
-    business_id = _business_sku_id(sku, fallback="")
+    business_id = product_attributes_service.business_sku_id(sku, fallback="")
     if not business_id:
         raise ProductNotFoundError(f"SKU generation job {external_id} is missing attributes.SKU")
 
@@ -1748,6 +1755,23 @@ def list_sku_product_images(
             continue
         images.append({"filename": filename, "url": url})
     return {"sku_id": business_id, "images": images}
+
+
+def list_sku_attributes(session: Session, external_id: UUID) -> dict[str, Any]:
+    """Filled category-allowed attributes for one SKU — same bag generation sees."""
+    sku_generation_job = sku_generation_job_repo.get_by_external_id(session, external_id)
+    if sku_generation_job is None:
+        raise SkuGenerationJobNotFoundError(f"SKU generation job not found: {external_id}")
+
+    sku = sku_master_repo.get_by_id(session, sku_generation_job.sku_id)
+    business_id = product_attributes_service.business_sku_id(sku, fallback="")
+    if sku is None or not business_id:
+        raise ProductNotFoundError(f"SKU generation job {external_id} is missing attributes.SKU")
+
+    return {
+        "sku_id": business_id,
+        "attributes": product_attributes_service.present_for_sku(session, sku),
+    }
 
 
 def _origin_brief(session: Session, value_external_id: UUID, latest_prompt: str) -> str:

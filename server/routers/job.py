@@ -55,6 +55,7 @@ from dto.response.job_status import (
     JobListResponse,
     JobStatusResponse,
     RegenerateAttributeValueResponse,
+    SkuAttributesResponse,
     SkuGenerationJobContentResponse,
     SkuProductImagesResponse,
 )
@@ -239,6 +240,32 @@ def get_sku_product_images(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return SkuProductImagesResponse.model_validate(listed)
+
+
+@router.get("/sku/{external_id}/attributes", response_model=SkuAttributesResponse)
+def get_sku_attributes(
+    external_id: UUID,
+    user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+    user_session: UserSessionDep,
+) -> SkuAttributesResponse:
+    """Filled category-allowed product attributes for this SKU (empty cells omitted)."""
+    _require_sku_job_access(
+        user_session,
+        catalog_session,
+        actor=user,
+        sku_generation_job_external_id=external_id,
+    )
+    try:
+        listed = job_service.list_sku_attributes(catalog_session, external_id)
+    except SkuGenerationJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProductNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CategoryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return SkuAttributesResponse.model_validate(listed)
 
 
 @router.post(

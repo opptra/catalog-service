@@ -22,7 +22,7 @@ function groupIssues(issues: ValidationIssue[]): Array<{
   const order: Array<{ title: ValidationIssue['group']; hint: string }> = [
     { title: 'CSV', hint: 'Fix these in your spreadsheet.' },
     { title: 'CSV ↔ ZIP MAPPING', hint: 'Fix these by renaming folders or editing rows.' },
-    { title: 'FILES', hint: 'File-level checks.' },
+    { title: 'FILES', hint: 'Fix these by renaming files in the zip.' },
   ]
 
   return order

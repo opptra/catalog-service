@@ -1,11 +1,125 @@
 /** Detect print JPEGs and TIFFs. Conversion to sRGB JPEG runs in the browser with ImageMagick. */
 
 const JPEG_NAME = /\.jpe?g$/i
+const TIFF_NAME = /\.tiff?$/i
 
 export const JPEG_CONTENT_TYPE = 'image/jpeg'
+export const PNG_CONTENT_TYPE = 'image/png'
+export const WEBP_CONTENT_TYPE = 'image/webp'
 
 export function isJpegFilename(filename: string): boolean {
   return JPEG_NAME.test(filename)
+}
+
+export function isTiffFilename(filename: string): boolean {
+  return TIFF_NAME.test(filename)
+}
+
+/** JPEG SOI, regardless of filename. */
+export function isJpegBytes(bytes: Uint8Array): boolean {
+  return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+}
+
+export function isPngBytes(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  )
+}
+
+export function isWebpBytes(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  )
+}
+
+export function replaceImageExtension(filename: string, extension: string): string {
+  const lastDot = filename.lastIndexOf('.')
+  if (lastDot <= 0) return `${filename}${extension}`
+  return `${filename.slice(0, lastDot)}${extension}`
+}
+
+export interface StoredImageTarget {
+  sourceFilename: string
+  storedFilename: string
+  contentType: string
+  convert: boolean
+}
+
+function jpegStoredName(filename: string): string {
+  return isJpegFilename(filename) ? filename : replaceImageExtension(filename, '.jpg')
+}
+
+/**
+ * GCS object name + content type for one zip image.
+ * TIFF / CMYK JPEG → sRGB JPEG stored as .jpg.
+ * JPEG/PNG/WebP bytes behind a .tif name → matching extension (no Magick for already-JPEG).
+ */
+export function storedImageTarget(filename: string, bytes: Uint8Array): StoredImageTarget {
+  const convert = needsSrgbJpegConvert(bytes)
+  if (convert) {
+    return {
+      sourceFilename: filename,
+      storedFilename: jpegStoredName(filename),
+      contentType: JPEG_CONTENT_TYPE,
+      convert: true,
+    }
+  }
+  if (isTiffFilename(filename) && isJpegBytes(bytes)) {
+    return {
+      sourceFilename: filename,
+      storedFilename: jpegStoredName(filename),
+      contentType: JPEG_CONTENT_TYPE,
+      convert: false,
+    }
+  }
+  if (isTiffFilename(filename) && isPngBytes(bytes)) {
+    return {
+      sourceFilename: filename,
+      storedFilename: replaceImageExtension(filename, '.png'),
+      contentType: PNG_CONTENT_TYPE,
+      convert: false,
+    }
+  }
+  if (isTiffFilename(filename) && isWebpBytes(bytes)) {
+    return {
+      sourceFilename: filename,
+      storedFilename: replaceImageExtension(filename, '.webp'),
+      contentType: WEBP_CONTENT_TYPE,
+      convert: false,
+    }
+  }
+  return {
+    sourceFilename: filename,
+    storedFilename: filename,
+    contentType: imageContentTypeFromFilename(filename),
+    convert: false,
+  }
+}
+
+export function imageContentTypeFromFilename(filename: string): string {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.png')) return PNG_CONTENT_TYPE
+  if (lower.endsWith('.gif')) return 'image/gif'
+  if (lower.endsWith('.webp')) return WEBP_CONTENT_TYPE
+  if (lower.endsWith('.bmp')) return 'image/bmp'
+  if (lower.endsWith('.tif') || lower.endsWith('.tiff')) return 'image/tiff'
+  return JPEG_CONTENT_TYPE
 }
 
 /** TIFF / BigTIFF little-endian (`II`) or big-endian (`MM`), regardless of filename. */

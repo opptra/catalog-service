@@ -2,7 +2,6 @@ import {
   completeFlatfileJob,
   createFlatfileJob,
   deleteWithSignedUrl,
-  guessImageContentType,
   guessTemplateContentType,
   putToSignedUrl,
   type FlatfileImageFile,
@@ -13,7 +12,7 @@ import {
   isIgnoredZipName,
   resolveZipRootPrefix,
 } from '../lib/batchZip'
-import { JPEG_CONTENT_TYPE, needsSrgbJpegConvert } from '../lib/ensureSrgbImage'
+import { storedImageTarget } from '../lib/ensureSrgbImage'
 import type { BatchValidationResult } from '../lib/validateBatchFiles'
 import {
   INITIAL_UPLOAD_STEPS,
@@ -125,23 +124,45 @@ export async function runFlatfileUpload(input: RunFlatfileUploadInput): Promise<
   report(markStep(steps, 'prepare', 'running'))
 
   const zipBlobs = await readZipImageBlobs(imagesFile)
-  const convertJobs: Array<{ skuId: string; filename: string; bytes: Uint8Array }> = []
+  const convertJobs: Array<{
+    skuId: string
+    sourceFilename: string
+    storedFilename: string
+    bytes: Uint8Array
+  }> = []
   const images: FlatfileImageFile[] = []
+  const claimedStored = new Map<string, string>()
   for (const entry of result.skuImages) {
+    const skuFiles = zipBlobs.get(entry.sku_id)
     for (const filename of entry.filenames) {
-      const blob = zipBlobs.get(entry.sku_id)?.get(filename)
-      if (!blob) {
+      const blob = skuFiles?.get(filename)
+      if (!skuFiles || !blob) {
         throw new Error(`Missing zip file for SKU ${entry.sku_id}/${filename}`)
       }
       const bytes = new Uint8Array(await blob.arrayBuffer())
-      const convert = needsSrgbJpegConvert(bytes)
-      if (convert) {
-        convertJobs.push({ skuId: entry.sku_id, filename, bytes })
+      const target = storedImageTarget(filename, bytes)
+      const claimKey = `${entry.sku_id}/${target.storedFilename}`
+      const prior = claimedStored.get(claimKey)
+      if (prior !== undefined) {
+        throw new Error(
+          `SKU ${entry.sku_id}: “${prior}” and “${filename}” would both upload as ${target.storedFilename}`,
+        )
+      }
+      claimedStored.set(claimKey, filename)
+      if (target.convert) {
+        convertJobs.push({
+          skuId: entry.sku_id,
+          sourceFilename: filename,
+          storedFilename: target.storedFilename,
+          bytes,
+        })
+      } else if (target.storedFilename !== filename) {
+        skuFiles.set(target.storedFilename, blob)
       }
       images.push({
         sku_id: entry.sku_id,
-        filename,
-        content_type: convert ? JPEG_CONTENT_TYPE : guessImageContentType(filename),
+        filename: target.storedFilename,
+        content_type: target.contentType,
       })
     }
   }
@@ -194,9 +215,9 @@ export async function runFlatfileUpload(input: RunFlatfileUploadInput): Promise<
       const converted = await convertToSrgbJpeg(job.bytes)
       const skuFiles = zipBlobs.get(job.skuId)
       if (!skuFiles) {
-        throw new Error(`Missing zip file for SKU ${job.skuId}/${job.filename}`)
+        throw new Error(`Missing zip file for SKU ${job.skuId}/${job.sourceFilename}`)
       }
-      skuFiles.set(job.filename, converted)
+      skuFiles.set(job.storedFilename, converted)
       convertedDone += 1
       report(
         markStep(

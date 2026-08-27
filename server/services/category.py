@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -137,25 +138,8 @@ def get_category_template(session: Session, external_id: UUID) -> CategoryTempla
     if category is None:
         raise CategoryNotFoundError(f"Category not found: {external_id}")
 
-    spec = category.attribute_spec if isinstance(category.attribute_spec, dict) else {}
-    allowed_raw = list(spec.get("allowed") or [])
-    mandatory_raw = list(spec.get("mandatory") or [])
-    mandatory_keys = {_spec_key(entry) for entry in mandatory_raw}
-
-    # Preserve allowed order; append any mandatory-only entries at the end.
-    ordered_entries: list[object] = list(allowed_raw)
-    allowed_keys = {_spec_key(entry) for entry in allowed_raw}
-    for entry in mandatory_raw:
-        key = _spec_key(entry)
-        if key not in allowed_keys:
-            ordered_entries.append(entry)
-            allowed_keys.add(key)
-
-    attribute_ids = [entry for entry in ordered_entries if isinstance(entry, int)]
-    attributes_by_id = {
-        attribute.id: attribute
-        for attribute in attribute_master_repository.list_by_ids(session, attribute_ids)
-    }
+    ordered_entries, mandatory_keys = _attribute_spec_entries(category)
+    attributes_by_id = _attributes_by_id(session, ordered_entries)
 
     fields: list[CategoryTemplateField] = []
     for entry in ordered_entries:
@@ -174,7 +158,67 @@ def get_category_template(session: Session, external_id: UUID) -> CategoryTempla
     )
 
 
+def allowed_product_attribute_names(session: Session, category: Category) -> frozenset[str]:
+    """Spreadsheet field names from ``attribute_spec.allowed`` ∪ ``mandatory``."""
+    return allowed_product_attribute_names_for_categories(session, [category])[category.id]
+
+
+def allowed_product_attribute_names_for_categories(
+    session: Session, categories: Sequence[Category]
+) -> dict[int, frozenset[str]]:
+    """Resolve allowed field names for many categories with one attribute-master load."""
+    if not categories:
+        return {}
+    entries_by_id: dict[int, list[object]] = {}
+    all_entries: list[object] = []
+    for category in categories:
+        ordered, _mandatory_keys = _attribute_spec_entries(category)
+        entries_by_id[category.id] = ordered
+        all_entries.extend(ordered)
+    attributes_by_id = _attributes_by_id(session, all_entries)
+    return {
+        category_id: frozenset(_field_name(entry, attributes_by_id) for entry in entries)
+        for category_id, entries in entries_by_id.items()
+    }
+
+
+def _attribute_spec_entries(category: Category) -> tuple[list[object], set[str]]:
+    spec = category.attribute_spec if isinstance(category.attribute_spec, dict) else {}
+    allowed_raw = list(spec.get("allowed") or [])
+    mandatory_raw = list(spec.get("mandatory") or [])
+    mandatory_keys = {_spec_key(entry) for entry in mandatory_raw}
+
+    # Preserve allowed order; append any mandatory-only entries at the end.
+    ordered_entries: list[object] = list(allowed_raw)
+    seen = {_spec_key(entry) for entry in allowed_raw}
+    for entry in mandatory_raw:
+        key = _spec_key(entry)
+        if key not in seen:
+            ordered_entries.append(entry)
+            seen.add(key)
+    return ordered_entries, mandatory_keys
+
+
+def _attributes_by_id(session: Session, entries: list[object]) -> dict[int, AttributeMaster]:
+    attribute_ids = list({entry for entry in entries if isinstance(entry, int)})
+    return {
+        attribute.id: attribute
+        for attribute in attribute_master_repository.list_by_ids(session, attribute_ids)
+    }
+
+
 def _spec_key(entry: object) -> str:
+    return str(entry)
+
+
+def _field_name(entry: object, attributes_by_id: dict[int, AttributeMaster]) -> str:
+    if isinstance(entry, int):
+        attribute = attributes_by_id.get(entry)
+        if attribute is not None:
+            return str(attribute.name)
+        return f"attribute_{entry}"
+    if isinstance(entry, str):
+        return entry
     return str(entry)
 
 
@@ -184,16 +228,7 @@ def _to_template_field(
     mandatory: bool,
     attributes_by_id: dict[int, AttributeMaster],
 ) -> CategoryTemplateField:
-    if isinstance(entry, int):
-        attribute = attributes_by_id.get(entry)
-        if attribute is not None:
-            return CategoryTemplateField(
-                name=str(attribute.name),
-                mandatory=mandatory,
-            )
-        return CategoryTemplateField(name=f"attribute_{entry}", mandatory=mandatory)
-
-    if isinstance(entry, str):
-        return CategoryTemplateField(name=entry, mandatory=mandatory)
-
-    return CategoryTemplateField(name=str(entry), mandatory=mandatory)
+    return CategoryTemplateField(
+        name=_field_name(entry, attributes_by_id),
+        mandatory=mandatory,
+    )
