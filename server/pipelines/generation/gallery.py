@@ -479,10 +479,12 @@ def _slot_prompt(
     lines.extend(
         [
             "",
-            "Content and Pattern describe infographic type, layout, and visual treatment only.",
+            "Content and Pattern are the shot: room, lighting, mood, and how the product sits. "
+            "Follow them even when that means leaving the reference room behind.",
             "Only the facts JSON may determine the claims and information on the image.",
             "Do not invent unsupported specifications, claims, or marketing copy.",
-            "Keep the product appearance from the reference photos as the visual priority.",
+            "Keep the product's identity from the reference photos — colour, heading, fabric, "
+            "hardware. Do not keep the reference lighting or room if they fight Content and Pattern.",
             "Do not draw a logo. Do not mention canvas ratio or font names.",
         ]
     )

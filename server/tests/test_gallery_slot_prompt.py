@@ -42,10 +42,13 @@ def test_slot_prompt_closer_separates_content_from_facts() -> None:
         ],
         brand_look="",
     )
-    assert "Render the shot described by Content and Pattern" not in prompt
-    assert "Content and Pattern describe infographic type" in prompt
+    assert "Content and Pattern are the shot" in prompt
+    assert "leaving the reference room behind" in prompt
     assert "Only the facts JSON may determine the claims and information" in prompt
     assert "Do not invent unsupported specifications" in prompt
+    assert "Keep the product's identity from the reference photos" in prompt
+    assert "Content and Pattern describe infographic type" not in prompt
+    assert "Keep the product appearance from the reference photos as the visual priority" not in prompt
 
 
 def test_slot_prompt_no_facts_branch_unchanged() -> None:
@@ -61,4 +64,4 @@ def test_slot_prompt_no_facts_branch_unchanged() -> None:
     )
     assert "This shot has no on-image facts" in prompt
     assert "Paint no product specs" in prompt
-    assert "Content and Pattern describe infographic type" in prompt
+    assert "Content and Pattern are the shot" in prompt
