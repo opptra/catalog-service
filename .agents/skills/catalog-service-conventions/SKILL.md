@@ -26,6 +26,16 @@ When this project skill conflicts with a framework skill's default (fastapi, pyd
 vercel-react-best-practices), **this project skill wins.** Framework skills tell you *how* to use the
 library idiomatically; this file decides *how we structure and ship it here*.
 
+## Do not paper over model judgment with determinism
+
+Same rule as the repo `AGENTS.md`. When an LLM step is inconsistent or wrong (fact board,
+slot selection, image prompt, verification), **do not** add regexes, synonym maps, hardcoded
+claim aliases, or per-attribute fallbacks to coerce one product phrasing into another
+(e.g. “blackout” → “opacity”). That does not scale; the next wording will miss it.
+
+Fix the shared contract: prompt, tool schema, category-intelligence content/pattern, or
+the product data the model sees. If the root is unclear, stop and discuss.
+
 ## Workflow — do this every time
 
 1. **Never push directly to `main`.** All work goes through a `feat/…`, `fix/…`, or `chore/…` branch and a PR.
