@@ -52,6 +52,19 @@ put it in the response (do not keep a `server/sql/` folder in the repo) and tell
 it themselves. Never apply it for them, even to "verify" your work. If you cannot verify without a
 DB change, say so and stop.
 
+## Do not paper over model judgment with determinism — non-negotiable
+
+When a generation, planning, or verification step is inconsistent or wrong, **do not
+add regexes, synonym maps, hardcoded claim aliases, or per-attribute fallbacks** to
+force one outcome (e.g. treating “blackout” as “opacity”).
+
+Those patches do not generalize. The next SKU, claim, language, or marketplace will
+miss them. This world has infinite phrasings — a dictionary will always be behind.
+
+Fix the **shared** contract instead: the prompt, the tool schema, the category-
+intelligence content/pattern, or the product data the model is given. If you cannot
+name that root, stop and discuss. Do not ship a special case.
+
 ## Operating principles (intent, not rigid scripts)
 
 You have room to choose the best implementation — keep to the intent, not a fixed recipe:

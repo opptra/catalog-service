@@ -454,25 +454,17 @@ def _slot_prompt(
             "visibly and legibly in the finished image."
         )
         lines.append(
-            'Each object\'s "value" is the immutable source of truth — paint those '
-            "digits/words exactly; never change, round, nearby-number, omit, paraphrase, "
-            "or invent them (40 stays 40, never 46 / 48 / 40.5)."
+            'Each object\'s "value" is immutable — paint those digits/words exactly '
+            "(120 stays 120, never 210 / 120.5)."
         )
         lines.append(
-            '"source_field" is reference only: read it for the attribute kind and any '
-            "unit or name already in the key. When the cell is a bare number that would "
-            "be ambiguous alone, append that qualifier after the exact value "
-            '(e.g. "Item Height (CM)" + "40" → "40 cm"; "Thread Count" + "210" → '
-            '"210 thread count"). Add only what the key already implies — never invent '
-            'a different unit or marketing token (not "210 TC" unless the key says TC). '
-            "If the value is already complete (a word, phrase, or number with a unit), "
-            "paint it as-is "
-            '(e.g. "Color" + "White" → "White", not "White Color").'
+            '"source_field" is semantic context for the attribute. Combine field and '
+            'value when that makes the fact clear (e.g. "Thread Count: 120" or '
+            '"120 Thread Count"). You may use a short natural label; do not invent a '
+            "different number, unit, or fact. You do not have to reproduce "
+            "source_field verbatim."
         )
-        lines.append(
-            'Do not paint "claim", the raw source_field string, JSON keys, braces, '
-            "quotes, or commas."
-        )
+        lines.append('Do not paint "claim", JSON keys, braces, or quotes.')
         lines.append(_facts_block(assigned_facts))
         lines.append(
             "Integrate the text as a restrained catalog-style overlay in a readable "
@@ -487,9 +479,13 @@ def _slot_prompt(
     lines.extend(
         [
             "",
-            "Render the shot described by Content and Pattern above.",
-            "Keep the product appearance from the reference photos as the visual priority.",
-            "Do not draw a logo. Do not invent claims. Do not mention canvas ratio or font names.",
+            "Content and Pattern are the shot: room, lighting, mood, and how the product sits. "
+            "Follow them even when that means leaving the reference room behind.",
+            "Only the facts JSON may determine the claims and information on the image.",
+            "Do not invent unsupported specifications, claims, or marketing copy.",
+            "Keep the product's identity from the reference photos — colour, heading, fabric, "
+            "hardware. Do not keep the reference lighting or room if they fight Content and Pattern.",
+            "Do not draw a logo. Do not mention canvas ratio or font names.",
         ]
     )
     return "\n".join(lines)

@@ -197,6 +197,7 @@ function VerificationTip({
 }
 
 const CLOSE_DELAY_MS = 500
+const OPEN_DELAY_MS = 200
 
 let hoverCloser: (() => void) | null = null
 
@@ -214,7 +215,9 @@ function releaseHover(closeNow: () => void): void {
 export function VerificationMark({ verification }: { verification: ImageVerification }) {
   const anchorRef = useRef<HTMLSpanElement>(null)
   const closeTimerRef = useRef<number | null>(null)
+  const openTimerRef = useRef<number | null>(null)
   const closeNowRef = useRef<() => void>(() => {})
+  const isOpenRef = useRef(false)
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
 
@@ -224,27 +227,41 @@ export function VerificationMark({ verification }: { verification: ImageVerifica
     closeTimerRef.current = null
   }, [])
 
+  const cancelOpen = useCallback(() => {
+    if (openTimerRef.current === null) return
+    window.clearTimeout(openTimerRef.current)
+    openTimerRef.current = null
+  }, [])
+
   const closeNow = useCallback(() => {
     cancelClose()
+    cancelOpen()
+    isOpenRef.current = false
     setOpen(false)
     setAnchor(null)
     releaseHover(closeNowRef.current)
-  }, [cancelClose])
+  }, [cancelClose, cancelOpen])
   closeNowRef.current = closeNow
 
   const showTip = useCallback(() => {
     claimHover(closeNowRef.current)
     cancelClose()
-    setAnchor(anchorRef.current)
-    setOpen(true)
+    if (isOpenRef.current || openTimerRef.current !== null) return
+    openTimerRef.current = window.setTimeout(() => {
+      openTimerRef.current = null
+      isOpenRef.current = true
+      setAnchor(anchorRef.current)
+      setOpen(true)
+    }, OPEN_DELAY_MS)
   }, [cancelClose])
 
   const hideTipSoon = useCallback(() => {
+    cancelOpen()
     cancelClose()
     closeTimerRef.current = window.setTimeout(() => {
       closeNowRef.current()
     }, CLOSE_DELAY_MS)
-  }, [cancelClose])
+  }, [cancelClose, cancelOpen])
 
   useEffect(() => () => closeNowRef.current(), [])
 
