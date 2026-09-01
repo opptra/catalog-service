@@ -1,4 +1,4 @@
-"""Text attribute generation — Category-Intelligence-led strategy, then one attribute at a time."""
+"""Text attribute generation — fact sheet + CI craft topic; keywords filtered from CI terms."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -6,15 +6,19 @@ from typing import Any
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from entities.catalog.attribute_enums import AttributeName
-from pipelines.generation import prompts, tools
+from pipelines.generation import category, prompts, tools
 from pipelines.generation.context import GenerationContext
 from pipelines.generation.tools import TextLimit
+
+_KEYWORD_FILTER_V1_BRIEF = (
+    "Filter Category Intelligence backend keyword candidates against this SKU's fact sheet."
+)
 
 
 @dataclass(frozen=True, slots=True)
 class TextGeneration:
     values: dict[str, Any]
-    prompt: str  # unique brief persisted as v1 (strategy, not product/brand prefix)
+    prompt: str  # unique brief persisted as v1 (strategy or filter note)
 
 
 _KEY_FEATURES_V1_BRIEF = (
@@ -31,15 +35,8 @@ def generate_attribute(
     limit: TextLimit | None = None,
     session_id: str | None = None,
 ) -> TextGeneration:
-    """Generate a single text attribute and return its value with the unique v1 brief.
-
-    Step 1 derives a content strategy for this attribute. Step 2 writes the attribute via a forced
-    tool call. Shared product/brand/rules context is sent as a cacheable prefix when supported
-    and is not persisted. Soft length targets are on the tool descriptions; hard char caps are
-    fitted after the call.
-    """
-    names = [name]
-    strategy_parts = prompts.text_strategy_parts(ctx, names)
+    """Generate a visible text attribute: strategy from craft topic, then write via tool."""
+    strategy_parts = prompts.text_strategy_parts(ctx, name)
     strategy = client.generate_text(
         strategy_parts.suffix,
         model=settings.openrouter_text_model,
@@ -47,9 +44,39 @@ def generate_attribute(
         session_id=session_id,
     )
 
-    generation_parts = prompts.text_generation_parts(ctx, names, strategy)
+    generation_parts = prompts.text_generation_parts(ctx, name, strategy)
     result = _generate_via_tool(client, name, generation_parts, limit=limit, session_id=session_id)
     return TextGeneration(values=result.values, prompt=strategy.strip())
+
+
+def filter_backend_keywords(
+    client: OpenRouterClient,
+    ctx: GenerationContext,
+    *,
+    title: str | None = None,
+    session_id: str | None = None,
+) -> TextGeneration:
+    """Filter CI ``backend_keywords.terms`` to terms this SKU may use."""
+    name = AttributeName.BACKEND_KEYWORDS
+    candidates = category.backend_keywords_candidates(ctx.category_intelligence)
+    terms = candidates.get("terms") or []
+    if not terms:
+        return TextGeneration(values={name.value: []}, prompt=_KEYWORD_FILTER_V1_BRIEF)
+
+    parts = prompts.keyword_filter_parts(ctx, candidates=candidates, title=title)
+    tool = tools.filter_backend_keywords_tool(candidate_terms=terms)
+    parsed = client.call_tool(
+        parts.suffix,
+        model=settings.openrouter_text_model,
+        tool=tool,
+        cache_prefix=parts.prefix,
+        session_id=session_id,
+    )
+    kept = tools.validate_keyword_subset(parsed.get("terms"), terms)
+    byte_limit = candidates.get("marketplace_limit_bytes")
+    if isinstance(byte_limit, int):
+        kept = tools.trim_terms_to_byte_limit(kept, byte_limit)
+    return TextGeneration(values={name.value: kept}, prompt=_KEYWORD_FILTER_V1_BRIEF)
 
 
 def generate_key_features(
@@ -61,10 +88,7 @@ def generate_key_features(
     limit: TextLimit | None = None,
     session_id: str | None = None,
 ) -> TextGeneration:
-    """Derive KEY_FEATURES from the already-generated description + bullet points.
-
-    No strategy step: this is compression of existing copy, not fresh research.
-    """
+    """Derive KEY_FEATURES from the already-generated description + bullet points."""
     name = AttributeName.KEY_FEATURES
     generation_parts = prompts.key_features_parts(
         ctx, description=description, bullet_points=bullet_points

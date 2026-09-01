@@ -84,7 +84,7 @@ from utils import flatfile as flatfile_utils
 logger = logging.getLogger(__name__)
 
 # Cloud Workflows resource id — must match the id in cloud-workflows/manifest.yaml.
-_JOB_PIPELINE_WORKFLOW = "job-pipeline"
+_JOB_PIPELINE_WORKFLOW = "workflow-1"
 
 # Cap concurrent OpenRouter image calls. Slots are independent after planning; text + gallery
 # planning stay sequential.
@@ -627,6 +627,25 @@ def _serialize_text_value(name: AttributeName, raw: Any) -> str:
     return "" if raw is None else str(raw)
 
 
+# Visible copy first; backend keywords after title; unknown attrs last.
+_TEXT_STAGE_ORDER: tuple[AttributeName, ...] = (
+    AttributeName.TITLE,
+    AttributeName.ITEM_HIGHLIGHTS,
+    AttributeName.BULLET_POINTS,
+    AttributeName.DESCRIPTION,
+    AttributeName.BACKEND_KEYWORDS,
+)
+
+
+def _text_stage_sort_key(attribute: AttributeMaster) -> tuple[int, str]:
+    name = AttributeName(attribute.name)
+    try:
+        order = _TEXT_STAGE_ORDER.index(name)
+    except ValueError:
+        order = len(_TEXT_STAGE_ORDER)
+    return (order, name.value)
+
+
 def _run_text(
     session: Session,
     sku_generation_job: SkuGenerationJob,
@@ -651,11 +670,14 @@ def _run_text(
     if not pending:
         return []
 
-    stage_one = [
-        attribute
-        for attribute in pending
-        if AttributeName(attribute.name) != AttributeName.KEY_FEATURES
-    ]
+    stage_one = sorted(
+        [
+            attribute
+            for attribute in pending
+            if AttributeName(attribute.name) != AttributeName.KEY_FEATURES
+        ],
+        key=_text_stage_sort_key,
+    )
     key_features_attrs = [
         attribute
         for attribute in pending
@@ -668,13 +690,23 @@ def _run_text(
     for attribute in stage_one:
         name = AttributeName(attribute.name)
         try:
-            generation = text.generate_attribute(
-                client,
-                ctx,
-                name,
-                limit=_text_limit_for(session, marketplace_id, attribute.id, name),
-                session_id=session_id,
-            )
+            if name == AttributeName.BACKEND_KEYWORDS:
+                title_raw = raw_values.get(AttributeName.TITLE.value)
+                title = str(title_raw) if title_raw is not None else None
+                generation = text.filter_backend_keywords(
+                    client,
+                    ctx,
+                    title=title,
+                    session_id=session_id,
+                )
+            else:
+                generation = text.generate_attribute(
+                    client,
+                    ctx,
+                    name,
+                    limit=_text_limit_for(session, marketplace_id, attribute.id, name),
+                    session_id=session_id,
+                )
             raw = generation.values.get(name.value)
             raw_values[name.value] = raw
             persisted.append(

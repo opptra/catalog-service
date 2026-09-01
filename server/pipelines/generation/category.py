@@ -1,18 +1,18 @@
 """Task-aware distillation of the Category Intelligence file.
 
 The full file is large (summary + lexicon + voice-of-customer + a per-topic playbook + image_plan).
-We never dump it wholesale into a model. For a given generation task we extract only the relevant
-topics, the highest-signal keywords/customer signals, and (for images) a core-first role palette
-from ``image_plan``, keeping the context concise and on-point.
+We never dump it wholesale into a model. Text uses a fact sheet (PIM) plus one attribute topic
+as craft; keywords use ``backend_keywords.terms`` only. Images use ``image_plan`` and topic
+playbooks with lexicon/VOC where still relevant.
 """
 
 from typing import Any
 
 from entities.catalog.attribute_enums import AttributeName
 
-# Category Intelligence ``topics`` entries that inform each text attribute.
-# Missing topic names degrade gracefully (skipped in _build), so an attribute may
-# list a topic before the external scraping pipeline starts producing it.
+# Category Intelligence ``topics`` entries that inform each visible text attribute.
+# Missing topic names degrade gracefully (skipped), so an attribute may list a topic
+# before the external scraping pipeline starts producing it.
 #
 # ITEM_HIGHLIGHTS has no dedicated topic yet: the scraper reads desktop pages,
 # where Amazon currently merges competitor Item Highlights into the title after
@@ -21,22 +21,17 @@ from entities.catalog.attribute_enums import AttributeName
 # (listed first below so it wins as soon as it exists), the field draws on
 # "specs" (materials/dimensions/pack facts) and "bullets" (winning benefit
 # angles) — the same content Amazon says belongs in the field.
+#
+# BACKEND_KEYWORDS is not a topic — candidates come from ``backend_keywords.terms``.
 _TEXT_TOPICS_BY_ATTRIBUTE: dict[AttributeName, tuple[str, ...]] = {
     AttributeName.TITLE: ("title",),
     AttributeName.ITEM_HIGHLIGHTS: ("item_highlights", "specs", "bullets"),
     AttributeName.BULLET_POINTS: ("bullets",),
     AttributeName.DESCRIPTION: ("aplus",),
-    AttributeName.BACKEND_KEYWORDS: ("keywords",),
 }
-# Cross-cutting topics that help all text listing optimization.
-_TEXT_COMMON_TOPICS = ("keywords", "specs")
 # Topics that inform every image generation call (supporting context only when image_plan exists).
 _IMAGE_COMMON_TOPICS = ("gallery_images",)
 # Category Intelligence topics that inform image generation only when that type is requested.
-# "aplus" carries the A+ module's own structural guidance (brand story -> feature callouts ->
-# performance modules -> comparison chart), distinct from the main PDP gallery arc in
-# "gallery_images" — pulling it in for every gallery plan would waste tokens on jobs that never
-# request an A_PLUS image.
 _IMAGE_TOPIC_BY_ATTRIBUTE: dict[AttributeName, str] = {
     AttributeName.A_PLUS: "aplus",
 }
@@ -52,7 +47,6 @@ _IMAGE_PLAN_SLOT_FIELDS = (
     "kind",
     "pattern",
     "content",
-    # Slot-level duplication + feature budget contract for selection/prompting.
     "owns",
     "feature_priority",
     "max_callouts",
@@ -62,11 +56,43 @@ _MAX_KEYWORDS = 20
 _MAX_SIGNALS = 12
 
 
-def text_brief(category_intelligence: dict[str, Any], names: list[AttributeName]) -> dict[str, Any]:
-    """Concise brief for the requested text attributes."""
-    topics = [topic for name in names for topic in _TEXT_TOPICS_BY_ATTRIBUTE.get(name, ())]
-    topics.extend(_TEXT_COMMON_TOPICS)
-    return _build(category_intelligence, topics)
+def text_craft_brief(category_intelligence: dict[str, Any], name: AttributeName) -> dict[str, Any]:
+    """Craft-only brief for one visible text attribute: that attribute's topic playbook."""
+    topic_names = list(_TEXT_TOPICS_BY_ATTRIBUTE.get(name, ()))
+    topics_by_name = {t.get("name"): t for t in category_intelligence.get("topics", [])}
+    playbook = {
+        topic: {
+            "observations": topics_by_name[topic].get("observations", ""),
+            "actions": topics_by_name[topic].get("actions", []),
+        }
+        for topic in _dedupe(topic_names)
+        if topic in topics_by_name
+    }
+    meta = category_intelligence.get("meta", {})
+    return {
+        "category": meta.get("category"),
+        "marketplace": meta.get("marketplace"),
+        "playbook": playbook,
+    }
+
+
+def backend_keywords_candidates(category_intelligence: dict[str, Any]) -> dict[str, Any]:
+    """CI ``backend_keywords`` block — candidate term list for the filter step."""
+    raw = category_intelligence.get("backend_keywords")
+    if not isinstance(raw, dict):
+        return {
+            "terms": [],
+            "marketplace_limit_bytes": None,
+            "excluded_because_already_in_copy": [],
+        }
+    terms = raw.get("terms")
+    return {
+        "terms": [str(t) for t in terms if t] if isinstance(terms, list) else [],
+        "marketplace_limit_bytes": raw.get("marketplace_limit_bytes"),
+        "excluded_because_already_in_copy": [
+            str(x) for x in (raw.get("excluded_because_already_in_copy") or []) if x
+        ],
+    }
 
 
 def image_brief(
@@ -88,11 +114,7 @@ def image_brief(
 def _distill_image_plan(
     category_intelligence: dict[str, Any], names: list[AttributeName]
 ) -> dict[str, Any] | None:
-    """Core-first role palette from CI ``image_plan`` for each requested IMAGE/A_PLUS track.
-
-    Returns None when the CI file has no usable ``image_plan`` (older schemas still work via
-    topic playbook alone).
-    """
+    """Core-first role palette from CI ``image_plan`` for each requested IMAGE/A_PLUS track."""
     raw = category_intelligence.get("image_plan")
     if not isinstance(raw, dict):
         return None
@@ -138,7 +160,6 @@ def _distill_image_plan_track(track: Any) -> dict[str, Any] | None:
         (s for s in distilled_slots if str(s.get("priority", "")).lower() != "core"),
         key=_order_key,
     )
-    # Core first (primary ideas), then extended — full palette; planner picks to length N.
     slots = core + extended
 
     distilled: dict[str, Any] = {"slots": slots}
@@ -148,13 +169,13 @@ def _distill_image_plan_track(track: Any) -> dict[str, Any] | None:
         distilled["build_rationale"] = track["build_rationale"]
     if track.get("visual_norms"):
         distilled["visual_norms"] = track["visual_norms"]
-    # Empty slots with no rationale is useless — treat as missing track.
     if not slots and "recommended_build" not in distilled and "build_rationale" not in distilled:
         return None
     return distilled
 
 
 def _build(category_intelligence: dict[str, Any], topic_names: list[str]) -> dict[str, Any]:
+    """Image-oriented brief: playbook plus lexicon/VOC (not used for text generation)."""
     topics_by_name = {t.get("name"): t for t in category_intelligence.get("topics", [])}
     playbook = {
         name: {
