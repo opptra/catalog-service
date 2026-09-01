@@ -13,8 +13,10 @@ from entities.catalog.attribute_enums import AttributeName
 
 GALLERY_FACT_BOARD_TOOL_NAME = "submit_fact_board"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
+FILTER_BACKEND_KEYWORDS_TOOL_NAME = "filter_backend_keywords"
 COMPRESSED_BRAND_DNA_TOOL_NAME = "submit_compressed_brand_dna"
 IMAGE_VERIFICATION_TOOL_NAME = "submit_image_verification"
+TEXT_VERIFICATION_TOOL_NAME = "submit_text_verification"
 
 
 def gallery_fact_board_tool() -> dict[str, Any]:
@@ -175,6 +177,77 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
 }
 
 
+TEXT_VERIFICATION_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": TEXT_VERIFICATION_TOOL_NAME,
+        "description": (
+            "Submit copy verification. Audit what the generated copy asserts against "
+            "PRODUCT DATA. Omitted product facts are not a failure."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "claims": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": (
+                        "Integer percentage 0–100 for how well stated copy facts are supported "
+                        "by PRODUCT DATA — not a count of assertions. Use 95+ when all stated "
+                        "facts match and mismatches is []."
+                    ),
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": (
+                        "Brief note on whether stated claims are supported. "
+                        "Do not criticise omitted facts."
+                    ),
+                },
+                "mismatches": {
+                    "type": "array",
+                    "description": (
+                        "Only for facts the copy actually states: contradiction or invented. "
+                        "Never for omitted product facts."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": ["contradiction", "invented"],
+                            },
+                            "source_field": {
+                                "type": "string",
+                                "description": (
+                                    "Exact PRODUCT DATA key when mapped. "
+                                    "Omit for invented."
+                                ),
+                            },
+                            "catalog": {
+                                "type": "string",
+                                "description": (
+                                    "Catalog value when mapped. Omit for invented."
+                                ),
+                            },
+                            "observed": {
+                                "type": "string",
+                                "description": "Text read in the generated copy.",
+                            },
+                        },
+                        "required": ["kind", "observed"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["claims", "reasoning", "mismatches"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 COMPRESSED_BRAND_DNA_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -272,7 +345,7 @@ FALLBACK_TEXT_LIMITS: dict[AttributeName, TextLimit] = {
     AttributeName.KEY_FEATURES: TextLimit(
         item_count=5, per_item_max_chars=100, per_item_min_chars=80
     ),
-    AttributeName.BACKEND_KEYWORDS: TextLimit(min_items=10, max_items=15),
+    AttributeName.BACKEND_KEYWORDS: TextLimit(min_items=0, max_items=50),
 }
 
 # Back-compat alias for imports that still reference TEXT_LIMITS.
@@ -577,3 +650,68 @@ def text_attributes_tool(
             },
         },
     }
+
+
+def filter_backend_keywords_tool(*, candidate_terms: list[str]) -> dict[str, Any]:
+    """Tool schema: return a subset of CI backend keyword candidates (exact strings)."""
+    item_schema: dict[str, Any] = {"type": "string"}
+    if candidate_terms:
+        item_schema["enum"] = candidate_terms
+    return {
+        "type": "function",
+        "function": {
+            "name": FILTER_BACKEND_KEYWORDS_TOOL_NAME,
+            "description": (
+                "Return the backend keyword terms this SKU may use. "
+                "Each item must be an exact string from the candidate list."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "terms": {
+                        "type": "array",
+                        "items": item_schema,
+                        "description": (
+                            "Candidate terms to keep, in preferred order. "
+                            "Subset only — do not add or rephrase."
+                        ),
+                    }
+                },
+                "required": ["terms"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def validate_keyword_subset(selected: Any, candidates: list[str]) -> list[str]:
+    """Keep only exact candidate strings, preserving first-seen order."""
+    if not isinstance(selected, list):
+        return []
+    allowed = set(candidates)
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in selected:
+        if not isinstance(item, str):
+            continue
+        term = item.strip()
+        if not term or term not in allowed or term in seen:
+            continue
+        seen.add(term)
+        out.append(term)
+    return out
+
+
+def trim_terms_to_byte_limit(terms: list[str], max_bytes: int | None) -> list[str]:
+    """Drop trailing terms until the space-joined string fits the byte budget."""
+    if max_bytes is None or max_bytes < 1 or not terms:
+        return terms
+    out: list[str] = []
+    for term in terms:
+        candidate = [*out, term]
+        joined = " ".join(candidate)
+        if len(joined.encode("utf-8")) <= max_bytes:
+            out.append(term)
+        else:
+            break
+    return out

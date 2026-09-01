@@ -81,9 +81,11 @@ class VerificationResult:
     kind: str | None = None
 
     def ship_score(self) -> int | None:
-        """Badge / retry number: min of the hard axes, else stored confidence."""
+        """Badge / retry number: min of the hard axes, else claims-only, else confidence."""
         if self.identity is not None and self.claims is not None:
             return min(self.identity, self.claims)
+        if self.claims is not None:
+            return self.claims
         return self.confidence
 
     def below_threshold(self) -> bool:
