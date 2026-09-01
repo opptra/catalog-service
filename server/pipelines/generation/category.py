@@ -77,21 +77,25 @@ def text_craft_brief(category_intelligence: dict[str, Any], name: AttributeName)
 
 
 def backend_keywords_candidates(category_intelligence: dict[str, Any]) -> dict[str, Any]:
-    """CI ``backend_keywords`` block — candidate term list for the filter step."""
+    """CI ``backend_keywords`` — merged candidate term list for the filter step.
+
+    ``terms`` and ``excluded_because_already_in_copy`` are both candidate pools
+    (the latter name is historical). They are merged; fact-sheet filtering decides
+    what this SKU may keep.
+    """
     raw = category_intelligence.get("backend_keywords")
     if not isinstance(raw, dict):
         return {
             "terms": [],
             "marketplace_limit_bytes": None,
-            "excluded_because_already_in_copy": [],
         }
     terms = raw.get("terms")
+    primary = [str(t) for t in terms if t] if isinstance(terms, list) else []
+    also_in_copy = raw.get("excluded_because_already_in_copy")
+    secondary = [str(x) for x in also_in_copy if x] if isinstance(also_in_copy, list) else []
     return {
-        "terms": [str(t) for t in terms if t] if isinstance(terms, list) else [],
+        "terms": _dedupe([*primary, *secondary]),
         "marketplace_limit_bytes": raw.get("marketplace_limit_bytes"),
-        "excluded_because_already_in_copy": [
-            str(x) for x in (raw.get("excluded_because_already_in_copy") or []) if x
-        ],
     }
 
 

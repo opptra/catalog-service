@@ -18,7 +18,7 @@ _KEYWORD_FILTER_V1_BRIEF = (
 @dataclass(frozen=True, slots=True)
 class TextGeneration:
     values: dict[str, Any]
-    prompt: str  # unique brief persisted as v1 (strategy or filter note)
+    prompt: str  # unique brief persisted as v1 (craft snapshot or filter note)
 
 
 _KEY_FEATURES_V1_BRIEF = (
@@ -35,35 +35,26 @@ def generate_attribute(
     limit: TextLimit | None = None,
     session_id: str | None = None,
 ) -> TextGeneration:
-    """Generate a visible text attribute: strategy from craft topic, then write via tool."""
-    strategy_parts = prompts.text_strategy_parts(ctx, name)
-    strategy = client.generate_text(
-        strategy_parts.suffix,
-        model=settings.openrouter_text_model,
-        cache_prefix=strategy_parts.prefix,
-        session_id=session_id,
-    )
-
-    generation_parts = prompts.text_generation_parts(ctx, name, strategy)
+    """Generate a visible text attribute in one call: fact sheet + craft topic → tool output."""
+    generation_parts = prompts.text_generation_parts(ctx, name)
     result = _generate_via_tool(client, name, generation_parts, limit=limit, session_id=session_id)
-    return TextGeneration(values=result.values, prompt=strategy.strip())
+    return TextGeneration(values=result.values, prompt=prompts.craft_v1_brief(ctx, name))
 
 
 def filter_backend_keywords(
     client: OpenRouterClient,
     ctx: GenerationContext,
     *,
-    title: str | None = None,
     session_id: str | None = None,
 ) -> TextGeneration:
-    """Filter CI ``backend_keywords.terms`` to terms this SKU may use."""
+    """Filter merged CI backend keyword candidates against this SKU's fact sheet."""
     name = AttributeName.BACKEND_KEYWORDS
     candidates = category.backend_keywords_candidates(ctx.category_intelligence)
     terms = candidates.get("terms") or []
     if not terms:
         return TextGeneration(values={name.value: []}, prompt=_KEYWORD_FILTER_V1_BRIEF)
 
-    parts = prompts.keyword_filter_parts(ctx, candidates=candidates, title=title)
+    parts = prompts.keyword_filter_parts(ctx, candidates=candidates, candidate_terms=terms)
     tool = tools.filter_backend_keywords_tool(candidate_terms=terms)
     parsed = client.call_tool(
         parts.suffix,

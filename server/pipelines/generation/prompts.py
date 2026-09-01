@@ -48,17 +48,10 @@ def _text_cache_prefix(ctx: GenerationContext) -> str:
     return f"{_TEXT_RULES}\n\n{_fact_sheet_block(ctx.product)}"
 
 
-def text_strategy_parts(ctx: GenerationContext, name: AttributeName) -> PromptParts:
-    """Strategy prompt: fact sheet prefix; craft topic in suffix."""
+def craft_v1_brief(ctx: GenerationContext, name: AttributeName) -> str:
+    """Persisted v1 brief for regen — category craft snapshot for this attribute."""
     craft = category.text_craft_brief(ctx.category_intelligence, name)
-    suffix = (
-        "You are an expert marketplace listing strategist. Produce a concise, high-signal "
-        f"content strategy for generating {name.value}. Use the CATEGORY CRAFT topic for "
-        "structure and positioning only — every factual claim in the strategy must come from "
-        "the FACT SHEET. Output tight strategy notes in bullets, NOT final copy.\n\n"
-        f"{_craft_block(craft)}"
-    )
-    return PromptParts(prefix=_text_cache_prefix(ctx), suffix=suffix)
+    return _craft_block(craft)
 
 
 def _text_tool_instruction(names: list[AttributeName]) -> str:
@@ -80,18 +73,15 @@ def _text_tool_instruction(names: list[AttributeName]) -> str:
     )
 
 
-def text_generation_parts(
-    ctx: GenerationContext, name: AttributeName, strategy: str
-) -> PromptParts:
-    """Generation prompt: fact sheet prefix; strategy + tool instruction in suffix."""
-    names = [name]
+def text_generation_parts(ctx: GenerationContext, name: AttributeName) -> PromptParts:
+    """Generation prompt: fact sheet prefix; craft topic + tool instruction in suffix."""
     suffix = (
-        "You are an expert marketplace copywriter. Using the STRATEGY and the FACT SHEET above, "
-        f"write the final {name.value}. Every factual claim must be supported by the FACT SHEET; "
-        "when a recommended detail is missing, adapt gracefully with neutral, high-quality copy "
-        "rather than guessing.\n\n"
-        f"STRATEGY:\n{strategy}\n\n"
-        f"{_text_tool_instruction(names)}"
+        "You are an expert marketplace copywriter. Using the CATEGORY CRAFT and the FACT SHEET "
+        f"above, write the final {name.value}. Every factual claim must be supported by the "
+        "FACT SHEET; when craft recommends a detail the fact sheet lacks, adapt gracefully "
+        "with neutral, high-quality copy rather than guessing.\n\n"
+        f"{craft_v1_brief(ctx, name)}\n\n"
+        f"{_text_tool_instruction([name])}"
     )
     return PromptParts(prefix=_text_cache_prefix(ctx), suffix=suffix)
 
@@ -100,29 +90,15 @@ def keyword_filter_parts(
     ctx: GenerationContext,
     *,
     candidates: dict[str, Any],
-    title: str | None = None,
+    candidate_terms: list[str],
 ) -> PromptParts:
-    """Filter CI backend keyword candidates against the fact sheet."""
-    terms = candidates.get("terms") or []
+    """Filter merged CI backend keyword candidates against the fact sheet."""
     byte_limit = candidates.get("marketplace_limit_bytes")
-    excluded = candidates.get("excluded_because_already_in_copy") or []
-    title_block = ""
-    if title and title.strip():
-        title_block = (
-            f"\nGENERATED TITLE (do not repeat words already in the title):\n{title.strip()}\n"
-        )
     limit_note = ""
     if isinstance(byte_limit, int) and byte_limit > 0:
         limit_note = (
             f"\nWhen joined with spaces the kept terms must fit within {byte_limit} bytes "
             "(UTF-8). Prefer fewer terms over paraphrasing.\n"
-        )
-    excluded_note = ""
-    if excluded:
-        excluded_json = json.dumps(excluded, ensure_ascii=False)
-        excluded_note = (
-            "\nThese terms are already in visible listing copy for this category — "
-            f"prefer dropping them unless clearly still needed: {excluded_json}\n"
         )
     suffix = (
         "You filter Amazon backend search-term candidates for this SKU.\n"
@@ -134,9 +110,9 @@ def keyword_filter_parts(
         "(e.g. room type, regional word).\n"
         "- DROP a term when it claims a feature, material, or spec the FACT SHEET lacks or "
         "contradicts.\n"
-        "- DROP terms whose words already appear in the generated title.\n"
-        f"{limit_note}{excluded_note}{title_block}\n"
-        f"CANDIDATE TERMS:\n{json.dumps(terms, ensure_ascii=False, indent=2)}\n\n"
+        "- Duplicating words already used in the title or other visible copy is fine.\n"
+        f"{limit_note}\n"
+        f"CANDIDATE TERMS:\n{json.dumps(candidate_terms, ensure_ascii=False, indent=2)}\n\n"
         "When finished, call the filter_backend_keywords tool with the kept terms in your "
         "preferred order."
     )
@@ -188,7 +164,8 @@ def text_regeneration_parts(
     """Regenerate from v1 brief + current copy + this user note."""
     suffix = (
         "You are an expert marketplace copywriter. Regenerate this attribute in place.\n"
-        "Keep the ORIGINAL BRIEF as the creative direction. Apply ONLY the REQUESTED CHANGE "
+        "Keep the ORIGINAL BRIEF (category craft for this field) as the creative direction. "
+        "Apply ONLY the REQUESTED CHANGE "
         "to the CURRENT OUTPUT. Leave everything else that still fits the brief unchanged. "
         "Do not invent product facts — the FACT SHEET is the only source of facts. "
         "Do not rewrite the original brief; produce the new attribute value.\n\n"

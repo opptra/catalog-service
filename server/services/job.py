@@ -691,12 +691,9 @@ def _run_text(
         name = AttributeName(attribute.name)
         try:
             if name == AttributeName.BACKEND_KEYWORDS:
-                title_raw = raw_values.get(AttributeName.TITLE.value)
-                title = str(title_raw) if title_raw is not None else None
                 generation = text.filter_backend_keywords(
                     client,
                     ctx,
-                    title=title,
                     session_id=session_id,
                 )
             else:
