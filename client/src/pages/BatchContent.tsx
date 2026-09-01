@@ -18,6 +18,7 @@ import ContentImageGrid from '../components/batch-content/ContentImageGrid'
 import AttributeRegenModal, {
   type AttributeRegenTarget,
 } from '../components/batch-content/AttributeRegenModal'
+import { VerificationMark } from '../components/batch-content/VerificationMark'
 import ListingExportPanel from '../components/batch-content/ListingExportPanel'
 import ProductImagesCarousel from '../components/batch-content/ProductImagesCarousel'
 import SkuAttributesModal from '../components/batch-content/SkuAttributesModal'
@@ -479,6 +480,7 @@ function BatchContent() {
       valueExternalId: slot.value_external_id,
       version: slot.version,
       value: slot.value,
+      verification: slot.verification ?? null,
     })
   }
 
@@ -550,14 +552,21 @@ function BatchContent() {
     return (
       <section key={attr.attribute_external_id} className="content-section">
         <div className="content-section__head">
-          <h3 className="content-section__label">{label}</h3>
-          {!pending && counter ? (
-            <span
-              className={`content-counter${overLimit ? ' content-counter--over' : ''}`}
-            >
-              {counter}
-            </span>
-          ) : null}
+          <div className="content-section__head-title">
+            <h3 className="content-section__label">{label}</h3>
+            {!pending && slot?.verification ? (
+              <VerificationMark verification={slot.verification} variant="inline" />
+            ) : null}
+          </div>
+          <div className="content-section__head-meta">
+            {!pending && counter ? (
+              <span
+                className={`content-counter${overLimit ? ' content-counter--over' : ''}`}
+              >
+                {counter}
+              </span>
+            ) : null}
+          </div>
         </div>
         {pending ? (
           <div
