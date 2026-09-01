@@ -2758,10 +2758,25 @@ a {
 
 .content-section__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
+}
+
+.content-section__head-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.content-section__head-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .content-section__label {
@@ -2981,6 +2996,55 @@ a {
 
 .verify-mark__label {
   padding-bottom: 0.5px;
+}
+
+.verify-mark--inline {
+  position: static;
+  height: 22px;
+  padding: 0 10px 0 7px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: rgba(19, 26, 72, 0.06);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.verify-mark--inline svg {
+  width: 12px;
+  height: 12px;
+}
+
+.verify-mark--inline .verify-mark__label {
+  padding-bottom: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.verify-mark--inline.verify-mark--pass {
+  background: rgba(63, 122, 99, 0.1);
+  border-color: rgba(63, 122, 99, 0.22);
+}
+
+.verify-mark--inline.verify-mark--fail {
+  background: rgba(166, 64, 47, 0.08);
+  border-color: rgba(166, 64, 47, 0.2);
+}
+
+.verify-mark--inline.verify-mark--error {
+  background: rgba(196, 122, 18, 0.1);
+  border-color: rgba(196, 122, 18, 0.22);
+}
+
+.attr-regen__panel-head-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
 }
 
 .verify-mark--pass {
@@ -3551,6 +3615,13 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.attr-regen__panel-head-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .attr-regen__panel-label {

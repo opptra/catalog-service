@@ -16,6 +16,7 @@ TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
 FILTER_BACKEND_KEYWORDS_TOOL_NAME = "filter_backend_keywords"
 COMPRESSED_BRAND_DNA_TOOL_NAME = "submit_compressed_brand_dna"
 IMAGE_VERIFICATION_TOOL_NAME = "submit_image_verification"
+TEXT_VERIFICATION_TOOL_NAME = "submit_text_verification"
 
 
 def gallery_fact_board_tool() -> dict[str, Any]:
@@ -170,6 +171,77 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                 "observed_text",
                 "mismatches",
             ],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+TEXT_VERIFICATION_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": TEXT_VERIFICATION_TOOL_NAME,
+        "description": (
+            "Submit copy verification. Audit what the generated copy asserts against "
+            "PRODUCT DATA. Omitted product facts are not a failure."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "claims": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": (
+                        "Integer percentage 0–100 for how well stated copy facts are supported "
+                        "by PRODUCT DATA — not a count of assertions. Use 95+ when all stated "
+                        "facts match and mismatches is []."
+                    ),
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": (
+                        "Brief note on whether stated claims are supported. "
+                        "Do not criticise omitted facts."
+                    ),
+                },
+                "mismatches": {
+                    "type": "array",
+                    "description": (
+                        "Only for facts the copy actually states: contradiction or invented. "
+                        "Never for omitted product facts."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": ["contradiction", "invented"],
+                            },
+                            "source_field": {
+                                "type": "string",
+                                "description": (
+                                    "Exact PRODUCT DATA key when mapped. "
+                                    "Omit for invented."
+                                ),
+                            },
+                            "catalog": {
+                                "type": "string",
+                                "description": (
+                                    "Catalog value when mapped. Omit for invented."
+                                ),
+                            },
+                            "observed": {
+                                "type": "string",
+                                "description": "Text read in the generated copy.",
+                            },
+                        },
+                        "required": ["kind", "observed"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["claims", "reasoning", "mismatches"],
             "additionalProperties": False,
         },
     },

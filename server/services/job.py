@@ -64,6 +64,7 @@ from pipelines.generation import (
     text,
     tools,
     verify,
+    verify_text,
 )
 from pipelines.generation.context import GenerationContext
 from repositories.catalog import attribute_master as attribute_master_repo
@@ -706,6 +707,13 @@ def _run_text(
                 )
             raw = generation.values.get(name.value)
             raw_values[name.value] = raw
+            text_verification = _safe_verify_text(
+                client,
+                ctx,
+                name=name,
+                raw_value=raw,
+                session_id=session_id,
+            )
             persisted.append(
                 _persist_attribute_value(
                     session,
@@ -716,6 +724,7 @@ def _run_text(
                     slot=1,
                     value=_serialize_text_value(name, raw),
                     prompt=generation.prompt,
+                    verification=text_verification,
                 )
             )
             tasks[name.value] = TaskStatus.COMPLETED
@@ -743,6 +752,13 @@ def _run_text(
                 session_id=session_id,
             )
             raw = generation.values.get(name.value)
+            text_verification = _safe_verify_text(
+                client,
+                ctx,
+                name=name,
+                raw_value=raw,
+                session_id=session_id,
+            )
             persisted.append(
                 _persist_attribute_value(
                     session,
@@ -753,6 +769,7 @@ def _run_text(
                     slot=1,
                     value=_serialize_text_value(name, raw),
                     prompt=generation.prompt,
+                    verification=text_verification,
                 )
             )
             tasks[name.value] = TaskStatus.COMPLETED
@@ -866,6 +883,45 @@ def _safe_verify_image(
             attempt=attempt,
             error="verify_tool_call_failed",
         )
+
+
+def _safe_verify_text(
+    client: OpenRouterClient,
+    ctx: GenerationContext,
+    *,
+    name: AttributeName,
+    raw_value: Any,
+    session_id: str | None,
+) -> dict[str, Any]:
+    """Run text claims verification; never raise."""
+    copy = verify_text.format_text_value_for_verification(name, raw_value)
+    if not copy.strip():
+        return verify.persist_payload(
+            verify.VerificationResult(
+                status=verify.STATUS_OK,
+                model=settings.openrouter_verify_model,
+                attempt=1,
+                confidence=100,
+                claims=100,
+                reasoning="Empty copy — nothing to verify.",
+            )
+        )
+    try:
+        result = verify_text.verify_text_attribute(
+            client,
+            attribute_name=name.value,
+            generated_text=copy,
+            product=ctx.product,
+            session_id=session_id,
+        )
+    except Exception:  # noqa: BLE001 — keep generated copy
+        logger.exception("Text product-data verification failed for %s", name.value)
+        result = verify.error_result(
+            model=settings.openrouter_verify_model,
+            attempt=1,
+            error="verify_tool_call_failed",
+        )
+    return verify.persist_payload(result)
 
 
 def _slot_context_from_verification(blob: dict[str, Any] | None) -> tuple[str | None, str | None]:
@@ -2037,6 +2093,13 @@ def _regenerate_attribute_value_body(
             limit=_text_limit_for(session, job.marketplace_id, master.id, name),
             session_id=session_id,
         )
+        text_verification = _safe_verify_text(
+            client,
+            ctx,
+            name=name,
+            raw_value=text_result.value,
+            session_id=session_id,
+        )
         persisted = _persist_attribute_value(
             session,
             sku_generation_job=sku_generation_job,
@@ -2046,6 +2109,7 @@ def _regenerate_attribute_value_body(
             slot=latest.slot,
             value=text_result.value,
             prompt=text_result.prompt,
+            verification=text_verification,
         )
         return {
             "value_external_id": persisted["external_id"],
@@ -2057,7 +2121,7 @@ def _regenerate_attribute_value_body(
             "value": text_result.value,
             "value_is_signed_url": False,
             "prompt": text_result.prompt,
-            "verification": None,
+            "verification": text_verification,
         }
     except AttributeValueRegenerationError:
         raise
