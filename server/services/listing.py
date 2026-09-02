@@ -177,15 +177,14 @@ def fill_listing_for_job(
                 pim_values=state.pim_values,
                 job_values=state.job_values,
                 already_filled=state.already_filled,
-                already_filled_by_key=state.already_filled_by_key,
+                already_filled_by_index=state.already_filled_by_index,
                 product_image_urls=state.product_image_urls,
             )
-            for column_index, value, gap_reason, label, machine_key in stage_results:
+            for column_index, value, gap_reason, label in stage_results:
                 state.row_values[column_index] = value
                 if value:
                     state.already_filled[label] = value
-                    if machine_key:
-                        state.already_filled_by_key[machine_key] = value
+                    state.already_filled_by_index[column_index] = value
                 if gap_reason:
                     stage_gaps.append(
                         ListingFillGap(
@@ -256,7 +255,7 @@ class _SkuFillState:
         "product_image_urls",
         "row_values",
         "already_filled",
-        "already_filled_by_key",
+        "already_filled_by_index",
     )
 
     def __init__(
@@ -273,8 +272,8 @@ class _SkuFillState:
         self.product_image_urls = product_image_urls
         self.row_values: dict[int, str | None] = {}
         self.already_filled: dict[str, str] = {}
-        # machine_key → value (for depends_on / valid_values_by_parent)
-        self.already_filled_by_key: dict[str, str] = {}
+        # column_index → value (for depends_on / valid_values_by_parent)
+        self.already_filled_by_index: dict[int, str] = {}
 
 
 class _ParsedColumn:
@@ -361,7 +360,7 @@ def _values_for_parent(
 def _effective_enum_values(
     col: _ParsedColumn,
     *,
-    already_filled_by_key: dict[str, str],
+    already_filled_by_index: dict[int, str],
 ) -> tuple[list[str] | None, str | None]:
     """Allowed ENUM values after parent filtering.
 
@@ -369,8 +368,8 @@ def _effective_enum_values(
     the list for the already-filled parent (Product Type → League → Team).
     """
     config = col.config
-    if config.depends_on:
-        parent_value = already_filled_by_key.get(config.depends_on)
+    if config.depends_on is not None:
+        parent_value = already_filled_by_index.get(config.depends_on)
         if not parent_value:
             return None, "parent not filled"
         if config.valid_values_by_parent:
@@ -395,31 +394,26 @@ def _resolve_stage(
     pim_values: dict[str, Any],
     job_values: dict[tuple[AttributeName, int], _JobAttrValue],
     already_filled: dict[str, str],
-    already_filled_by_key: dict[str, str],
+    already_filled_by_index: dict[int, str],
     product_image_urls: list[str],
-) -> list[tuple[int, str | None, str | None, str, str | None]]:
+) -> list[tuple[int, str | None, str | None, str]]:
     """Resolve one resolve_stage band.
 
-    Returns list of (column_index, value, gap_reason, label, machine_key).
+    Returns list of (column_index, value, gap_reason, label).
     """
     enum_pending: list[tuple[_ParsedColumn, list[str]]] = []
     ai_text_pending: list[_ParsedColumn] = []
-    results: dict[int, tuple[str | None, str | None, str, str | None]] = {}
+    results: dict[int, tuple[str | None, str | None, str]] = {}
 
     simple: list[_ParsedColumn] = []
     for col in stage_columns:
         fill = col.config.fill_type
         if fill == ListingFillType.ENUM:
             effective, gap = _effective_enum_values(
-                col, already_filled_by_key=already_filled_by_key
+                col, already_filled_by_index=already_filled_by_index
             )
             if effective is None:
-                results[col.column_index] = (
-                    None,
-                    gap,
-                    col.config.label,
-                    col.config.machine_key,
-                )
+                results[col.column_index] = (None, gap, col.config.label)
                 continue
             exact = None
             source = col.config.source
@@ -434,12 +428,7 @@ def _resolve_stage(
                     effective,
                 )
             if exact is not None:
-                results[col.column_index] = (
-                    exact,
-                    None,
-                    col.config.label,
-                    col.config.machine_key,
-                )
+                results[col.column_index] = (exact, None, col.config.label)
             else:
                 enum_pending.append((col, effective))
         elif fill == ListingFillType.AI_TEXT:
@@ -455,12 +444,7 @@ def _resolve_stage(
             pim_values=pim_values,
             job_values=job_values,
         )
-        results[col.column_index] = (
-            value,
-            gap,
-            col.config.label,
-            col.config.machine_key,
-        )
+        results[col.column_index] = (value, gap, col.config.label)
 
     # Fold non-AI results into already_filled so batched AI calls see them.
     stage_filled = dict(already_filled)
@@ -468,18 +452,16 @@ def _resolve_stage(
         packed = results.get(col.column_index)
         if packed is None:
             continue
-        value, _gap, label, machine_key = packed
+        value, _gap, label = packed
         if value:
             stage_filled[label] = value
-            if machine_key:
-                already_filled_by_key[machine_key] = value
+            already_filled_by_index[col.column_index] = value
 
     if enum_pending:
         enums_to_pick = [
             {
                 "column_index": col.column_index,
                 "label": col.config.label,
-                "machine_key": col.config.machine_key,
                 "valid_values": list(effective),
             }
             for col, effective in enum_pending
@@ -503,23 +485,16 @@ def _resolve_stage(
             elif value not in allowed:
                 gap = "ENUM not in valid_values"
                 value = None
-            results[col.column_index] = (
-                value,
-                gap,
-                col.config.label,
-                col.config.machine_key,
-            )
+            results[col.column_index] = (value, gap, col.config.label)
             if value:
                 stage_filled[col.config.label] = value
-                if col.config.machine_key:
-                    already_filled_by_key[col.config.machine_key] = value
+                already_filled_by_index[col.column_index] = value
 
     if ai_text_pending:
         fields = [
             {
                 "column_index": col.column_index,
                 "label": col.config.label,
-                "machine_key": col.config.machine_key,
             }
             for col in ai_text_pending
         ]
@@ -539,20 +514,15 @@ def _resolve_stage(
                     gap = "ALWAYS empty"
                 # OPTIONAL: intentional omit when evidence is weak — not a gap
                 value = None
-            results[col.column_index] = (
-                value,
-                gap,
-                col.config.label,
-                col.config.machine_key,
-            )
+            results[col.column_index] = (value, gap, col.config.label)
 
-    ordered: list[tuple[int, str | None, str | None, str, str | None]] = []
+    ordered: list[tuple[int, str | None, str | None, str]] = []
     for col in stage_columns:
-        value, gap, label, machine_key = results.get(
+        value, gap, label = results.get(
             col.column_index,
-            (None, None, col.config.label, col.config.machine_key),
+            (None, None, col.config.label),
         )
-        ordered.append((col.column_index, value, gap, label, machine_key))
+        ordered.append((col.column_index, value, gap, label))
     return ordered
 
 
