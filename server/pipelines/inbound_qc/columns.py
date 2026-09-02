@@ -36,6 +36,8 @@ _SKIP_MARKERS = (
     "category",
     "sub-category",
     "brand name",
+    "image link",
+    "image drive",
 )
 
 _CHECKLIST_VISUAL = ("color", "pattern", "size", "item_count", "material")

@@ -1,13 +1,22 @@
 import csv
+import zipfile
 from pathlib import Path
 
 import pytest
 
+from core.clients.openrouter import OpenRouterClient
 from core.exceptions.inbound_qc import InboundQcError
+from core.exceptions.openrouter import OpenRouterError
 from pipelines.inbound_qc.category import CATEGORY_BEDSHEET, CATEGORY_GENERIC, detect_category
 from pipelines.inbound_qc.columns import checklist_from_headers
-from pipelines.inbound_qc.extract import extract_prompt, parse_extract_payload
+from pipelines.inbound_qc.extract import (
+    _data_url,
+    _for_vision,
+    extract_prompt,
+    parse_extract_payload,
+)
 from pipelines.inbound_qc.judge import (
+    bedsheet_sizes_are_similar,
     build_judge_pairs,
     judge_prompt,
     parse_judge_payload,
@@ -24,8 +33,19 @@ from pipelines.inbound_qc.types import (
     ItemCounts,
     SkuBundle,
     conflict_is_priority,
+    pick_product_type,
 )
-from pipelines.inbound_qc.view import ReviewStore, finding_payload
+from pipelines.inbound_qc.view import (
+    IMAGE_LINKS_COLUMN,
+    ISSUE_COLUMN,
+    LISTED_COLUMN,
+    PHOTOS_COLUMN,
+    WHY_COLUMN,
+    ReviewStore,
+    build_attributes_with_findings_csv,
+    finding_payload,
+    format_finding_line,
+)
 
 _REPO = Path(__file__).resolve().parents[2]
 _SAMPLE = _REPO / "sample_data" / "one"
@@ -45,6 +65,54 @@ def test_sample_zip_pairs_two_images() -> None:
     assert bundle.sku_id == "COR-B0GQHP66NB"
     assert [image.filename for image in bundle.images] == ["image_01.jpg", "image_02.jpg"]
     assert all(image.content for image in bundle.images)
+
+
+def _mini_catalog(tmp_path: Path) -> tuple[Path, Path]:
+    product = tmp_path / "attributes.csv"
+    product.write_text("SKU,Color\nA,Red\nB,Blue\nC,Green\n", encoding="utf-8")
+    jpeg = b"\xff\xd8\xff" + b"\x00" * 32
+    zip_path = tmp_path / "images.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        for sku_id in ("A", "B", "C"):
+            archive.writestr(f"images/{sku_id}/image_01.jpg", jpeg)
+    return product, zip_path
+
+
+def test_load_sku_bundles_limit_reads_first_n(tmp_path: Path) -> None:
+    product, zip_path = _mini_catalog(tmp_path)
+    bundles = load_sku_bundles(product, zip_path, limit=2)
+    assert [bundle.sku_id for bundle in bundles] == ["A", "B"]
+    assert all(bundle.images for bundle in bundles)
+
+
+def test_load_sku_bundles_sku_ids_then_limit(tmp_path: Path) -> None:
+    product, zip_path = _mini_catalog(tmp_path)
+    bundles = load_sku_bundles(product, zip_path, sku_ids={"C", "B"}, limit=1)
+    assert [bundle.sku_id for bundle in bundles] == ["B"]
+
+
+def test_cli_limit_writes_one_sku(tmp_path: Path) -> None:
+    from pipelines.inbound_qc.cli import main
+
+    product, zip_path = _mini_catalog(tmp_path)
+    rc = main(
+        [
+            "--product",
+            str(product),
+            "--images",
+            str(zip_path),
+            "--limit",
+            "1",
+            "--skip-vision",
+            "--no-review",
+            "--out-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+    assert rc == 0
+    summary = (tmp_path / "out" / "latest" / "summary.csv").read_text(encoding="utf-8")
+    assert "A," in summary
+    assert "B," not in summary
 
 
 def test_judge_pairs_include_intra_row_and_cross_modal() -> None:
@@ -193,6 +261,25 @@ def test_judge_item_count_pair_uses_visible_total() -> None:
     assert count[0].field == "Number of Items"
 
 
+def test_bedsheet_judge_skips_item_count() -> None:
+    bundle = SkuBundle(
+        sku_id="X",
+        attributes={
+            "SKU": "X",
+            "Product Type": "Bedsheet Set",
+            "Number of Items": "3",
+            "Bed Size": "Double",
+        },
+    )
+    extract = ExtractResult(item_counts=ItemCounts(total_visible=1))
+    headers = ["SKU", "Product Type", "Number of Items", "Bed Size"]
+    checklist = checklist_from_headers(headers, attributes=bundle.attributes)
+    assert checklist.category == CATEGORY_BEDSHEET
+    assert "item_count" in checklist.visual
+    pairs = build_judge_pairs(bundle, checklist, extract)
+    assert all(item.pair_id != "cm:item_count" for item in pairs)
+
+
 def test_parse_judge_payload_keeps_only_known_conflicts() -> None:
     bundle = SkuBundle(
         sku_id="X",
@@ -245,6 +332,69 @@ def test_conflict_priority_is_certainty_not_similarity() -> None:
     assert conflict_is_priority(90, None) is True
 
 
+def test_bedsheet_treats_double_queen_king_as_similar() -> None:
+    assert bedsheet_sizes_are_similar("Double", "King") is True
+    assert bedsheet_sizes_are_similar("Queen", "double bed") is True
+    assert bedsheet_sizes_are_similar("Single", "King") is False
+    bundle = SkuBundle(sku_id="X", attributes={"SKU": "X", "Size": "Double", "Bed Size": "Double"})
+    extract = ExtractResult(
+        fields=(
+            ExtractField(
+                name="size",
+                observed="king",
+                visibility="inferred",
+                confidence=70,
+                evidence="room_context",
+            ),
+        )
+    )
+    checklist = checklist_from_headers(
+        ["SKU", "Size", "Bed Size"], attributes={"Size": "Double", "Bed Size": "Double"}
+    )
+    assert checklist.category == CATEGORY_BEDSHEET
+    ids = {item.pair_id for item in build_judge_pairs(bundle, checklist, extract)}
+    assert "cm:size" not in ids
+    single = SkuBundle(sku_id="X", attributes={"SKU": "X", "Size": "Single", "Bed Size": "Single"})
+    ids_single = {
+        item.pair_id
+        for item in build_judge_pairs(
+            single,
+            checklist_from_headers(
+                ["SKU", "Size", "Bed Size"], attributes={"Size": "Single", "Bed Size": "Single"}
+            ),
+            extract,
+        )
+    }
+    assert "cm:size" in ids_single
+
+
+def test_bedsheet_judge_keeps_only_priority_findings() -> None:
+    bundle = SkuBundle(
+        sku_id="X",
+        attributes={"SKU": "X", "Color": "Yellow", "Product Description": "dusty yellow sheet"},
+    )
+    pairs = build_judge_pairs(
+        bundle, checklist_from_headers(["SKU", "Color", "Product Description"]), extract=None
+    )
+    payload = {
+        "conflicts": [
+            {
+                "pair_id": "ir:color",
+                "severity": "medium",
+                "observation_1": "Catalog Color: Yellow",
+                "observation_2": "Title: dusty yellow",
+                "analysis": "same family",
+                "certainty": 88,
+                "similarity": 82,
+            }
+        ]
+    }
+    generic = parse_judge_payload(payload, pairs, "X")
+    assert len(generic) == 1
+    bedsheet = parse_judge_payload(payload, pairs, "X", category=CATEGORY_BEDSHEET)
+    assert bedsheet == []
+
+
 def test_judge_prompt_asks_for_short_structured_analysis() -> None:
     prompt = judge_prompt([])
     assert "observation_1" in prompt
@@ -253,7 +403,12 @@ def test_judge_prompt_asks_for_short_structured_analysis() -> None:
     assert "Do not use OCR" in prompt
     assert "low (drop)" in prompt
     assert "between text and image" in prompt
-    assert "A bedsheet set is the same product type" in prompt
+    assert "Double, Queen, and King" not in prompt
+    bedsheet = judge_prompt([], category=CATEGORY_BEDSHEET)
+    assert "Double, Queen, and King are the same size family" in bedsheet
+    assert "Catalog bedsheet vs photo duvet" in bedsheet
+    assert "Omit product_type only when both sides are bedsheet" in bedsheet
+    assert "Return only priority conflicts for colour and size" in bedsheet
 
 
 def test_finding_payload_flags_certain_mismatch_not_near_match() -> None:
@@ -334,6 +489,9 @@ def test_review_store_sorts_priority_ahead_of_near_match(tmp_path: Path) -> None
     assert hard["findings"][0]["priority"] is True
     assert near["priority_count"] == 0
     assert near["findings"][0]["priority"] is False
+    hard_row = next(item for item in batch["skus"] if item["sku_id"] == "HARD")
+    assert hard_row["findings_preview"][0]["field"] == "Color"
+    store.close()
 
 
 def test_structural_mixed_variants() -> None:
@@ -351,6 +509,119 @@ def test_structural_mixed_variants() -> None:
     assert findings[0].similarity == 0
     assert conflict_is_priority(findings[0].confidence, findings[0].similarity)
     assert structural_findings(bundle, ExtractResult(images_agree=True)) == []
+
+
+def test_duvet_extract_raises_product_type_finding() -> None:
+    bundle = SkuBundle(
+        sku_id="D1",
+        attributes={"SKU": "D1", "Product Type": "Bedsheet Set", "Bed Size": "Double"},
+        images=(ImageRef(filename="image_01.jpg", content=b"x"),),
+    )
+    extract = ExtractResult(
+        fields=(
+            ExtractField(
+                name="product_type",
+                observed="duvet with visible loft",
+                visibility="clear",
+                confidence=88,
+                evidence="on_product",
+                images=("image_01.jpg",),
+            ),
+        )
+    )
+    findings = structural_findings(bundle, extract)
+    assert len(findings) == 1
+    assert findings[0].kind == "cross_modal"
+    assert findings[0].field == "Product Type"
+    assert "duvet" in findings[0].observed.lower()
+    assert conflict_is_priority(findings[0].confidence, findings[0].similarity)
+    checklist = checklist_from_headers(
+        ["SKU", "Product Type", "Bed Size"], attributes=bundle.attributes
+    )
+    ids = {item.pair_id for item in build_judge_pairs(bundle, checklist, extract)}
+    assert "cm:product_type" not in ids
+
+
+def test_product_type_scores_pick_highest_and_flag() -> None:
+    assert pick_product_type(
+        {
+            "bedsheet": 30,
+            "duvet": 80,
+            "comforter": 40,
+            "quilt": 10,
+            "blanket": 5,
+            "duvet_cover": 15,
+        }
+    ) == ("duvet", 80)
+    assert pick_product_type(
+        {
+            "bedsheet": 70,
+            "duvet": 70,
+            "comforter": 0,
+            "quilt": 0,
+            "blanket": 0,
+            "duvet_cover": 0,
+        }
+    ) == ("bedsheet", 70)
+
+    result = parse_extract_payload(
+        {
+            "fields": [
+                {
+                    "name": "product_type",
+                    "observed": "bedsheet",
+                    "visibility": "not_visible",
+                    "confidence": 95,
+                    "evidence": "on_product",
+                    "images": ["image_01.jpg"],
+                }
+            ],
+            "images_agree": True,
+            "product_type_scores": {
+                "bedsheet": 30,
+                "duvet": 80,
+                "comforter": 40,
+                "quilt": 10,
+                "blanket": 5,
+                "duvet_cover": 15,
+            },
+        }
+    )
+    assert result.fields[0].observed == "duvet"
+    assert result.fields[0].confidence == 80
+    assert result.fields[0].visibility == "clear"
+    bundle = SkuBundle(
+        sku_id="D1",
+        attributes={"SKU": "D1", "Product Type": "Bedsheet Set", "Bed Size": "Double"},
+        images=(ImageRef(filename="image_01.jpg", content=b"x"),),
+    )
+    findings = structural_findings(bundle, result)
+    assert len(findings) == 1
+    assert findings[0].observed == "duvet"
+    assert findings[0].confidence == 80
+    assert "duvet 80" in findings[0].notes
+    assert "bedsheet 30" in findings[0].notes
+    assert conflict_is_priority(findings[0].confidence, findings[0].similarity)
+
+
+def test_bedsheet_extract_does_not_flag_product_type() -> None:
+    bundle = SkuBundle(
+        sku_id="S1",
+        attributes={"SKU": "S1", "Product Type": "Bedsheet Set", "Bed Size": "Double"},
+        images=(ImageRef(filename="image_01.jpg", content=b"x"),),
+    )
+    extract = ExtractResult(
+        fields=(
+            ExtractField(
+                name="product_type",
+                observed="flat bedsheet set",
+                visibility="clear",
+                confidence=90,
+                evidence="on_product",
+            ),
+        )
+    )
+    assert structural_findings(bundle, extract) == []
 
 
 def test_parse_extract_payload_round_trip() -> None:
@@ -409,6 +680,31 @@ def test_parse_extract_payload_round_trip() -> None:
     assert aliased.fields[0].name == "size"
 
 
+def test_vision_encodes_tiff_as_jpeg() -> None:
+    from io import BytesIO
+
+    from PIL import Image as PilImage
+
+    buffer = BytesIO()
+    PilImage.new("RGB", (48, 32), color=(12, 34, 56)).save(buffer, format="TIFF")
+    jpeg, content_type = _for_vision(buffer.getvalue(), "image/tiff")
+    assert content_type == "image/jpeg"
+    assert jpeg[:3] == b"\xff\xd8\xff"
+    url = _data_url(
+        ImageRef(filename="sheet.tif", content=buffer.getvalue(), content_type="image/tiff")
+    )
+    assert url is not None
+    assert url.startswith("data:image/jpeg;base64,")
+
+
+def test_tool_arguments_surfaces_provider_error() -> None:
+    with pytest.raises(OpenRouterError, match="Provider returned error"):
+        OpenRouterClient._tool_arguments(
+            {"error": {"message": "Provider returned error"}},
+            tool_name="extract_sku",
+        )
+
+
 def test_checklist_and_tool_are_header_driven_not_category() -> None:
     from pipelines.inbound_qc.tools import extract_tool
 
@@ -433,6 +729,11 @@ def test_bedsheet_category_adds_product_type_to_checklist() -> None:
     checklist = checklist_from_headers(headers, attributes=row)
     assert checklist.category == CATEGORY_BEDSHEET
     assert checklist.visual[0] == "product_type"
+    from pipelines.inbound_qc.tools import extract_tool
+
+    params = extract_tool(checklist)["function"]["parameters"]
+    assert "product_type_scores" in params["properties"]
+    assert "product_type_scores" in params["required"]
     assert (
         detect_category(["SKU", "Color", "Product Type"], {"Product Type": "Bedsheet"})
         == CATEGORY_BEDSHEET
@@ -521,6 +822,159 @@ def test_write_sources_records_absolute_paths(tmp_path: Path) -> None:
     assert str(images.resolve()) in text
 
 
+def test_format_finding_line_and_attributes_export(tmp_path: Path) -> None:
+    line = format_finding_line(
+        {
+            "field": "Color",
+            "catalog_value": "RED",
+            "observed": "gray",
+            "notes": "different",
+            "confidence": 99,
+            "priority": True,
+        }
+    )
+    assert "Color [priority]" in line
+    assert "RED → gray" in line
+    assert "99% certain" in line
+    product = tmp_path / "attributes.csv"
+    product.write_text("SKU,Color\nA,Red\nB,Blue\n", encoding="utf-8")
+    findings = [
+        {
+            "sku_id": "A",
+            "severity": "warning",
+            "kind": "cross_modal",
+            "field": "Color",
+            "catalog_value": "Red",
+            "observed": "Blue",
+            "visibility": "",
+            "confidence": "95",
+            "similarity": "10",
+            "image_files": "",
+            "observation_1": "",
+            "observation_2": "",
+            "notes": "mismatch",
+            "manager_verdict": "",
+            "manager_note": "",
+        }
+    ]
+    text = build_attributes_with_findings_csv(product, findings).decode("utf-8")
+    reader = csv.DictReader(text.splitlines())
+    assert ISSUE_COLUMN in (reader.fieldnames or [])
+    assert IMAGE_LINKS_COLUMN in (reader.fieldnames or [])
+    rows = list(reader)
+    assert [row["SKU"] for row in rows] == ["A"]
+    assert rows[0]["Color"] == "Red"
+    assert rows[0][ISSUE_COLUMN] == "Color"
+    assert rows[0][LISTED_COLUMN] == "Red"
+    assert rows[0][PHOTOS_COLUMN] == "Blue"
+    assert rows[0][WHY_COLUMN] == "mismatch"
+    assert rows[0][IMAGE_LINKS_COLUMN] == ""
+
+
+def test_export_csv_adds_image_links_from_sidecar(tmp_path: Path) -> None:
+    product = tmp_path / "attributes.csv"
+    product.write_text("SKU,Color\nA,Red\nB,Blue\n", encoding="utf-8")
+    (tmp_path / "image_links.csv").write_text(
+        "SKU,Image links\n"
+        "A,https://drive.google.com/file/d/one/view; https://drive.google.com/file/d/two/view\n"
+        "B,https://drive.google.com/file/d/bee/view\n",
+        encoding="utf-8",
+    )
+    findings = [
+        {
+            "sku_id": "A",
+            "severity": "warning",
+            "kind": "cross_modal",
+            "field": "Color",
+            "catalog_value": "Red",
+            "observed": "Blue",
+            "visibility": "",
+            "confidence": "95",
+            "similarity": "10",
+            "image_files": "image_02.jpg",
+            "observation_1": "",
+            "observation_2": "",
+            "notes": "mismatch",
+            "manager_verdict": "",
+            "manager_note": "",
+        }
+    ]
+    text = build_attributes_with_findings_csv(product, findings).decode("utf-8")
+    rows = list(csv.DictReader(text.splitlines()))
+    assert [row["SKU"] for row in rows] == ["A"]
+    assert rows[0][IMAGE_LINKS_COLUMN] == "https://drive.google.com/file/d/two/view"
+
+
+def test_export_keeps_only_priority_issues(tmp_path: Path) -> None:
+    product = tmp_path / "attributes.csv"
+    product.write_text("SKU,Color\nA,Red\nB,Blue\nC,Green\n", encoding="utf-8")
+    findings = [
+        {
+            "sku_id": "A",
+            "severity": "warning",
+            "kind": "cross_modal",
+            "field": "Color",
+            "catalog_value": "catalog Color: RED",
+            "observed": "image shows gray floral",
+            "visibility": "",
+            "confidence": "95",
+            "similarity": "10",
+            "image_files": "image_01.jpg",
+            "observation_1": "",
+            "observation_2": "",
+            "notes": (
+                "Photos look like a filled covering, not a bedsheet. Scores: duvet 90, bedsheet 20."
+            ),
+            "manager_verdict": "",
+            "manager_note": "",
+        },
+        {
+            "sku_id": "A",
+            "severity": "warning",
+            "kind": "cross_modal",
+            "field": "Product Type",
+            "catalog_value": "Bedsheet Set",
+            "observed": "duvet cover",
+            "visibility": "",
+            "confidence": "92",
+            "similarity": "10",
+            "image_files": "image_01.jpg",
+            "observation_1": "",
+            "observation_2": "",
+            "notes": "Photos look like a filled covering, not a bedsheet.",
+            "manager_verdict": "",
+            "manager_note": "",
+        },
+        {
+            "sku_id": "B",
+            "severity": "warning",
+            "kind": "cross_modal",
+            "field": "Color",
+            "catalog_value": "Blue",
+            "observed": "navy",
+            "visibility": "",
+            "confidence": "88",
+            "similarity": "82",
+            "image_files": "",
+            "observation_1": "",
+            "observation_2": "",
+            "notes": "same family",
+            "manager_verdict": "",
+            "manager_note": "",
+        },
+    ]
+    text = build_attributes_with_findings_csv(product, findings).decode("utf-8")
+    rows = list(csv.DictReader(text.splitlines()))
+    assert [row["SKU"] for row in rows] == ["A", "A"]
+    assert [row[ISSUE_COLUMN] for row in rows] == ["Color", "Product Type"]
+    assert rows[0][LISTED_COLUMN] == "RED"
+    assert rows[0][PHOTOS_COLUMN] == "image shows gray floral"
+    assert rows[0][WHY_COLUMN] == "Photos look like a filled covering, not a bedsheet."
+    assert "Scores" not in rows[0][WHY_COLUMN]
+    assert rows[1][LISTED_COLUMN] == "Bedsheet Set"
+    assert rows[1][PHOTOS_COLUMN] == "duvet cover"
+
+
 def test_review_store_skips_ocr_findings_and_maps_images(tmp_path: Path) -> None:
     report = tmp_path / "report"
     findings = [
@@ -599,6 +1053,31 @@ def test_review_store_skips_ocr_findings_and_maps_images(tmp_path: Path) -> None
     photo = store.image("COR-B0GQHP66NB", "image_01.jpg")
     assert photo.content
     assert photo.content_type == "image/jpeg"
+    store.close()
+
+
+def test_review_store_serves_tiff_as_preview_jpeg(tmp_path: Path) -> None:
+    from io import BytesIO
+
+    from PIL import Image as PilImage
+
+    product = tmp_path / "attributes.csv"
+    product.write_text("SKU,Color\nTIFSKU,Red\n", encoding="utf-8")
+    tiff = BytesIO()
+    PilImage.new("RGB", (48, 32), color=(9, 8, 7)).save(tiff, format="TIFF")
+    zip_path = tmp_path / "images.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("images/TIFSKU/image_01.tif", tiff.getvalue())
+    report = tmp_path / "report"
+    write_reports([], sku_ids=["TIFSKU"], directory=report)
+    store = ReviewStore.open(report, product=product, images=zip_path)
+    assert store.sku_payload("TIFSKU")["images"][0]["content_type"] == "image/jpeg"
+    photo = store.image("TIFSKU", "image_01.tif")
+    assert photo.content_type == "image/jpeg"
+    assert photo.content
+    assert photo.content[:3] == b"\xff\xd8\xff"
+    assert store.image("TIFSKU", "image_01.tif").content is photo.content
+    store.close()
 
 
 def test_read_sku_image_rejects_path_traversal() -> None:
@@ -615,7 +1094,10 @@ def test_extract_prompt_observes_photos_not_catalog() -> None:
         bundle, checklist_from_headers(list(bundle.attributes), attributes=bundle.attributes)
     )
     assert "Look only at the product photos" in prompt
-    assert "bedsheet SKU" in prompt
+    assert "lists this as a bedsheet" in prompt
+    assert "product_type_scores" in prompt
+    assert "independently" in prompt
+    assert "visible loft" in prompt
     assert "duvet" in prompt
     assert "comforter" in prompt
     assert "pillow" not in prompt.lower()
@@ -662,6 +1144,7 @@ def test_cli_no_review_writes_reports(tmp_path: Path) -> None:
     assert rc == 0
     assert (tmp_path / "latest" / "findings.csv").is_file()
     assert (tmp_path / "latest" / "sources.json").is_file()
+    assert (tmp_path / "latest" / "attributes_with_priority_issues.csv").is_file()
 
 
 def test_cli_launches_review_after_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

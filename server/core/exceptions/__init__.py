@@ -28,6 +28,7 @@ from core.exceptions.listing import (
     ListingTemplateNotFoundError,
 )
 from core.exceptions.openrouter import OpenRouterError
+from core.exceptions.pack_inbound_inputs import PackInboundInputsError
 from core.exceptions.sku_generation_job import (
     BrandDnaMissingError,
     CategoryIntelligenceMissingError,
@@ -73,6 +74,7 @@ __all__ = [
     "ListingTemplateNotFoundError",
     "MarketplaceNotFoundError",
     "OpenRouterError",
+    "PackInboundInputsError",
     "ProductNotFoundError",
     "RoleNotFoundError",
     "SkuGenerationJobExecutionFailedError",

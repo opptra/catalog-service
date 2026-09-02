@@ -27,6 +27,7 @@ from pipelines.inbound_qc.loaders import load_sku_bundles
 from pipelines.inbound_qc.report import write_reports, write_sources
 from pipelines.inbound_qc.run import run_inbound_qc
 from pipelines.inbound_qc.types import Finding, SkuBundle, conflict_is_priority
+from pipelines.inbound_qc.view import load_findings, write_attributes_with_findings
 from pipelines.inbound_qc.viewer import DEFAULT_HOST, DEFAULT_PORT, serve_review
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,21 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_REPORT_ROOT = _REPO_ROOT / "local-data" / "inbound-qc"
 _DEFAULT_WORKERS = 8
+
+
+def _positive_int(raw: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return value
+
+
+def _wanted_sku_ids(raw: str) -> set[str] | None:
+    wanted = {item.strip() for item in raw.split(",") if item.strip()}
+    return wanted or None
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -48,6 +64,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--sku-ids",
         default="",
         help="Comma-separated SKU ids to run (default: all rows)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=_positive_int,
+        default=None,
+        metavar="N",
+        help="Run only the first N SKUs (CSV order; applied after --sku-ids)",
     )
     parser.add_argument(
         "--skip-vision",
@@ -71,17 +94,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _filter_bundles(bundles: list[SkuBundle], sku_ids_raw: str) -> list[SkuBundle]:
-    wanted = {item.strip() for item in sku_ids_raw.split(",") if item.strip()}
-    if not wanted:
-        return bundles
-    selected = [bundle for bundle in bundles if bundle.sku_id in wanted]
-    missing = wanted - {bundle.sku_id for bundle in selected}
-    if missing:
-        raise InboundQcError(f"SKU id(s) not in product file: {sorted(missing)}")
-    return selected
-
-
 def _run_one(
     bundle: SkuBundle,
     *,
@@ -97,9 +109,11 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _parse_args(argv)
     try:
-        bundles = _filter_bundles(
-            load_sku_bundles(args.product.expanduser(), args.images.expanduser()),
-            args.sku_ids,
+        bundles = load_sku_bundles(
+            args.product.expanduser(),
+            args.images.expanduser(),
+            sku_ids=_wanted_sku_ids(args.sku_ids),
+            limit=args.limit,
         )
     except InboundQcError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -182,8 +196,16 @@ def main(argv: list[str] | None = None) -> int:
     write_reports(findings, sku_ids=sku_ids, directory=latest_dir)
     write_sources(run_dir, product=product, images=images)
     write_sources(latest_dir, product=product, images=images)
+    export_findings = load_findings(run_dir)
+    export_path = write_attributes_with_findings(
+        run_dir, product_path=product, findings=export_findings, images_path=images
+    )
+    write_attributes_with_findings(
+        latest_dir, product_path=product, findings=export_findings, images_path=images
+    )
     print(f"findings: {findings_path}", flush=True)
     print(f"summary:  {summary_path}", flush=True)
+    print(f"export:   {export_path}", flush=True)
     print(f"latest:   {latest_dir / 'findings.csv'}", flush=True)
     if args.no_review:
         print(f"review:   python -m pipelines.inbound_qc.viewer --report {latest_dir}", flush=True)

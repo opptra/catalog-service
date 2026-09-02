@@ -21,11 +21,12 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from core.exceptions.inbound_qc import InboundQcError
-from pipelines.inbound_qc.view import ReviewStore
+from pipelines.inbound_qc.view import PRIORITY_EXPORT_NAME, ReviewStore
 
 _PAGE = Path(__file__).with_name("review.html")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+_DISCONNECT = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -62,13 +63,30 @@ def _make_handler(store: ReviewStore) -> type[BaseHTTPRequestHandler]:
                 return
             super().log_message(fmt, *args)
 
-        def _send(self, status: int, body: bytes, content_type: str) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+        def handle(self) -> None:
+            try:
+                super().handle()
+            except _DISCONNECT:
+                return
+
+        def _send(
+            self,
+            status: int,
+            body: bytes,
+            content_type: str,
+            extra_headers: dict[str, str] | None = None,
+        ) -> None:
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                for key, value in (extra_headers or {}).items():
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(body)
+            except _DISCONNECT:
+                return
 
         def _send_json(self, status: int, payload: object) -> None:
             self._send(status, _json_bytes(payload), "application/json; charset=utf-8")
@@ -83,6 +101,17 @@ def _make_handler(store: ReviewStore) -> type[BaseHTTPRequestHandler]:
             if path == "/api/batch":
                 self._send_json(200, store.batch_payload())
                 return
+            if path == "/api/export/attributes.csv":
+                body = store.attributes_csv_with_findings()
+                self._send(
+                    200,
+                    body,
+                    "text/csv; charset=utf-8",
+                    extra_headers={
+                        "Content-Disposition": (f'attachment; filename="{PRIORITY_EXPORT_NAME}"')
+                    },
+                )
+                return
 
             sku_image_prefix = "/api/sku/"
             if path.startswith(sku_image_prefix):
@@ -93,6 +122,9 @@ def _make_handler(store: ReviewStore) -> type[BaseHTTPRequestHandler]:
                         photo = store.image(sku_id, filename)
                     except InboundQcError as exc:
                         self._send_json(404, {"error": str(exc)})
+                        return
+                    except (OSError, ValueError) as exc:
+                        self._send_json(500, {"error": f"Could not preview image: {exc}"})
                         return
                     body = photo.content or b""
                     self._send(200, body, photo.content_type)
@@ -106,6 +138,13 @@ def _make_handler(store: ReviewStore) -> type[BaseHTTPRequestHandler]:
             self._send_json(404, {"error": "not found"})
 
     return Handler
+
+
+class _ReviewServer(ThreadingHTTPServer):
+    def handle_error(self, request: object, client_address: object) -> None:
+        if isinstance(sys.exception(), _DISCONNECT):
+            return
+        super().handle_error(request, client_address)
 
 
 def serve_review(
@@ -128,7 +167,7 @@ def serve_review(
         return 2
 
     handler = _make_handler(store)
-    server = ThreadingHTTPServer((host, port), handler)
+    server = _ReviewServer((host, port), handler)
     url = f"http://{host}:{port}/"
     print(f"Inbound QC review: {url}", flush=True)
     print(f"report:  {store.report_dir}", flush=True)
@@ -142,6 +181,7 @@ def serve_review(
         print("\nstopped")
     finally:
         server.server_close()
+        store.close()
     return 0
 
 

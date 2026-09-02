@@ -6,7 +6,7 @@ import copy
 from typing import Any
 
 from pipelines.inbound_qc.category import CATEGORY_BEDSHEET
-from pipelines.inbound_qc.types import Checklist
+from pipelines.inbound_qc.types import BEDSHEET_TYPE_SCORE_KEYS, Checklist
 
 INBOUND_QC_EXTRACT_TOOL_NAME = "submit_inbound_qc_extract"
 INBOUND_QC_JUDGE_TOOL_NAME = "submit_inbound_qc_judge"
@@ -172,4 +172,26 @@ def extract_tool(checklist: Checklist) -> dict[str, Any]:
     params["properties"]["fields"]["items"]["properties"]["name"]["enum"] = names
     if "item_count" not in names:
         params["properties"].pop("item_counts", None)
+    if checklist.category == CATEGORY_BEDSHEET:
+        score_props = {
+            key: {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+            }
+            for key in BEDSHEET_TYPE_SCORE_KEYS
+        }
+        params["properties"]["product_type_scores"] = {
+            "type": "object",
+            "description": (
+                "How much the photos look like each covering, independently. "
+                "0–100. Do not force the scores to sum to 100. "
+                "A thin sheet is high bedsheet and near-zero duvet/comforter. "
+                "A puffy filled covering is high duvet or comforter and low bedsheet."
+            ),
+            "properties": score_props,
+            "required": list(BEDSHEET_TYPE_SCORE_KEYS),
+            "additionalProperties": False,
+        }
+        params["required"] = ["fields", "images_agree", "product_type_scores"]
     return tool

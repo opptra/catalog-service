@@ -35,9 +35,22 @@
         padding: 1rem 1.25rem;
         border-bottom: 1px solid var(--line);
         background: var(--panel);
+        align-items: flex-start;
       }
       header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
       header p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.8rem; }
+      .header-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+      .export {
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-size: 0.8rem;
+        color: var(--accent);
+        background: var(--accent-soft);
+        text-decoration: none;
+        padding: 0.4rem 0.7rem;
+        border-radius: 8px;
+        white-space: nowrap;
+      }
+      .export:hover { background: #dce8e2; }
       .stats { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
       .chip {
         font-family: ui-sans-serif, system-ui, sans-serif;
@@ -65,6 +78,7 @@
         background: #fff;
       }
       .sku-list { overflow: auto; padding: 0 0.5rem 0.75rem; }
+      .sku-wrap { margin-bottom: 0.15rem; }
       .sku {
         width: 100%;
         text-align: left;
@@ -78,6 +92,43 @@
       .sku:hover, .sku.active { background: var(--accent-soft); }
       .sku strong { display: block; font-size: 0.9rem; }
       .sku span { color: var(--muted); font-size: 0.75rem; font-family: ui-sans-serif, system-ui, sans-serif; }
+      .sku-warnings {
+        margin: 0 0.35rem 0.4rem 0.7rem;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-size: 0.72rem;
+        color: var(--muted);
+      }
+      .sku-warnings summary {
+        cursor: pointer;
+        color: var(--warn);
+        list-style: none;
+      }
+      .sku-warnings summary::-webkit-details-marker { display: none; }
+      .sku-warnings summary::before { content: "▸ "; }
+      .sku-warnings[open] summary::before { content: "▾ "; }
+      .sku-warnings ul { margin: 0.3rem 0 0; padding: 0 0 0 0.9rem; }
+      .sku-warnings li { margin: 0.2rem 0; }
+      .sku-warnings li.priority { color: var(--block); }
+      .sku-priority {
+        margin: 0 0.35rem 0.25rem 0.7rem;
+        padding: 0 0 0 0.9rem;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-size: 0.72rem;
+        color: var(--block);
+      }
+      .sku-priority li { margin: 0.2rem 0; }
+      details.findings-panel { font-family: ui-sans-serif, system-ui, sans-serif; }
+      details.findings-panel summary {
+        cursor: pointer;
+        font-size: 0.95rem;
+        font-weight: 600;
+        font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      }
+      details.findings-panel .findings { margin-top: 0.75rem; }
+      .findings-heading {
+        margin: 0 0 0.75rem;
+        font-size: 0.95rem;
+      }
       main { overflow: auto; padding: 1rem 1.25rem 2rem; }
       .empty { color: var(--muted); padding: 2rem 0; }
       section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
@@ -149,7 +200,10 @@
         <h1>Inbound QC review</h1>
         <p id="paths">Loading report…</p>
       </div>
-      <div class="stats" id="stats"></div>
+      <div class="header-actions">
+        <div class="stats" id="stats"></div>
+        <a class="export" href="/api/export/attributes.csv">Export priority issues</a>
+      </div>
     </header>
     <div class="layout">
       <aside>
@@ -189,6 +243,108 @@
         return el;
       }
 
+      function findingLine(finding) {
+        const field = finding.field || finding.conflict_type || "finding";
+        const left = finding.catalog_value || "";
+        const right = finding.observed || "";
+        let text = field;
+        if (left && right) text += `: ${left} → ${right}`;
+        else if (left || right) text += `: ${left || right}`;
+        return text;
+      }
+
+      function findingFields(findings) {
+        return [...new Set(findings.map((item) => item.field).filter(Boolean))].join(", ");
+      }
+
+      function splitFindings(findings) {
+        const priority = [];
+        const extra = [];
+        for (const item of findings) {
+          if (item.priority) priority.push(item);
+          else extra.push(item);
+        }
+        return { priority, extra };
+      }
+
+      function findingList(findings, className) {
+        const ul = document.createElement("ul");
+        ul.className = className;
+        for (const finding of findings) {
+          const li = document.createElement("li");
+          if (finding.priority) li.className = "priority";
+          li.textContent = findingLine(finding);
+          ul.append(li);
+        }
+        return ul;
+      }
+
+      function findingCard(finding) {
+        const card = document.createElement("article");
+        card.className = "finding " + finding.severity + (finding.priority ? " priority" : "");
+        card.dataset.field = finding.field;
+        card.dataset.kind = finding.kind;
+        const row = document.createElement("div");
+        row.className = "meta";
+        if (finding.priority) row.append(badge("priority", "priority"));
+        row.append(badge(finding.conflict_type || finding.kind, "type"), badge(finding.field));
+        const compare = document.createElement("div");
+        compare.className = "compare";
+        const obs1 = finding.observation_1 || finding.catalog_value;
+        const obs2 = finding.observation_2 || finding.observed;
+        if (obs1) {
+          const one = document.createElement("div");
+          one.innerHTML = `<strong>Observation 1</strong> ${escapeHtml(obs1)}`;
+          compare.append(one);
+        }
+        if (obs2) {
+          const two = document.createElement("div");
+          two.innerHTML = `<strong>Observation 2</strong> ${escapeHtml(obs2)}`;
+          compare.append(two);
+        }
+        const analysisText = finding.notes || "";
+        if (analysisText) {
+          const analysis = document.createElement("div");
+          analysis.className = "analysis";
+          const label = document.createElement("strong");
+          label.textContent = "Analysis ";
+          analysis.append(label, document.createTextNode(analysisText));
+          compare.append(analysis);
+        }
+        const scores = document.createElement("div");
+        scores.className = "scores";
+        if (finding.confidence != null) {
+          scores.append(chip(`Certainty ${finding.confidence}%`));
+        }
+        if (finding.similarity != null) {
+          const similar = finding.similarity > 50 ? " · near-match" : "";
+          scores.append(chip(`Similarity ${finding.similarity}%${similar}`));
+        }
+        if (scores.childNodes.length) compare.append(scores);
+        card.append(row, compare);
+        card.addEventListener("click", () => highlightFromFinding(finding));
+        return card;
+      }
+
+      function findingCards(findings) {
+        const wrap = document.createElement("div");
+        wrap.className = "findings";
+        for (const finding of findings) wrap.append(findingCard(finding));
+        return wrap;
+      }
+
+      function extraWarningsPanel(findings, className) {
+        const details = document.createElement("details");
+        details.className = className;
+        const summary = document.createElement("summary");
+        const fields = findingFields(findings);
+        summary.textContent =
+          `${findings.length} extra warning${findings.length === 1 ? "" : "s"}` +
+          (fields ? ` · ${fields}` : "");
+        details.append(summary);
+        return details;
+      }
+
       function renderList() {
         const q = $("search").value.trim().toLowerCase();
         const filter = $("filter").value;
@@ -200,6 +356,8 @@
           if (filter === "priority" && sku.priority_count === 0) continue;
           if (filter === "blockers" && sku.blocker_count === 0) continue;
           if (filter === "clean" && sku.finding_count > 0) continue;
+          const wrap = document.createElement("div");
+          wrap.className = "sku-wrap";
           const btn = document.createElement("button");
           btn.className = "sku" + (sku.sku_id === state.selected ? " active" : "");
           btn.type = "button";
@@ -213,7 +371,16 @@
             : "no findings";
           btn.append(title, meta);
           btn.addEventListener("click", () => selectSku(sku.sku_id));
-          list.append(btn);
+          wrap.append(btn);
+          const preview = sku.findings_preview || [];
+          const { priority, extra } = splitFindings(preview);
+          if (priority.length) wrap.append(findingList(priority, "sku-priority"));
+          if (extra.length) {
+            const details = extraWarningsPanel(extra, "sku-warnings");
+            details.append(findingList(extra, ""));
+            wrap.append(details);
+          }
+          list.append(wrap);
         }
       }
 
@@ -254,59 +421,24 @@
         root.append(intro);
 
         const findingSection = document.createElement("section");
-        findingSection.append(Object.assign(document.createElement("h2"), { textContent: "Findings" }));
         if (!sku.findings.length) {
+          findingSection.append(Object.assign(document.createElement("h2"), { className: "findings-heading", textContent: "Warnings" }));
           findingSection.append(Object.assign(document.createElement("p"), { className: "empty", textContent: "Nothing to review." }));
         } else {
-          const wrap = document.createElement("div");
-          wrap.className = "findings";
-          for (const finding of sku.findings) {
-            const card = document.createElement("article");
-            card.className = "finding " + finding.severity + (finding.priority ? " priority" : "");
-            card.dataset.field = finding.field;
-            card.dataset.kind = finding.kind;
-            const row = document.createElement("div");
-            row.className = "meta";
-            if (finding.priority) row.append(badge("priority", "priority"));
-            row.append(badge(finding.conflict_type || finding.kind, "type"), badge(finding.field));
-            const compare = document.createElement("div");
-            compare.className = "compare";
-            const obs1 = finding.observation_1 || finding.catalog_value;
-            const obs2 = finding.observation_2 || finding.observed;
-            if (obs1) {
-              const one = document.createElement("div");
-              one.innerHTML = `<strong>Observation 1</strong> ${escapeHtml(obs1)}`;
-              compare.append(one);
-            }
-            if (obs2) {
-              const two = document.createElement("div");
-              two.innerHTML = `<strong>Observation 2</strong> ${escapeHtml(obs2)}`;
-              compare.append(two);
-            }
-            const analysisText = finding.notes || "";
-            if (analysisText) {
-              const analysis = document.createElement("div");
-              analysis.className = "analysis";
-              const label = document.createElement("strong");
-              label.textContent = "Analysis ";
-              analysis.append(label, document.createTextNode(analysisText));
-              compare.append(analysis);
-            }
-            const scores = document.createElement("div");
-            scores.className = "scores";
-            if (finding.confidence != null) {
-              scores.append(chip(`Certainty ${finding.confidence}%`));
-            }
-            if (finding.similarity != null) {
-              const similar = finding.similarity > 50 ? " · near-match" : "";
-              scores.append(chip(`Similarity ${finding.similarity}%${similar}`));
-            }
-            if (scores.childNodes.length) compare.append(scores);
-            card.append(row, compare);
-            card.addEventListener("click", () => highlightFromFinding(finding));
-            wrap.append(card);
+          const { priority, extra } = splitFindings(sku.findings);
+          if (priority.length) {
+            const heading = document.createElement("h2");
+            heading.className = "findings-heading";
+            heading.textContent =
+              `${priority.length} priority finding${priority.length === 1 ? "" : "s"}` +
+              (findingFields(priority) ? ` · ${findingFields(priority)}` : "");
+            findingSection.append(heading, findingCards(priority));
           }
-          findingSection.append(wrap);
+          if (extra.length) {
+            const details = extraWarningsPanel(extra, "findings-panel");
+            details.append(findingCards(extra));
+            findingSection.append(details);
+          }
         }
         root.append(findingSection);
 

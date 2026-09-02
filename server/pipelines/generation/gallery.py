@@ -284,30 +284,45 @@ def _select_slots(
     quantity: int,
     fact_board: FactBoard,
 ) -> list[dict[str, Any]]:
-    """Select exactly ``quantity`` slots (dedupe by owns; prefer fact-supported overlays)."""
-    selected: list[dict[str, Any]] = []
-    used: set[str] = set()
+    """Select exactly ``quantity`` slots (dedupe by owns; prefer fact-supported overlays).
 
-    for slot in candidate_slots:
+    Unique owns/role keys are taken first. When that palette is shorter than
+    ``quantity`` (CI often repeats a hero role without ``owns``), leftover
+    unused candidates fill the remaining slots so the job does not fail.
+    """
+    selected: list[dict[str, Any]] = []
+    used_keys: set[str] = set()
+    used_indexes: set[int] = set()
+
+    def _add(index: int, slot: dict[str, Any]) -> None:
+        selected.append(slot)
+        used_keys.add(_dup_key(slot))
+        used_indexes.add(index)
+
+    for index, slot in enumerate(candidate_slots):
         if len(selected) >= quantity:
             break
-        key = _dup_key(slot)
-        if key in used:
+        if _dup_key(slot) in used_keys:
             continue
         if not _slot_has_any_fact(slot=slot, fact_board=fact_board):
             continue
-        used.add(key)
-        selected.append(slot)
+        _add(index, slot)
 
     if len(selected) < quantity:
-        for slot in candidate_slots:
+        for index, slot in enumerate(candidate_slots):
             if len(selected) >= quantity:
                 break
-            key = _dup_key(slot)
-            if key in used:
+            if index in used_indexes or _dup_key(slot) in used_keys:
                 continue
-            used.add(key)
-            selected.append(slot)
+            _add(index, slot)
+
+    if len(selected) < quantity:
+        for index, slot in enumerate(candidate_slots):
+            if len(selected) >= quantity:
+                break
+            if index in used_indexes:
+                continue
+            _add(index, slot)
 
     if len(selected) != quantity:
         raise GalleryPlanError(

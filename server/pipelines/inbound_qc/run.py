@@ -62,7 +62,15 @@ def run_inbound_qc(
 
     pairs = build_judge_pairs(bundle, checklist, extract)
     try:
-        findings.extend(judge_pairs(client, pairs, model=model, sku_id=bundle.sku_id))
+        findings.extend(
+            judge_pairs(
+                client,
+                pairs,
+                model=model,
+                sku_id=bundle.sku_id,
+                category=checklist.category,
+            )
+        )
     except (OpenRouterError, ValueError, OSError) as exc:
         logger.exception("Inbound QC judge failed sku_id=%s", bundle.sku_id)
         findings.append(

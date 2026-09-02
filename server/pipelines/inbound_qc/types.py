@@ -22,6 +22,39 @@ CONFLICT_TYPE_LABELS: dict[str, str] = {
 PRIORITY_CERTAINTY_MIN = 80
 PRIORITY_SIMILARITY_MAX = 50
 
+# Independent 0–100 scores from bedsheet extract. Highest score wins.
+BEDSHEET_TYPE_SCORE_KEYS = (
+    "bedsheet",
+    "duvet",
+    "comforter",
+    "quilt",
+    "blanket",
+    "duvet_cover",
+)
+
+
+def pick_product_type(scores: dict[str, int]) -> tuple[str, int] | None:
+    """Highest independent score wins. A tie keeps bedsheet."""
+    if not scores:
+        return None
+    winner = max(
+        BEDSHEET_TYPE_SCORE_KEYS,
+        key=lambda key: (scores.get(key, 0), key == "bedsheet"),
+    )
+    score = scores.get(winner, 0)
+    if score <= 0:
+        return None
+    return winner, score
+
+
+def format_type_scores(scores: dict[str, int]) -> str:
+    ranked = sorted(
+        ((key.replace("_", " "), value) for key, value in scores.items() if value > 0),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    return ", ".join(f"{name} {value}" for name, value in ranked)
+
 
 def conflict_is_priority(certainty: int | None, similarity: int | None) -> bool:
     """Certain contradiction, not a high-similarity near-match."""
@@ -98,3 +131,4 @@ class ExtractResult:
     fields: tuple[ExtractField, ...] = ()
     images_agree: bool = True
     item_counts: ItemCounts = field(default_factory=ItemCounts)
+    product_type_scores: dict[str, int] = field(default_factory=dict)

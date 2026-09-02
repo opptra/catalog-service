@@ -77,13 +77,18 @@ def _iter_sku_image_members(archive: zipfile.ZipFile) -> list[tuple[str, str, st
     return entries
 
 
-def _read_zip_images(zip_path: Path) -> dict[str, list[ImageRef]]:
+def _read_zip_images(
+    zip_path: Path,
+    sku_ids: set[str] | None = None,
+) -> dict[str, list[ImageRef]]:
     if not zip_path.is_file():
         raise InboundQcError(f"Images ZIP not found: {zip_path}")
 
     with zipfile.ZipFile(zip_path) as archive:
         by_sku: dict[str, list[ImageRef]] = {}
         for sku_id, filename, member in _iter_sku_image_members(archive):
+            if sku_ids is not None and sku_id not in sku_ids:
+                continue
             suffix = PurePosixPath(filename).suffix.lower()
             by_sku.setdefault(sku_id, []).append(
                 ImageRef(
@@ -95,22 +100,32 @@ def _read_zip_images(zip_path: Path) -> dict[str, list[ImageRef]]:
     return by_sku
 
 
+def index_open_zip(
+    archive: zipfile.ZipFile,
+) -> tuple[dict[str, list[ImageRef]], dict[tuple[str, str], str]]:
+    """Filenames plus zip member paths — does not read image bytes."""
+    by_sku: dict[str, list[ImageRef]] = {}
+    members: dict[tuple[str, str], str] = {}
+    for sku_id, filename, member in _iter_sku_image_members(archive):
+        suffix = PurePosixPath(filename).suffix.lower()
+        by_sku.setdefault(sku_id, []).append(
+            ImageRef(
+                filename=filename,
+                content_type=_CONTENT_TYPE.get(suffix, "image/jpeg"),
+            )
+        )
+        members[(sku_id, filename)] = member
+    return by_sku, members
+
+
 def list_sku_image_index(zip_path: Path) -> dict[str, list[ImageRef]]:
     """Filenames and content types only — does not read image bytes."""
     if not zip_path.is_file():
         raise InboundQcError(f"Images ZIP not found: {zip_path}")
 
     with zipfile.ZipFile(zip_path) as archive:
-        by_sku: dict[str, list[ImageRef]] = {}
-        for sku_id, filename, _member in _iter_sku_image_members(archive):
-            suffix = PurePosixPath(filename).suffix.lower()
-            by_sku.setdefault(sku_id, []).append(
-                ImageRef(
-                    filename=filename,
-                    content_type=_CONTENT_TYPE.get(suffix, "image/jpeg"),
-                )
-            )
-    return by_sku
+        photos, _members = index_open_zip(archive)
+    return photos
 
 
 def read_sku_image(zip_path: Path, sku_id: str, filename: str) -> ImageRef:
@@ -158,15 +173,31 @@ def load_product_attributes(product_path: Path) -> dict[str, dict[str, str]]:
     return by_sku
 
 
-def load_sku_bundles(product_path: Path, zip_path: Path) -> list[SkuBundle]:
+def load_sku_bundles(
+    product_path: Path,
+    zip_path: Path,
+    *,
+    sku_ids: set[str] | None = None,
+    limit: int | None = None,
+) -> list[SkuBundle]:
     """Parse the spreadsheet and pair each SKU row with photos from the ZIP."""
+    if limit is not None and limit < 1:
+        raise InboundQcError("limit must be a positive integer")
     attributes = load_product_attributes(product_path)
-    images_by_sku = _read_zip_images(zip_path)
+    ordered = list(attributes)
+    if sku_ids:
+        missing = sku_ids - set(ordered)
+        if missing:
+            raise InboundQcError(f"SKU id(s) not in product file: {sorted(missing)}")
+        ordered = [sku_id for sku_id in ordered if sku_id in sku_ids]
+    if limit is not None:
+        ordered = ordered[:limit]
+    images_by_sku = _read_zip_images(zip_path, sku_ids=set(ordered))
     return [
         SkuBundle(
             sku_id=sku_id,
-            attributes=row,
+            attributes=attributes[sku_id],
             images=tuple(images_by_sku.get(sku_id, ())),
         )
-        for sku_id, row in attributes.items()
+        for sku_id in ordered
     ]
