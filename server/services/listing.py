@@ -573,7 +573,7 @@ def _resolve_simple(
     if fill_type == ListingFillType.CONSTANT:
         return config.constant_value, None
 
-    if fill_type in (ListingFillType.DIRECT_MAP, ListingFillType.LLM_TEXT):
+    if fill_type == ListingFillType.DIRECT_MAP:
         return _resolve_from_source(
             config,
             pim_values=pim_values,

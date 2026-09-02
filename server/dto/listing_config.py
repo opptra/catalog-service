@@ -93,7 +93,6 @@ class ListingColumnConfig(BaseModel):
         if not isinstance(data, dict):
             return data
         out = dict(data)
-        fill = out.get("fill_type")
         if out.get("source") is None:
             attr = out.get("attribute_name")
             slot = out.get("slot")
@@ -109,9 +108,6 @@ class ListingColumnConfig(BaseModel):
                     "from": ListingValueSourceFrom.SKU_MASTER.value,
                     "key": key,
                 }
-        # LLM_TEXT is the old name for "copy generated text".
-        if fill == ListingFillType.LLM_TEXT.value and out.get("source") is None:
-            pass
         return out
 
     @model_validator(mode="after")
@@ -137,7 +133,7 @@ class ListingColumnConfig(BaseModel):
                 raise ValueError("ENUM source (exact-match hint) must be from=SKU_MASTER")
             return self
 
-        if fill in (ListingFillType.DIRECT_MAP, ListingFillType.LLM_TEXT):
+        if fill == ListingFillType.DIRECT_MAP:
             if self.source is None:
                 raise ValueError(f"{fill} requires source")
             return self

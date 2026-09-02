@@ -270,8 +270,8 @@ def build_columns(xlsm_path: Path) -> list[dict[str, Any]]:
 
         formula = list_formulas.get(col_index)
         if formula is None:
-            # Non-dropdown defaults to DIRECT_MAP. Product sets IMAGE / LLM_TEXT /
-            # CONSTANT / SKIP in DB (or a follow-up SQL) when known.
+            # Non-dropdown defaults to DIRECT_MAP. Product sets IMAGE / CONSTANT /
+            # SKIP / AI_TEXT in DB (or a follow-up SQL) when known.
             config: dict[str, Any] = {
                 "fill_type": "DIRECT_MAP",
                 "requiredness": requiredness,
