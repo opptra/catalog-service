@@ -1,7 +1,8 @@
 """Assemble generation context from catalog DB + GCS product images.
 
-Product facts come from ``sku_master.attributes`` with empty values dropped (blank
-keys are not facts). Brand DNA and category intelligence come from ``brand`` /
+Product facts come from ``sku_master.attributes`` intersected with the category
+``attribute_spec`` allowed list; empty values are then dropped (blank keys are
+not facts). Brand DNA and category intelligence come from ``brand`` /
 ``category_intelligence``. Reference photos are listed under
 ``products/{sku_id}/assets/images/`` in GCS and exposed as signed GET URLs for the model.
 """
@@ -25,6 +26,7 @@ from pipelines.generation.context import GenerationContext
 from repositories.catalog import brand as brand_repo
 from repositories.catalog import category_intelligence as category_intelligence_repo
 from repositories.catalog import category_marketplace as category_marketplace_repo
+from services import product_attributes as product_attributes_service
 from utils import flatfile as flatfile_utils
 
 # Signed GET URLs must outlive the OpenRouter round-trip for this execute call.
@@ -43,7 +45,7 @@ def load_context(
     if sku.deleted_at is not None:
         raise ProductNotFoundError(f"No live SKU for id={sku.id}")
 
-    product = _product_from_sku(sku)
+    product = _product_from_sku(session, sku)
     business_sku_id = str(product["SKU"])
 
     return GenerationContext(
@@ -58,24 +60,9 @@ def load_context(
     )
 
 
-def _has_attribute_value(value: Any) -> bool:
-    """True when a SKU-master value is usable as a product fact."""
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, (list, dict, tuple, set)):
-        return bool(value)
-    return True
-
-
-def _product_from_sku(sku: SkuMaster) -> dict[str, Any]:
-    """Return SKU attributes that have a value. Empty keys are omitted, not sent as ''."""
-    attributes = {
-        key: value
-        for key, value in dict(sku.attributes or {}).items()
-        if _has_attribute_value(value)
-    }
+def _product_from_sku(session: Session, sku: SkuMaster) -> dict[str, Any]:
+    """Return allowed SKU attributes that have a value. Empty keys are omitted."""
+    attributes = product_attributes_service.facts_for_sku(session, sku)
     business_sku_id = str(attributes.get("SKU") or "").strip()
     if not business_sku_id:
         raise ProductNotFoundError(f"SKU id={sku.id} is missing attributes.SKU")

@@ -226,8 +226,25 @@ class _FakeClient:
         return self.payload
 
 
+def _stub_inline(monkeypatch: Any) -> None:
+    def fake_one(url: str, timeout: float = 15.0) -> str | None:
+        del timeout
+        text = url.strip()
+        if text.startswith("data:"):
+            return text
+        name = text.rstrip("/").rsplit("/", 1)[-1]
+        return f"data:image/png;base64,{name}"
+
+    def fake_many(urls: list[str], timeout: float = 15.0) -> list[str]:
+        return [item for item in (fake_one(url, timeout=timeout) for url in urls) if item]
+
+    monkeypatch.setattr(verify, "to_data_url", fake_one)
+    monkeypatch.setattr(verify, "to_data_urls", fake_many)
+
+
 def test_verify_image_attaches_generated_then_capped_sources(monkeypatch: Any) -> None:
     monkeypatch.setattr(verify.settings, "openrouter_verify_model", "openai/gpt-4o")
+    _stub_inline(monkeypatch)
     client = _FakeClient(
         {
             "identity": 91,
@@ -256,7 +273,12 @@ def test_verify_image_attaches_generated_then_capped_sources(monkeypatch: Any) -
         role="hero",
         kind="packshot",
     )
-    assert client.image_urls == [generated, *sources[:3]]
+    assert client.image_urls == [
+        "data:image/png;base64,generated.png",
+        "data:image/png;base64,src1.png",
+        "data:image/png;base64,src2.png",
+        "data:image/png;base64,src3.png",
+    ]
     assert client.tool_name == IMAGE_VERIFICATION_TOOL_NAME
     assert client.cache_prefix is not None
     assert "source_assets" not in client.cache_prefix
@@ -341,6 +363,7 @@ def test_invented_mismatch_clears_catalog_fields() -> None:
 
 def test_verify_image_includes_description_in_product_data(monkeypatch: Any) -> None:
     monkeypatch.setattr(verify.settings, "openrouter_verify_model", "openai/gpt-4o")
+    _stub_inline(monkeypatch)
     client = _FakeClient(
         {
             "identity": 95,
@@ -366,3 +389,27 @@ def test_verify_image_includes_description_in_product_data(monkeypatch: Any) -> 
     assert "NOT invented" in (client.prompt or "")
     assert result.claims == 95
     assert result.mismatches == ()
+
+
+def test_to_data_url_passes_through_data_uri() -> None:
+    from utils.images import bytes_to_data_url, to_data_url
+
+    url = bytes_to_data_url(b"\x89PNG", "image/png")
+    assert url.startswith("data:image/png;base64,")
+    assert to_data_url(url) == url
+
+
+def test_verify_image_raises_when_generated_cannot_inline(monkeypatch: Any) -> None:
+    monkeypatch.setattr(verify.settings, "openrouter_verify_model", "openai/gpt-4o")
+    monkeypatch.setattr(verify, "to_data_url", lambda url, timeout=15.0: None)
+    try:
+        verify.verify_image(
+            cast(OpenRouterClient, _FakeClient({})),
+            generated_image_url="https://signed.example/generated.png",
+            product={"SKU": "ABC"},
+            attempt=1,
+        )
+    except ValueError as exc:
+        assert "inlined" in str(exc)
+        return
+    raise AssertionError("expected ValueError")

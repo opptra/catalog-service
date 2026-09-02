@@ -218,6 +218,7 @@ def build_sku_attributes(
     Keys are kept exactly as in the spreadsheet — no case/space/punctuation rewrites.
     Images live in GCS under a predictable path — they are not stored in attributes.
     Existing non-string values (e.g. nested JSON) are dropped on merge.
+    Callers must pass the result through the category allowed-list filter before persist.
     """
     attributes: dict[str, str] = {}
     if existing_attributes:

@@ -13,7 +13,15 @@ Prefer the installed skills over guessing:
 - Rebuild a generation job's original CSV + images ZIP from sku_master + GCS → **export-job-inputs**
 - Pack unstructured catalog CSVs + public Drive links into wizard `attributes.csv` + `images.zip` → **pack-inbound-inputs**
 
-This file does not repeat those rules. It sets the operating loop below.
+This file does not repeat the rest of those rules. It sets the operating loop below.
+
+## SKU attributes JSON — non-negotiable
+
+**Never read or write `sku.attributes` in services, pipelines, or routers.**
+Use `server/services/product_attributes.py` only (`for_sku` / `facts_for_sku` /
+`present_for_sku` / `apply_write`). Do not add a helper that takes a raw attributes
+dict and skips the allowed list. `tests/test_product_attributes_gate.py` fails the
+PR if this is bypassed.
 
 ## Definition of done — non-negotiable
 
@@ -45,6 +53,19 @@ When a task needs a schema or data change, **produce the SQL for a human to revi
 put it in the response (do not keep a `server/sql/` folder in the repo) and tell the user to apply
 it themselves. Never apply it for them, even to "verify" your work. If you cannot verify without a
 DB change, say so and stop.
+
+## Do not paper over model judgment with determinism — non-negotiable
+
+When a generation, planning, or verification step is inconsistent or wrong, **do not
+add regexes, synonym maps, hardcoded claim aliases, or per-attribute fallbacks** to
+force one outcome (e.g. treating “blackout” as “opacity”).
+
+Those patches do not generalize. The next SKU, claim, language, or marketplace will
+miss them. This world has infinite phrasings — a dictionary will always be behind.
+
+Fix the **shared** contract instead: the prompt, the tool schema, the category-
+intelligence content/pattern, or the product data the model is given. If you cannot
+name that root, stop and discuss. Do not ship a special case.
 
 ## Operating principles (intent, not rigid scripts)
 

@@ -39,6 +39,7 @@ type Phase = 'edit' | 'loading' | 'compare'
 interface Snapshot {
   version: number
   value: string
+  verification?: ImageVerification | null
 }
 
 function CloseIcon() {
@@ -149,11 +150,13 @@ function TextPreview({
   value,
   badge,
   emphasize,
+  verification,
 }: {
   label: string
   value: string
   badge?: string
   emphasize?: boolean
+  verification?: ImageVerification | null
 }) {
   const looksLikeBullets =
     value.trimStart().startsWith('[') || value.includes('•') || value.includes('\n')
@@ -163,7 +166,12 @@ function TextPreview({
   return (
     <div className={`attr-regen__panel${emphasize ? ' attr-regen__panel--new' : ''}`}>
       <div className="attr-regen__panel-head">
-        <p className="attr-regen__panel-label">{label}</p>
+        <div className="attr-regen__panel-head-title">
+          <p className="attr-regen__panel-label">{label}</p>
+          {verification != null ? (
+            <VerificationMark verification={verification} variant="inline" />
+          ) : null}
+        </div>
         {badge ? (
           <span className={`attr-regen__badge${emphasize ? ' attr-regen__badge--new' : ''}`}>
             {badge}
@@ -269,7 +277,11 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
     if (!note || target == null) return
     setError(null)
     setPhase('loading')
-    setPrevious({ version: target.version, value: target.value })
+    setPrevious({
+      version: target.version,
+      value: target.value,
+      verification: target.verification ?? null,
+    })
     try {
       const next = await regenerateAttributeValue(target.valueExternalId, {
         improvement: note,
@@ -340,7 +352,11 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                 ) : null}
               </div>
             ) : (
-              <TextPreview label={target.label} value={target.value} />
+              <TextPreview
+                label={target.label}
+                value={target.value}
+                verification={target.verification}
+              />
             )}
 
             <div className="img-modal__prompt-row">
@@ -366,11 +382,10 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                 type="button"
                 className="img-modal__regen"
                 onClick={() => void handleRegenerate()}
-                aria-label="Regenerate"
-                title="Regenerate"
                 disabled={phase === 'loading' || improvement.trim().length === 0}
               >
                 <RefreshIcon />
+                Regenerate
               </button>
             </div>
 
@@ -431,12 +446,14 @@ function AttributeRegenModal({ open, target, onClose, onApplied }: AttributeRege
                     label="Previous"
                     value={previous.value}
                     badge={`v${previous.version}`}
+                    verification={previous.verification}
                   />
                   <TextPreview
                     label="Newly generated"
                     value={generated.value}
                     badge={`v${generated.version} · new`}
                     emphasize
+                    verification={generated.verification}
                   />
                 </>
               )}

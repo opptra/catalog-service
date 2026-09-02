@@ -20,6 +20,7 @@ from typing import Any
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from pipelines.generation import tools
+from utils.images import to_data_url, to_data_urls
 
 # Change these constants to raise/lower the bar or skip auto re-render. Not env vars.
 MIN_CONFIDENCE_PERCENT = 80
@@ -80,9 +81,11 @@ class VerificationResult:
     kind: str | None = None
 
     def ship_score(self) -> int | None:
-        """Badge / retry number: min of the hard axes, else stored confidence."""
+        """Badge / retry number: min of the hard axes, else claims-only, else confidence."""
         if self.identity is not None and self.claims is not None:
             return min(self.identity, self.claims)
+        if self.claims is not None:
+            return self.claims
         return self.confidence
 
     def below_threshold(self) -> bool:
@@ -240,7 +243,7 @@ def verify_image(
         suffix,
         model=model,
         tool=tools.IMAGE_VERIFICATION_TOOL,
-        image_urls=[generated_image_url, *refs],
+        image_urls=_chat_completion_image_urls(generated_image_url, refs),
         cache_prefix=prefix,
         max_tokens=_VERIFY_MAX_TOKENS,
         session_id=session_id,
@@ -308,6 +311,14 @@ def _verify_suffix(
         "(e.g. Color). For quality, observed only.\n\n"
         "Call the submit_image_verification tool. Do not write JSON in the message body."
     )
+
+
+def _chat_completion_image_urls(generated_image_url: str, refs: list[str]) -> list[str]:
+    """Inline images for ``/chat/completions`` so OpenAI does not GET GCS itself."""
+    generated = to_data_url(generated_image_url)
+    if generated is None:
+        raise ValueError("generated image could not be inlined for verification")
+    return [generated, *to_data_urls(refs)]
 
 
 def _product_facts(product: dict[str, Any]) -> dict[str, Any]:

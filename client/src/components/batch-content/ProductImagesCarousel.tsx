@@ -50,6 +50,20 @@ function ChevronRightIcon() {
   )
 }
 
+function DownloadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8 2.5V10.5M8 10.5L5 7.5M8 10.5L11 7.5M3 13.5H13"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function formatLoadError(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const detail = error.response?.data?.detail
@@ -66,23 +80,29 @@ function ProductImagesCarousel({
   skuLabel,
   onClose,
 }: ProductImagesCarouselProps) {
+  const [skuId, setSkuId] = useState('')
   const [images, setImages] = useState<SkuProductImage[]>([])
   const [index, setIndex] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [zipping, setZipping] = useState(false)
+  const [zipError, setZipError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open || skuGenerationJobExternalId == null) return
 
     let cancelled = false
+    setSkuId('')
     setImages([])
     setIndex(0)
     setError(null)
+    setZipError(null)
     setLoading(true)
 
     void getSkuProductImages(skuGenerationJobExternalId)
       .then((data) => {
         if (cancelled) return
+        setSkuId(data.sku_id)
         setImages(data.images)
       })
       .catch((err: unknown) => {
@@ -128,6 +148,23 @@ function ProductImagesCarousel({
   const current = images[safeIndex]
   const canPrev = safeIndex > 0
   const canNext = safeIndex < lastIndex
+  const canZip = !loading && error == null && images.length > 0 && skuId.length > 0 && !zipping
+
+  async function handleDownloadZip() {
+    if (!canZip) return
+    setZipError(null)
+    setZipping(true)
+    try {
+      const { downloadInputImagesZip } = await import('../../lib/downloadInputImagesZip')
+      await downloadInputImagesZip(skuId, images)
+    } catch (err: unknown) {
+      setZipError(
+        err instanceof Error && err.message ? err.message : 'Could not download ZIP.',
+      )
+    } finally {
+      setZipping(false)
+    }
+  }
 
   if (!open) return null
 
@@ -150,10 +187,27 @@ function ProductImagesCarousel({
             Input images · {skuLabel}
             {images.length > 0 ? ` · ${safeIndex + 1} of ${images.length}` : ''}
           </p>
-          <button type="button" className="img-modal__close" onClick={onClose} aria-label="Close">
-            <CloseIcon />
-          </button>
+          <div className="img-modal__header-actions">
+            <button
+              type="button"
+              className="img-modal__export"
+              onClick={() => void handleDownloadZip()}
+              disabled={!canZip}
+            >
+              <DownloadIcon />
+              {zipping ? 'Preparing…' : 'Download as ZIP'}
+            </button>
+            <button type="button" className="img-modal__close" onClick={onClose} aria-label="Close">
+              <CloseIcon />
+            </button>
+          </div>
         </div>
+
+        {zipError != null ? (
+          <p className="product-images-carousel__error product-images-carousel__zip-error">
+            {zipError}
+          </p>
+        ) : null}
 
         <div className="img-modal__preview product-images-carousel__preview">
           {loading ? (

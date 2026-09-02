@@ -26,6 +26,16 @@ When this project skill conflicts with a framework skill's default (fastapi, pyd
 vercel-react-best-practices), **this project skill wins.** Framework skills tell you *how* to use the
 library idiomatically; this file decides *how we structure and ship it here*.
 
+## Do not paper over model judgment with determinism
+
+Same rule as the repo `AGENTS.md`. When an LLM step is inconsistent or wrong (fact board,
+slot selection, image prompt, verification), **do not** add regexes, synonym maps, hardcoded
+claim aliases, or per-attribute fallbacks to coerce one product phrasing into another
+(e.g. “blackout” → “opacity”). That does not scale; the next wording will miss it.
+
+Fix the shared contract: prompt, tool schema, category-intelligence content/pattern, or
+the product data the model sees. If the root is unclear, stop and discuss.
+
 ## Workflow — do this every time
 
 1. **Never push directly to `main`.** All work goes through a `feat/…`, `fix/…`, or `chore/…` branch and a PR.
@@ -126,6 +136,26 @@ router → service → repository → entity → Postgres
 - **Errors:** routers raise `HTTPException` with a proper status code; services raise domain
   exceptions from `core/exceptions/`, not HTTP ones.
 - **Naming:** modules and functions `snake_case`; entity/DTO classes `PascalCase`.
+
+### SKU product attributes (enforced)
+
+`sku_master.attributes` is a JSONB bag of template columns. Extra keys must not be
+written at ingest or reach generation, listing fill, verification, or inspection UIs.
+
+**The only module allowed to read or assign `sku.attributes` is
+`server/services/product_attributes.py`.** Repositories may use `SkuMaster.attributes`
+for JSONB path queries (lookup by `attributes.SKU`). Everyone else:
+
+| Need | Call |
+|------|------|
+| Product facts (generation, listing) | `for_sku` / `for_skus` / `facts_for_sku` |
+| Inspector UI (filled fields only) | `present_for_sku(session, sku)` |
+| Persist a bag | `apply_write(sku, incoming, allowed_names)` |
+| Business SKU id / label | `business_sku_id` / `display_name` |
+
+Do not take a raw `dict` from `sku.attributes` and filter it "later" at the callsite —
+that is how the allowed list gets skipped. `present_for_sku` takes `(session, sku)`
+so it cannot skip `for_skus`. CI: `tests/test_product_attributes_gate.py`.
 
 ### External-service clients (object storage, LLMs, HTTP APIs, the database)
 

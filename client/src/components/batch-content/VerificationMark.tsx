@@ -1,13 +1,17 @@
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ImageVerification, ImageVerificationSnapshot } from '../../api/jobs'
 import {
+  isTextVerification,
   isVerificationBelowThreshold,
   verificationAxisLines,
+  verificationBadgeLabel,
   verificationCardTitle,
   verificationMismatchLines,
   verificationOutcomeLine,
   verificationPercentLabel,
+  verificationStatusLabel,
+  verificationTooltipLede,
 } from '../../batch/imageVerification'
 
 function PassCircleIcon() {
@@ -76,6 +80,7 @@ function VerificationAttemptBody({
     )
   }
 
+  const textOnly = isTextVerification(verification)
   const percent = verificationPercentLabel(verification)
   const outcome = verificationOutcomeLine(verification)
   const reason = verification.reasoning?.trim() || ''
@@ -86,7 +91,7 @@ function VerificationAttemptBody({
     <>
       {percent || outcome || axes.length > 0 ? (
         <section className="verify-mark__tip-section">
-          <h4 className="verify-mark__tip-label">Match</h4>
+          <h4 className="verify-mark__tip-label">{textOnly ? 'Claims' : 'Match'}</h4>
           {percent ? <p className="verify-mark__tip-score">{percent}</p> : null}
           {outcome ? <p className="verify-mark__tip-outcome">{outcome}</p> : null}
           {axes.length > 0 ? (
@@ -120,10 +125,7 @@ function VerificationTipCard({ verification }: { verification: ImageVerification
     <>
       <header className="verify-mark__tip-head">
         <p className="verify-mark__tip-title">{verificationCardTitle(verification)}</p>
-        <p className="verify-mark__tip-lede">
-          Product look vs source photos, and on-image claims vs catalog. Quality is
-          advisory.
-        </p>
+        <p className="verify-mark__tip-lede">{verificationTooltipLede(verification)}</p>
       </header>
       <VerificationAttemptBody verification={verification} />
       {previous ? (
@@ -139,9 +141,13 @@ function VerificationTipCard({ verification }: { verification: ImageVerification
 function VerificationTip({
   anchor,
   children,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   anchor: HTMLElement
   children: ReactNode
+  onMouseEnter: () => void
+  onMouseLeave: () => void
 }) {
   const tipRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
@@ -176,6 +182,8 @@ function VerificationTip({
       ref={tipRef}
       className="verify-mark__tip"
       role="tooltip"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={{
         position: 'fixed',
         top: pos?.top ?? 0,
@@ -190,40 +198,118 @@ function VerificationTip({
   )
 }
 
-export function VerificationMark({ verification }: { verification: ImageVerification }) {
+const CLOSE_DELAY_MS = 500
+const OPEN_DELAY_MS = 200
+
+let hoverCloser: (() => void) | null = null
+
+function claimHover(closeNow: () => void): void {
+  if (hoverCloser !== null && hoverCloser !== closeNow) {
+    hoverCloser()
+  }
+  hoverCloser = closeNow
+}
+
+function releaseHover(closeNow: () => void): void {
+  if (hoverCloser === closeNow) hoverCloser = null
+}
+
+export function VerificationMark({
+  verification,
+  variant,
+}: {
+  verification: ImageVerification
+  /** overlay = image corner pill; inline = bracket label for text copy */
+  variant?: 'overlay' | 'inline'
+}) {
   const anchorRef = useRef<HTMLSpanElement>(null)
+  const closeTimerRef = useRef<number | null>(null)
+  const openTimerRef = useRef<number | null>(null)
+  const closeNowRef = useRef<() => void>(() => {})
+  const isOpenRef = useRef(false)
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+
+  const cancelClose = useCallback(() => {
+    if (closeTimerRef.current === null) return
+    window.clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
+  }, [])
+
+  const cancelOpen = useCallback(() => {
+    if (openTimerRef.current === null) return
+    window.clearTimeout(openTimerRef.current)
+    openTimerRef.current = null
+  }, [])
+
+  const closeNow = useCallback(() => {
+    cancelClose()
+    cancelOpen()
+    isOpenRef.current = false
+    setOpen(false)
+    setAnchor(null)
+    releaseHover(closeNowRef.current)
+  }, [cancelClose, cancelOpen])
+  closeNowRef.current = closeNow
+
+  const showTip = useCallback(() => {
+    claimHover(closeNowRef.current)
+    cancelClose()
+    if (isOpenRef.current || openTimerRef.current !== null) return
+    openTimerRef.current = window.setTimeout(() => {
+      openTimerRef.current = null
+      isOpenRef.current = true
+      setAnchor(anchorRef.current)
+      setOpen(true)
+    }, OPEN_DELAY_MS)
+  }, [cancelClose])
+
+  const hideTipSoon = useCallback(() => {
+    cancelOpen()
+    cancelClose()
+    closeTimerRef.current = window.setTimeout(() => {
+      closeNowRef.current()
+    }, CLOSE_DELAY_MS)
+  }, [cancelClose, cancelOpen])
+
+  useEffect(() => () => closeNowRef.current(), [])
 
   if (verification.status === 'skipped') return null
 
   const passed =
     verification.status === 'ok' && !isVerificationBelowThreshold(verification)
   const tone = passed ? 'pass' : verification.status === 'error' ? 'error' : 'fail'
-  const label = passed ? 'Verified' : verification.status === 'error' ? 'Unavailable' : 'Needs review'
+  const textOnly = isTextVerification(verification)
+  const displayVariant = variant ?? (textOnly ? 'inline' : 'overlay')
+  const label =
+    displayVariant === 'inline'
+      ? (verificationBadgeLabel(verification) ?? verificationStatusLabel(verification))
+      : verificationStatusLabel(verification)
 
   return (
     <span
       ref={anchorRef}
-      className={`verify-mark verify-mark--${tone}`}
+      className={`verify-mark verify-mark--${tone}${displayVariant === 'inline' ? ' verify-mark--inline' : ''}`}
       aria-hidden="true"
-      onMouseEnter={() => {
-        setAnchor(anchorRef.current)
-        setOpen(true)
-      }}
-      onMouseLeave={() => {
-        setOpen(false)
-        setAnchor(null)
-      }}
+      onMouseEnter={showTip}
+      onMouseLeave={hideTipSoon}
       onClick={(event) => {
         event.preventDefault()
         event.stopPropagation()
       }}
     >
-      {passed ? <PassCircleIcon /> : verification.status === 'error' ? <WarnCircleIcon /> : <FailCircleIcon />}
+      {displayVariant === 'overlay' || displayVariant === 'inline' ? (
+        passed ? (
+          <PassCircleIcon />
+        ) : verification.status === 'error' ? (
+          <WarnCircleIcon />
+        ) : (
+          <FailCircleIcon />
+        )
+      ) : null}
       <span className="verify-mark__label">{label}</span>
       {open && anchor ? (
-        <VerificationTip anchor={anchor}>
+        <VerificationTip anchor={anchor} onMouseEnter={showTip} onMouseLeave={hideTipSoon}>
           <VerificationTipCard verification={verification} />
         </VerificationTip>
       ) : null}

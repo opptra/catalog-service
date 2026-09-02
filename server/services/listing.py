@@ -16,6 +16,7 @@ from core.clients.dropbox import MAX_CONCURRENT_OPS, DropboxClient
 from core.clients.gcs import GcsClient
 from core.clients.openrouter import OpenRouterClient
 from core.exceptions import (
+    CategoryNotFoundError,
     DropboxError,
     GcsError,
     JobNotFoundError,
@@ -41,6 +42,7 @@ from repositories.catalog import listing_template_column as listing_template_col
 from repositories.catalog import sku_generation_job as sku_generation_job_repo
 from repositories.catalog import sku_marketplace_attribute_value as attribute_value_repo
 from repositories.catalog import sku_master as sku_master_repo
+from services import product_attributes as product_attributes_service
 from services import sku_image_export as sku_image_export_service
 from utils import listing_workbook as workbook_utils
 
@@ -91,11 +93,13 @@ def fill_listing_for_job(
     if not sku_jobs:
         raise ListingFillError(f"Job {job_external_id} has no SKU generation jobs")
 
+    sku_rows = list(sku_master_repo.list_by_ids(session, [sj.sku_id for sj in sku_jobs]))
+    sku_by_id = {sku.id: sku for sku in sku_rows}
+
     # Generation jobs store marketplace on the job row but leave category_id null;
     # category comes from the SKUs (same subcategory batch).
     category_id = job.category_id
     if category_id is None:
-        sku_rows = sku_master_repo.list_by_ids(session, [sj.sku_id for sj in sku_jobs])
         category_ids = {sku.category_id for sku in sku_rows}
         if len(category_ids) != 1:
             raise ListingFillError(
@@ -128,17 +132,23 @@ def fill_listing_for_job(
     stages = _group_by_resolve_stage(parsed_columns)
 
     attribute_ids_by_name = _attribute_ids_by_name(session)
+    try:
+        pim_by_sku_id = product_attributes_service.for_skus(session, sku_rows)
+    except CategoryNotFoundError as exc:
+        raise ListingFillError(str(exc)) from exc
 
     gaps: list[ListingFillGap] = []
     sku_states: list[_SkuFillState] = []
 
     for sku_job in sku_jobs:
-        sku = sku_master_repo.get_by_id(session, sku_job.sku_id)
-        business_sku_id = _business_sku_id(sku, fallback=str(sku_job.sku_id))
+        sku = sku_by_id.get(sku_job.sku_id)
+        business_sku_id = product_attributes_service.business_sku_id(
+            sku, fallback=str(sku_job.sku_id)
+        )
         sku_states.append(
             _SkuFillState(
                 business_sku_id=business_sku_id,
-                pim_values=dict(sku.attributes or {}) if sku is not None else {},
+                pim_values=pim_by_sku_id.get(sku.id, {}) if sku is not None else {},
                 job_values=_job_values_bag(
                     session,
                     sku_generation_job_id=sku_job.id,
@@ -314,14 +324,6 @@ def _job_values_bag(
             continue
         bag[(name, row.slot)] = _JobAttrValue(value=row.value, external_id=row.external_id)
     return bag
-
-
-def _business_sku_id(sku: Any, *, fallback: str) -> str:
-    if sku is None:
-        return fallback
-    attributes = dict(sku.attributes or {})
-    value = str(attributes.get("SKU") or "").strip()
-    return value or fallback
 
 
 def _product_image_urls(gcs: GcsClient, business_sku_id: str) -> list[str]:

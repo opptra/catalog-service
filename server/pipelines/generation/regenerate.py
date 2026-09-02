@@ -1,6 +1,6 @@
 """Regenerate a single attribute value from user improvement notes.
 
-v1 stored prompt is the unique brief (exact image-maker text or text strategy). Later
+v1 stored prompt is the unique brief (exact image-maker text or category craft snapshot). Later
 versions store only this regen's user note. Each image regen sends: v1 brief + this note,
 with current output and product photos attached at render time — never a stack of older
 notes or a re-dump of PRODUCT DATA.
