@@ -11,7 +11,8 @@ from pipelines.generation.context import GenerationContext
 _PRODUCT_LABEL = (
     "PRODUCT REFERENCE {index} of {total} — the real product, this angle/closeup. Cross-reference "
     "all {total} of these together as one product; reproduce its colour, shape, material, pattern "
-    "and packaging exactly; do not invent a different product."
+    "and packaging exactly; do not invent a different product. Do not copy printed text, badges, "
+    "size tags, or overlays from this photo — those are not on-image claims to paint."
 )
 
 # Aspect ratios each provider accepts. The caller (services.job) supplies a fixed per-image-type
