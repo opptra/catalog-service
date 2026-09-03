@@ -1,7 +1,9 @@
-"""Build Excel-only listing mapping template (no Google Sheets concerns).
+"""Build Excel-only listing mapping template.
 
-Writes ``tmp/listing_mapping_template.xlsx``. Avoids empty inlineStr cells and
-oversized prefilled formula grids — those trigger Excel's repair dialog.
+Writes ``tmp/listing_mapping_template.xlsx``.
+
+Uniqueness is by Excel ``column_index`` (not by inventing numbered labels).
+``listing_map`` selects ``column_index``; ``marketplace_column`` is looked up.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ HEADER_FONT = Font(bold=True, color="FFFFFF")
 OK_FILL = PatternFill("solid", fgColor="C6EFCE")
 ERR_FILL = PatternFill("solid", fgColor="FFC7CE")
 ERR_FONT = Font(color="9C0006", bold=True)
+LOOKUP_FILL = PatternFill("solid", fgColor="F2F2F2")
 TITLE_FONT = Font(bold=True, size=14, color="1F4E79")
 SECTION_FONT = Font(bold=True, size=11, color="1F4E79")
 BODY_FONT = Font(size=11)
@@ -41,10 +44,10 @@ THIN = Border(
     bottom=Side(style="thin", color="B0B0B0"),
 )
 
-# Prefill only a modest buffer of editable rows (Excel-friendly).
-MAP_ROWS = 80
+MAP_ROWS = 120
 PIM_ROWS = 80
-MKT_ROWS = 120
+# Amazon category workbooks often exceed 200 columns.
+MKT_ROWS = 320
 ARRAY_MAX = 10
 SLOT_MAX = 12
 
@@ -63,7 +66,7 @@ def _autosize(ws, widths: list[int]) -> None:
         ws.column_dimensions[get_column_letter(i)].width = width
 
 
-def _set(ws, row: int, col: int, value: str | None) -> None:
+def _set(ws, row: int, col: int, value: str | int | None) -> None:
     """Write a cell without creating empty inlineStr (Excel repair trigger)."""
     cell = ws.cell(row, col)
     cell.border = THIN
@@ -113,35 +116,45 @@ def _generation_tokens() -> list[str]:
     return tokens
 
 
+def _name_lookup_formula(row: int) -> str:
+    """Show marketplace_column for the selected column_index."""
+    return (
+        f'=IF(A{row}="","",'
+        f"IFERROR(VLOOKUP(A{row},'marketplace_columns'!$A$2:$B${MKT_ROWS},2,FALSE),\"\"))"
+    )
+
+
 def _status_formula(row: int, *, gen_last: int) -> str:
-    """Flat IFS formula — Excel Desktop friendly, no deep nested IF."""
-    a, b, c, d, e = f"A{row}", f"B{row}", f"C{row}", f"D{row}", f"E{row}"
-    mkt = f"'marketplace_columns'!$A$2:$A${MKT_ROWS}"
+    """Validate listing_map row. A=column_index, C=fill_mode, D=pim, E=gen, F=constant.
+
+    Uses nested IF only (no IFS) so Excel versions without IFS do not show #NAME?.
+    """
+    a, c, d, e, f = f"A{row}", f"C{row}", f"D{row}", f"E{row}", f"F{row}"
+    idx = f"'marketplace_columns'!$A$2:$A${MKT_ROWS}"
     fill = "'lists'!$A$2:$A$9"
     pim = f"'pim_contract'!$A$2:$A${PIM_ROWS}"
     gen = f"'lists'!$C$2:$C${gen_last}"
     return (
-        f'=IF(AND({a}="",{b}=""),"",'
-        f"IFS("
-        f'{a}="","ERROR: marketplace_column required",'
-        f'COUNTIF({mkt},{a})=0,"ERROR: marketplace_column not in marketplace_columns",'
-        f'{b}="","ERROR: fill_mode required",'
-        f'COUNTIF({fill},{b})=0,"ERROR: invalid fill_mode",'
-        f'AND({b}="COPY_PIM",{c}<>"",COUNTIF({pim},{c})>0,{d}="",{e}=""),"OK",'
-        f'{b}="COPY_PIM","ERROR: COPY_PIM needs pim_field only",'
-        f'AND({b}="ENUM_FROM_PIM",{c}<>"",COUNTIF({pim},{c})>0,{d}="",{e}=""),"OK",'
-        f'{b}="ENUM_FROM_PIM","ERROR: ENUM_FROM_PIM needs pim_field only",'
-        f'AND({b}="COPY_GENERATION",{d}<>"",COUNTIF({gen},{d})>0,{c}="",{e}=""),"OK",'
-        f'{b}="COPY_GENERATION","ERROR: COPY_GENERATION needs generation only",'
-        f'AND({b}="IMAGE",{d}<>"",COUNTIF({gen},{d})>0,{c}="",{e}=""),"OK",'
-        f'{b}="IMAGE","ERROR: IMAGE needs generation only",'
-        f'AND({b}="CONSTANT",{e}<>"",{c}="",{d}=""),"OK",'
-        f'{b}="CONSTANT","ERROR: CONSTANT needs constant_value only",'
-        f'AND(OR({b}="ENUM_AI",{b}="AI_TEXT",{b}="SKIP"),{c}="",{d}="",{e}=""),"OK",'
-        f'OR({b}="ENUM_AI",{b}="AI_TEXT",{b}="SKIP"),'
-        f'"ERROR: this mode must leave pim/generation/constant blank",'
-        f'TRUE,"ERROR: unhandled fill_mode"'
-        f"))"
+        f'=IF(AND({a}="",{c}=""),"",'
+        f'IF({a}="","ERROR: column_index required",'
+        f'IF(COUNTIF({idx},{a})=0,"ERROR: column_index not in marketplace_columns",'
+        f'IF(COUNTIF($A$2:$A${MAP_ROWS},{a})>1,"ERROR: duplicate column_index in listing_map",'
+        f'IF({c}="","ERROR: fill_mode required",'
+        f'IF(COUNTIF({fill},{c})=0,"ERROR: invalid fill_mode",'
+        f'IF({c}="COPY_PIM",'
+        f'IF(AND({d}<>"",COUNTIF({pim},{d})>0,{e}="",{f}=""),"OK","ERROR: COPY_PIM needs pim_field only"),'
+        f'IF({c}="ENUM_FROM_PIM",'
+        f'IF(AND({d}<>"",COUNTIF({pim},{d})>0,{e}="",{f}=""),"OK","ERROR: ENUM_FROM_PIM needs pim_field only"),'
+        f'IF({c}="COPY_GENERATION",'
+        f'IF(AND({e}<>"",COUNTIF({gen},{e})>0,{d}="",{f}=""),"OK","ERROR: COPY_GENERATION needs generation only"),'
+        f'IF({c}="IMAGE",'
+        f'IF(AND({e}<>"",COUNTIF({gen},{e})>0,{d}="",{f}=""),"OK","ERROR: IMAGE needs generation only"),'
+        f'IF({c}="CONSTANT",'
+        f'IF(AND({f}<>"",{d}="",{e}=""),"OK","ERROR: CONSTANT needs constant_value only"),'
+        f'IF(OR({c}="ENUM_AI",{c}="AI_TEXT",{c}="SKIP"),'
+        f'IF(AND({d}="",{e}="",{f}=""),"OK","ERROR: this mode must leave pim/generation/constant blank"),'
+        f'"ERROR: unhandled fill_mode"'
+        f"))))))))))))"
     )
 
 
@@ -156,13 +169,16 @@ def _readme_blocks() -> list[tuple[str, str]]:
         ),
         (
             (
-                "2. marketplace_columns — exact Amazon Template labels or machine keys "
-                "from the blank .xlsm."
+                "2. marketplace_columns — one row per Excel column: column_index "
+                "(unique) + marketplace_column (display name from the blank .xlsm)."
             ),
             "body",
         ),
         (
-            "3. listing_map — one row per marketplace column: how it gets filled.",
+            (
+                "3. listing_map — pick column_index from the dropdown; "
+                "marketplace_column fills in automatically. Then set fill_mode."
+            ),
             "body",
         ),
         (
@@ -174,16 +190,29 @@ def _readme_blocks() -> list[tuple[str, str]]:
         ("A. Add customer fields on pim_contract.", "body"),
         (
             (
-                "B. Paste exact Amazon column names on marketplace_columns "
-                "(label or machine_key)."
+                "B. On marketplace_columns, enter each Template column’s Excel "
+                "column_index and its header name (as shown in the blank .xlsm)."
             ),
             "body",
         ),
         (
-            "C. On listing_map, pick marketplace_column + fill_mode from dropdowns.",
+            (
+                "C. On listing_map, pick column_index (dropdown). The name appears "
+                "next to it. Then pick fill_mode and the related fields."
+            ),
             "body",
         ),
         ("D. status must be OK (green). Fix any ERROR row before handoff.", "body"),
+        ("", "body"),
+        ("Uniqueness", "section"),
+        (
+            (
+                "column_index is the only unique key (Excel column number from the "
+                "Template sheet). Do not invent numbered names like Other Image URL1 / 2 "
+                "for uniqueness — same display name can appear on different indices."
+            ),
+            "body",
+        ),
         ("", "body"),
         ("When to pick each fill_mode", "section"),
         (
@@ -213,17 +242,11 @@ def _readme_blocks() -> list[tuple[str, str]]:
         ("", "body"),
         ("Amazon dropdowns (ENUM)", "section"),
         (
-            (
-                "Both ENUM modes write only values from Amazon’s allowed list. "
-                "Never free text."
-            ),
+            "Both ENUM modes write only values from Amazon’s allowed list. Never free text.",
             "body",
         ),
         ("", "body"),
-        (
-            "ENUM_FROM_PIM — customer has a related PIM field (set pim_field).",
-            "body",
-        ),
+        ("ENUM_FROM_PIM — customer has a related PIM field (set pim_field).", "body"),
         (
             (
                 "  1) PIM value exact-matches an allowed option (case-insensitive) "
@@ -267,16 +290,15 @@ def _readme_blocks() -> list[tuple[str, str]]:
         ("", "body"),
         ("Hard rules", "section"),
         (
-            "• Dropdowns only for marketplace_column, fill_mode, pim_field, generation.",
+            "• Select column_index from the dropdown — do not type free text.",
             "body",
         ),
         (
-            (
-                "• marketplace_column / pim_field must exist on their sheets "
-                "with exact spelling/case."
-            ),
+            "• marketplace_column on listing_map is auto-filled — do not edit it.",
             "body",
         ),
+        ("• Each column_index may appear at most once on listing_map.", "body"),
+        ("• pim_field must exist on pim_contract when used.", "body"),
         ("• Keep pim_contract minimal.", "body"),
         ("• status = OK on every filled listing_map row before handoff.", "body"),
         ("", "body"),
@@ -284,7 +306,75 @@ def _readme_blocks() -> list[tuple[str, str]]:
     ]
 
 
-def build() -> Path:
+def _default_pim_rows() -> list[tuple[str, str]]:
+    return [
+        ("SKU", "Mandatory"),
+        ("Color", "Mandatory"),
+        ("Size", "Mandatory"),
+        ("Material", "Optional"),
+        ("Brand", "Mandatory"),
+        ("Pattern", "Optional"),
+    ]
+
+
+def _default_mkt_rows() -> list[tuple[int, str]]:
+    """Illustrative only — replace from a real .xlsm before mapping."""
+    return [
+        (1, "SKU"),
+        (2, "Product Type"),
+        (3, "Listing Action"),
+        (4, "Parentage Level"),
+        (5, "Parent SKU"),
+        (6, "Variation Theme Name"),
+        (7, "Item Name"),
+        (8, "Item Highlight"),
+        (9, "Brand Name"),
+        (21, "Main Image URL"),
+        (22, "Other Image URL"),
+        (31, "Product Description"),
+        (32, "Bullet Point"),
+        (37, "Generic Keyword"),
+        (39, "Material"),
+        (51, "Color"),
+        (52, "Size"),
+        (78, "Pattern"),
+    ]
+
+
+def _default_map_rows() -> list[tuple[int, str, str, str, str]]:
+    """Starter rows keyed to ``_default_mkt_rows`` (Amazon-style layout)."""
+    return [
+        (1, "COPY_PIM", "SKU", "", ""),
+        (2, "CONSTANT", "", "", "BED_LINEN_SET"),
+        (3, "CONSTANT", "", "", "Edit (Partial Update)"),
+        (4, "ENUM_AI", "", "", ""),
+        (5, "SKIP", "", "", ""),
+        (6, "ENUM_AI", "", "", ""),
+        (7, "COPY_GENERATION", "", "TITLE", ""),
+        (8, "COPY_GENERATION", "", "ITEM_HIGHLIGHTS:1", ""),
+        (9, "ENUM_FROM_PIM", "Brand", "", ""),
+        (21, "IMAGE", "", "IMAGE:1", ""),
+        (22, "IMAGE", "", "IMAGE:2", ""),
+        (31, "COPY_GENERATION", "", "DESCRIPTION", ""),
+        (32, "COPY_GENERATION", "", "BULLET_POINTS:1", ""),
+        (37, "COPY_GENERATION", "", "BACKEND_KEYWORDS", ""),
+        (39, "ENUM_FROM_PIM", "Material", "", ""),
+        (51, "ENUM_FROM_PIM", "Color", "", ""),
+        (52, "ENUM_FROM_PIM", "Size", "", ""),
+        (78, "ENUM_FROM_PIM", "Pattern", "", ""),
+    ]
+
+
+def build(
+    *,
+    out_xlsx: Path | None = None,
+    out_dir: Path | None = None,
+    out_readme: Path | None = None,
+    pim_rows: list[tuple[str, str]] | None = None,
+    mkt_rows: list[tuple[int, str]] | None = None,
+    map_rows: list[tuple[int, str, str, str, str]] | None = None,
+    write_sidecar_csv: bool = True,
+) -> Path:
     generations = _generation_tokens()
     fill_modes = [
         "COPY_PIM",
@@ -297,18 +387,31 @@ def build() -> Path:
         "SKIP",
     ]
     requirements = ["Mandatory", "Optional"]
-    column_sources = ["label", "machine_key"]
     gen_last = 1 + len(generations)
+    pim_rows = list(pim_rows) if pim_rows is not None else _default_pim_rows()
+    mkt_rows = list(mkt_rows) if mkt_rows is not None else _default_mkt_rows()
+    map_rows = list(map_rows) if map_rows is not None else _default_map_rows()
+    if len(mkt_rows) > MKT_ROWS - 1:
+        raise ValueError(
+            f"marketplace_columns has {len(mkt_rows)} rows; raise MKT_ROWS "
+            f"(currently {MKT_ROWS})"
+        )
+    if len(map_rows) > MAP_ROWS - 1:
+        raise ValueError(
+            f"listing_map has {len(map_rows)} rows; raise MAP_ROWS (currently {MAP_ROWS})"
+        )
+
+    out_xlsx = out_xlsx or OUT_XLSX
+    out_dir = out_dir or OUT_DIR
+    out_readme = out_readme or OUT_README
 
     wb = Workbook()
 
-    # README
     ws_readme = wb.active
     ws_readme.title = "README"
     ws_readme.sheet_properties.tabColor = "1F4E79"
     for i, (text, kind) in enumerate(_readme_blocks(), start=1):
         cell = ws_readme.cell(i, 1)
-        # Never write "" — empty inlineStr cells make Excel show the repair dialog.
         if text:
             cell.value = text
             cell.font = (
@@ -321,45 +424,31 @@ def build() -> Path:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
     ws_readme.column_dimensions["A"].width = 112
 
-    # lists
     ws_lists = wb.create_sheet("lists")
     ws_lists["A1"] = "fill_mode"
     ws_lists["B1"] = "requirement"
     ws_lists["C1"] = "generation"
-    ws_lists["D1"] = "column_source"
     for i, value in enumerate(fill_modes, start=2):
         ws_lists.cell(i, 1, value)
     for i, value in enumerate(requirements, start=2):
         ws_lists.cell(i, 2, value)
     for i, value in enumerate(generations, start=2):
         ws_lists.cell(i, 3, value)
-    for i, value in enumerate(column_sources, start=2):
-        ws_lists.cell(i, 4, value)
-    _style_header(ws_lists, 4)
-    _autosize(ws_lists, [18, 14, 22, 14])
+    _style_header(ws_lists, 3)
+    _autosize(ws_lists, [18, 14, 22])
     ws_lists.sheet_properties.tabColor = "808080"
 
-    # Quoted sheet refs — required for reliable Excel list validation
     r_fill = "'lists'!$A$2:$A$9"
     r_req = "'lists'!$B$2:$B$3"
     r_gen = f"'lists'!$C$2:$C${gen_last}"
-    r_src = "'lists'!$D$2:$D$3"
     r_pim = f"'pim_contract'!$A$2:$A${PIM_ROWS}"
-    r_mkt = f"'marketplace_columns'!$A$2:$A${MKT_ROWS}"
+    r_idx = f"'marketplace_columns'!$A$2:$A${MKT_ROWS}"
 
     # pim_contract
     ws_pim = wb.create_sheet("pim_contract")
     pim_headers = ["pim_field", "requirement"]
     for i, header in enumerate(pim_headers, start=1):
         ws_pim.cell(1, i, header)
-    pim_rows = [
-        ("SKU", "Mandatory"),
-        ("Color", "Mandatory"),
-        ("Size", "Mandatory"),
-        ("Material", "Optional"),
-        ("Brand", "Mandatory"),
-        ("Pattern", "Optional"),
-    ]
     for r, row in enumerate(pim_rows, start=2):
         _set(ws_pim, r, 1, row[0])
         _set(ws_pim, r, 2, row[1])
@@ -372,34 +461,11 @@ def build() -> Path:
     ws_pim.add_data_validation(dv_req)
     dv_req.add(f"B2:B{PIM_ROWS}")
 
-    # marketplace_columns
+    # marketplace_columns — unique by column_index; name is display only
     ws_mkt = wb.create_sheet("marketplace_columns")
-    mkt_headers = ["marketplace_column", "source"]
+    mkt_headers = ["column_index", "marketplace_column"]
     for i, header in enumerate(mkt_headers, start=1):
         ws_mkt.cell(1, i, header)
-    mkt_rows = [
-        ("Seller SKU", "label"),
-        ("Brand Name", "label"),
-        ("Color", "label"),
-        ("Size", "label"),
-        ("Material Type", "label"),
-        ("Item Name", "label"),
-        ("Bullet Point 1", "label"),
-        ("Bullet Point 2", "label"),
-        ("Bullet Point 3", "label"),
-        ("Bullet Point 4", "label"),
-        ("Bullet Point 5", "label"),
-        ("Generic Keywords", "label"),
-        ("Product Description", "label"),
-        ("Main Image URL", "label"),
-        ("Other Image URL1", "label"),
-        ("Other Image URL2", "label"),
-        ("Update Delete", "label"),
-        ("Product ID", "label"),
-        ("League Name", "label"),
-        ("Team Name", "label"),
-        ("Pattern Name", "label"),
-    ]
     for r, row in enumerate(mkt_rows, start=2):
         _set(ws_mkt, r, 1, row[0])
         _set(ws_mkt, r, 2, row[1])
@@ -407,14 +473,12 @@ def build() -> Path:
         _set(ws_mkt, r, 1, None)
         _set(ws_mkt, r, 2, None)
     _style_header(ws_mkt, 2)
-    _autosize(ws_mkt, [28, 14])
-    dv_src = _list_dv(r_src, "source", "Pick label or machine_key.")
-    ws_mkt.add_data_validation(dv_src)
-    dv_src.add(f"B2:B{MKT_ROWS}")
+    _autosize(ws_mkt, [14, 28])
 
-    # listing_map
+    # listing_map — select index; name is looked up
     ws_map = wb.create_sheet("listing_map")
     map_headers = [
+        "column_index",
         "marketplace_column",
         "fill_mode",
         "pim_field",
@@ -425,78 +489,65 @@ def build() -> Path:
     for i, header in enumerate(map_headers, start=1):
         ws_map.cell(1, i, header)
 
-    map_rows = [
-        ("Seller SKU", "COPY_PIM", "SKU", "", ""),
-        ("Brand Name", "COPY_PIM", "Brand", "", ""),
-        ("Color", "ENUM_FROM_PIM", "Color", "", ""),
-        ("Size", "ENUM_FROM_PIM", "Size", "", ""),
-        ("Material Type", "ENUM_AI", "", "", ""),
-        ("Item Name", "COPY_GENERATION", "", "TITLE", ""),
-        ("Bullet Point 1", "COPY_GENERATION", "", "BULLET_POINTS:1", ""),
-        ("Bullet Point 2", "COPY_GENERATION", "", "BULLET_POINTS:2", ""),
-        ("Bullet Point 3", "COPY_GENERATION", "", "BULLET_POINTS:3", ""),
-        ("Bullet Point 4", "COPY_GENERATION", "", "BULLET_POINTS:4", ""),
-        ("Bullet Point 5", "COPY_GENERATION", "", "BULLET_POINTS:5", ""),
-        ("Generic Keywords", "COPY_GENERATION", "", "BACKEND_KEYWORDS", ""),
-        ("Product Description", "COPY_GENERATION", "", "DESCRIPTION", ""),
-        ("Main Image URL", "IMAGE", "", "IMAGE:1", ""),
-        ("Other Image URL1", "IMAGE", "", "IMAGE:2", ""),
-        ("Other Image URL2", "IMAGE", "", "IMAGE:3", ""),
-        ("Update Delete", "CONSTANT", "", "", "Update"),
-        ("Product ID", "SKIP", "", "", ""),
-        ("League Name", "ENUM_AI", "", "", ""),
-        ("Team Name", "ENUM_AI", "", "", ""),
-        ("Pattern Name", "COPY_PIM", "Pattern", "", ""),
-    ]
-
     for r, row in enumerate(map_rows, start=2):
-        for c, value in enumerate(row, start=1):
-            _set(ws_map, r, c, value)
-        status = ws_map.cell(r, 6)
+        _set(ws_map, r, 1, row[0])
+        name_cell = ws_map.cell(r, 2)
+        name_cell.value = _name_lookup_formula(r)
+        name_cell.border = THIN
+        name_cell.fill = LOOKUP_FILL
+        _set(ws_map, r, 3, row[1])
+        _set(ws_map, r, 4, row[2])
+        _set(ws_map, r, 5, row[3])
+        _set(ws_map, r, 6, row[4])
+        status = ws_map.cell(r, 7)
         status.value = _status_formula(r, gen_last=gen_last)
         status.border = THIN
 
     for r in range(len(map_rows) + 2, MAP_ROWS + 1):
-        for c in range(1, 6):
+        for c in (1, 3, 4, 5, 6):
             _set(ws_map, r, c, None)
-        status = ws_map.cell(r, 6)
+        name_cell = ws_map.cell(r, 2)
+        name_cell.value = _name_lookup_formula(r)
+        name_cell.border = THIN
+        name_cell.fill = LOOKUP_FILL
+        status = ws_map.cell(r, 7)
         status.value = _status_formula(r, gen_last=gen_last)
         status.border = THIN
 
-    _style_header(ws_map, 6)
-    _autosize(ws_map, [22, 18, 14, 22, 16, 55])
+    _style_header(ws_map, 7)
+    _autosize(ws_map, [14, 22, 18, 14, 22, 16, 55])
 
     for dv, rng in (
         (
             _list_dv(
-                r_mkt, "marketplace_column", "Pick from marketplace_columns only."
+                r_idx, "column_index", "Pick column_index from marketplace_columns."
             ),
             f"A2:A{MAP_ROWS}",
         ),
-        (_list_dv(r_fill, "fill_mode", "Pick fill_mode only."), f"B2:B{MAP_ROWS}"),
+        (_list_dv(r_fill, "fill_mode", "Pick fill_mode only."), f"C2:C{MAP_ROWS}"),
         (
             _list_dv(r_pim, "pim_field", "Pick from pim_contract only."),
-            f"C2:C{MAP_ROWS}",
+            f"D2:D{MAP_ROWS}",
         ),
         (
             _list_dv(r_gen, "generation", "Pick generation token only."),
-            f"D2:D{MAP_ROWS}",
+            f"E2:E{MAP_ROWS}",
         ),
     ):
         ws_map.add_data_validation(dv)
         dv.add(rng)
 
     ws_map.conditional_formatting.add(
-        f"F2:F{MAP_ROWS}",
-        FormulaRule(formula=['LEFT(F2,5)="ERROR"'], fill=ERR_FILL, font=ERR_FONT),
+        f"G2:G{MAP_ROWS}",
+        FormulaRule(formula=['LEFT(G2,5)="ERROR"'], fill=ERR_FILL, font=ERR_FONT),
     )
     ws_map.conditional_formatting.add(
-        f"F2:F{MAP_ROWS}",
-        FormulaRule(formula=['F2="OK"'], fill=OK_FILL),
+        f"G2:G{MAP_ROWS}",
+        FormulaRule(formula=['G2="OK"'], fill=OK_FILL),
     )
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    OUT_XLSX.parent.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_xlsx.parent.mkdir(parents=True, exist_ok=True)
 
     def write_csv(path: Path, headers: list[str], rows: list[tuple]) -> None:
         with path.open("w", encoding="utf-8", newline="") as handle:
@@ -504,17 +555,24 @@ def build() -> Path:
             writer.writerow(headers)
             writer.writerows(rows)
 
-    write_csv(OUT_DIR / "pim_contract.csv", pim_headers, pim_rows)
-    write_csv(OUT_DIR / "marketplace_columns.csv", mkt_headers, mkt_rows)
-    write_csv(OUT_DIR / "listing_map.csv", map_headers[:-1], map_rows)
-    write_csv(OUT_DIR / "generations.csv", ["generation"], [[g] for g in generations])
-    OUT_README.write_text(
-        "\n".join(text for text, _ in _readme_blocks()) + "\n",
-        encoding="utf-8",
-    )
+    if write_sidecar_csv:
+        write_csv(out_dir / "pim_contract.csv", pim_headers, pim_rows)
+        write_csv(out_dir / "marketplace_columns.csv", mkt_headers, mkt_rows)
+        write_csv(
+            out_dir / "listing_map.csv",
+            ["column_index", "fill_mode", "pim_field", "generation", "constant_value"],
+            map_rows,
+        )
+        write_csv(
+            out_dir / "generations.csv", ["generation"], [[g] for g in generations]
+        )
+        out_readme.write_text(
+            "\n".join(text for text, _ in _readme_blocks()) + "\n",
+            encoding="utf-8",
+        )
 
-    wb.save(OUT_XLSX)
-    return OUT_XLSX
+    wb.save(out_xlsx)
+    return out_xlsx
 
 
 if __name__ == "__main__":

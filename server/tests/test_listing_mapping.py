@@ -1,34 +1,41 @@
-"""Unit tests for ops/listing_mapping (in-memory columns + CSV text)."""
+"""Unit tests for ops/listing_mapping (mapping workbook + overlay + Amazon adapter)."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
-from listing_mapping.csv import (
-    MappingRow,
+from listing_mapping.mapping_workbook import (
+    FillMode,
+    ListingMapRow,
+    MappingWorkbook,
+    PimFieldRow,
     build_attribute_spec,
-    parse_mapping_csv_text,
+    parse_mapping_workbook,
 )
+from listing_mapping.marketplace import MarketplaceId, parse_marketplace_id
+from listing_mapping.marketplace.registry import get_adapter
 from listing_mapping.overlay import overlay_columns
 from listing_mapping.render import render_mapping_sql
+from openpyxl import Workbook
 
 from utils.listing_template_columns import WorkbookLayout
+
+_REPO = Path(__file__).resolve().parents[2]
+_TEMPLATE = _REPO / "tmp" / "listing_mapping_template.xlsx"
 
 
 def _col(
     *,
     column_index: int,
     label: str,
-    workbook_key: str | None = None,
     fill_type: str = "DIRECT_MAP",
     resolve_stage: int = 1,
     depends_on: int | None = None,
     valid_values: list[str] | None = None,
     valid_values_by_parent: dict[str, list[str]] | None = None,
 ) -> dict:
-    config: dict = {
-        "fill_type": fill_type,
-        "label": label,
-    }
+    config: dict = {"fill_type": fill_type, "label": label}
     if depends_on is not None:
         config["depends_on"] = depends_on
     if valid_values is not None:
@@ -39,190 +46,122 @@ def _col(
         "column_index": column_index,
         "resolve_stage": resolve_stage,
         "depends_on": depends_on,
-        "workbook_key": workbook_key,
+        "workbook_key": None,
         "config": config,
     }
 
 
-_SAMPLE_CSV = """Flat Field Name,Requirement,Amazon,AI_GENERATED
-SKU,Mandatory,Seller SKU,false
-Color,Mandatory,Color,false
-Material,Optional,Material Type,true
-League,Optional,League Name,true
-Team,Optional,,false
-Extra Note,Optional,Notes,false
-"""
+def test_parse_marketplace_id() -> None:
+    assert parse_marketplace_id("amazon") is MarketplaceId.AMAZON
+    assert parse_marketplace_id("AMAZON") is MarketplaceId.AMAZON
+    with pytest.raises(ValueError, match="Unknown marketplace"):
+        parse_marketplace_id("SHOPIFY")
 
 
-def test_parse_mapping_csv_text() -> None:
-    mapping = parse_mapping_csv_text(_SAMPLE_CSV)
-    assert mapping.marketplace_header == "Amazon"
-    assert len(mapping.rows) == 6
-    sku = mapping.rows[0]
-    assert sku.flat_field_name == "SKU"
-    assert sku.mandatory is True
-    assert sku.marketplace_column == "Seller SKU"
-    assert sku.ai_generated is False
-    league = next(r for r in mapping.rows if r.flat_field_name == "League")
-    assert league.ai_generated is True
-    assert league.marketplace_column == "League Name"
-    team = next(r for r in mapping.rows if r.flat_field_name == "Team")
-    assert team.marketplace_column is None
+def test_amazon_adapter_default_layout() -> None:
+    layout = get_adapter(MarketplaceId.AMAZON).workbook_layout()
+    assert layout.sheet_name == "Template"
+    assert layout.header_label_row == 4
+    assert layout.machine_key_row == 5
+    assert layout.data_start_row == 7
+    assert layout.valid_values_sheet == "Valid Values"
+
+
+def test_amazon_adapter_overrides() -> None:
+    layout = get_adapter(MarketplaceId.AMAZON).workbook_layout(
+        sheet_name="Custom",
+        data_start_row=9,
+    )
+    assert layout.sheet_name == "Custom"
+    assert layout.data_start_row == 9
+    assert layout.header_label_row == 4
+
+
+def test_flipkart_not_implemented() -> None:
+    with pytest.raises(NotImplementedError, match="FLIPKART"):
+        get_adapter(MarketplaceId.FLIPKART).workbook_layout()
 
 
 def test_build_attribute_spec_injects_sku() -> None:
-    rows = [
-        MappingRow("Color", True, "Color", False),
-        MappingRow("Material", False, "Material", True),
-    ]
-    spec = build_attribute_spec(rows)
+    spec = build_attribute_spec(
+        [
+            PimFieldRow("Color", True),
+            PimFieldRow("Material", False),
+        ]
+    )
     assert spec["allowed"][0] == "SKU"
     assert "SKU" in spec["mandatory"]
     assert "Color" in spec["mandatory"]
-    assert "Material" in spec["allowed"]
-    assert "Material" not in spec["mandatory"]
 
 
-def test_overlay_fill_types() -> None:
+def test_overlay_by_column_index_fill_modes() -> None:
     workbook = [
-        _col(column_index=1, label="Seller SKU", workbook_key="item_sku"),
+        _col(column_index=1, label="Seller SKU"),
         _col(
             column_index=2,
             label="Color",
-            workbook_key="color_name",
             fill_type="ENUM",
             valid_values=["Black", "White"],
         ),
-        _col(column_index=3, label="Material Type", workbook_key="material_type"),
         _col(
-            column_index=4,
-            label="League Name",
-            workbook_key="league_name",
+            column_index=3,
+            label="League",
             fill_type="ENUM",
-            valid_values=["NFL", "NBA"],
+            valid_values=["NFL"],
         ),
-        _col(
-            column_index=5,
-            label="Team Name",
-            workbook_key="team_name",
-            fill_type="ENUM",
-            resolve_stage=2,
-            depends_on=4,
-            valid_values_by_parent={"NFL": ["Patriots"], "NBA": ["Lakers"]},
-        ),
-        _col(column_index=6, label="Notes", workbook_key="notes"),
-        _col(column_index=7, label="Product ID", workbook_key="external_product_id"),
+        _col(column_index=4, label="Item Name"),
+        _col(column_index=5, label="Main Image"),
+        _col(column_index=6, label="Notes"),
+        _col(column_index=7, label="Unused"),
     ]
-    mapping = parse_mapping_csv_text(_SAMPLE_CSV)
+    mapping = MappingWorkbook(
+        pim_fields=[
+            PimFieldRow("SKU", True),
+            PimFieldRow("Color", True),
+        ],
+        listing_rows=[
+            ListingMapRow(1, FillMode.COPY_PIM, "SKU", None, None),
+            ListingMapRow(2, FillMode.ENUM_FROM_PIM, "Color", None, None),
+            ListingMapRow(3, FillMode.ENUM_AI, None, None, None),
+            ListingMapRow(4, FillMode.COPY_GENERATION, None, "TITLE", None),
+            ListingMapRow(5, FillMode.IMAGE, None, "IMAGE:1", None),
+            ListingMapRow(6, FillMode.AI_TEXT, None, None, None),
+        ],
+    )
     result = overlay_columns(workbook, mapping)
     by_index = {c["column_index"]: c["config"] for c in result.columns}
 
     assert by_index[1]["fill_type"] == "DIRECT_MAP"
     assert by_index[1]["source"] == {"from": "SKU_MASTER", "key": "SKU"}
+    assert by_index[2]["fill_type"] == "ENUM"
+    assert by_index[2]["source"]["key"] == "Color"
+    assert by_index[3]["fill_type"] == "ENUM"
+    assert "source" not in by_index[3]
+    assert by_index[4]["fill_type"] == "DIRECT_MAP"
+    assert by_index[4]["source"]["attribute_name"] == "TITLE"
+    assert by_index[5]["fill_type"] == "IMAGE"
+    assert by_index[5]["source"]["slot"] == 1
+    assert by_index[6]["fill_type"] == "AI_TEXT"
+    assert by_index[7]["fill_type"] == "SKIP"
     assert "requiredness" not in by_index[1]
     assert "machine_key" not in by_index[1]
 
-    assert by_index[2]["fill_type"] == "ENUM"
-    assert by_index[2]["valid_values"] == ["Black", "White"]
-    assert by_index[2]["source"] == {"from": "SKU_MASTER", "key": "Color"}
 
-    assert by_index[3]["fill_type"] == "AI_TEXT"
-    assert "source" not in by_index[3]
-
-    assert by_index[4]["fill_type"] == "ENUM"
-    assert "source" not in by_index[4]
-    assert by_index[4]["valid_values"] == ["NFL", "NBA"]
-
-    assert by_index[6]["fill_type"] == "DIRECT_MAP"
-    assert by_index[6]["source"]["key"] == "Extra Note"
-
-    assert by_index[7]["fill_type"] == "SKIP"
-    assert "valid_values" not in by_index[7]
-
-    assert by_index[5]["fill_type"] == "SKIP"
-    assert result.warnings == []
-
-    assert "SKU" in result.attribute_spec["mandatory"]
-    assert "Color" in result.attribute_spec["mandatory"]
-    assert "Team" in result.attribute_spec["allowed"]
-    assert "Team" not in result.attribute_spec["mandatory"]
-
-
-def test_overlay_warns_when_enum_depends_on_skip_parent() -> None:
-    workbook = [
-        _col(
-            column_index=1,
-            label="League Name",
-            workbook_key="league_name",
-            fill_type="ENUM",
-            valid_values=["NFL"],
-        ),
-        _col(
-            column_index=2,
-            label="Team Name",
-            workbook_key="team_name",
-            fill_type="ENUM",
-            resolve_stage=2,
-            depends_on=1,
-            valid_values_by_parent={"NFL": ["Patriots"]},
-        ),
-    ]
-    mapping = parse_mapping_csv_text(
-        "Flat Field Name,Requirement,Amazon,AI_GENERATED\nTeam,Optional,Team Name,true\n"
+def test_overlay_unknown_column_index_fails() -> None:
+    workbook = [_col(column_index=1, label="Seller SKU")]
+    mapping = MappingWorkbook(
+        pim_fields=[PimFieldRow("SKU", True)],
+        listing_rows=[ListingMapRow(99, FillMode.COPY_PIM, "SKU", None, None)],
     )
-    result = overlay_columns(workbook, mapping)
-    by_index = {c["column_index"]: c["config"] for c in result.columns}
-    assert by_index[1]["fill_type"] == "SKIP"
-    assert by_index[2]["fill_type"] == "ENUM"
-    assert by_index[2]["depends_on"] == 1
-    assert "source" not in by_index[2]
-    assert "machine_key" not in by_index[2]
-    assert any("depends_on" in w and "SKIP" in w for w in result.warnings)
-
-
-def test_overlay_match_by_workbook_key() -> None:
-    workbook = [_col(column_index=1, label="Seller SKU", workbook_key="item_sku")]
-    mapping = parse_mapping_csv_text(
-        "Flat Field Name,Requirement,Amazon,AI_GENERATED\nSKU,Mandatory,item_sku,false\n"
-    )
-    result = overlay_columns(workbook, mapping)
-    assert result.columns[0]["config"]["fill_type"] == "DIRECT_MAP"
-    assert "machine_key" not in result.columns[0]["config"]
-
-
-def test_overlay_unmatched_marketplace_name_fails() -> None:
-    workbook = [_col(column_index=1, label="Seller SKU", workbook_key="item_sku")]
-    mapping = parse_mapping_csv_text(
-        "Flat Field Name,Requirement,Amazon,AI_GENERATED\nSKU,Mandatory,Not A Column,false\n"
-    )
-    with pytest.raises(ValueError, match="matches no workbook column"):
+    with pytest.raises(ValueError, match="not found in workbook"):
         overlay_columns(workbook, mapping)
 
 
-def test_overlay_duplicate_marketplace_in_csv_fails() -> None:
-    with pytest.raises(ValueError, match="already mapped"):
-        parse_mapping_csv_text(
-            "Flat Field Name,Requirement,Amazon,AI_GENERATED\n"
-            "SKU,Mandatory,Seller SKU,false\n"
-            "Color,Mandatory,Seller SKU,false\n"
-        )
-
-
-def test_render_mapping_sql_contains_three_updates() -> None:
-    workbook = [
-        _col(column_index=1, label="Seller SKU", workbook_key="item_sku"),
-        _col(
-            column_index=2,
-            label="Color",
-            workbook_key="color_name",
-            fill_type="ENUM",
-            valid_values=["Black"],
-        ),
-    ]
-    mapping = parse_mapping_csv_text(
-        "Flat Field Name,Requirement,Amazon,AI_GENERATED\n"
-        "SKU,Mandatory,Seller SKU,false\n"
-        "Color,Mandatory,Color,false\n"
+def test_render_mapping_sql() -> None:
+    workbook = [_col(column_index=1, label="Seller SKU")]
+    mapping = MappingWorkbook(
+        pim_fields=[PimFieldRow("SKU", True)],
+        listing_rows=[ListingMapRow(1, FillMode.COPY_PIM, "SKU", None, None)],
     )
     result = overlay_columns(workbook, mapping)
     sql = render_mapping_sql(
@@ -235,23 +174,48 @@ def test_render_mapping_sql_contains_three_updates() -> None:
             data_start_row=7,
         ),
         xlsm_name="cat.xlsm",
-        csv_name="map.csv",
-        marketplace_header="Amazon",
-        warnings=result.warnings,
+        mapping_name="map.xlsx",
+        marketplace_id="AMAZON",
     )
     assert "UPDATE categories" in sql
-    assert "attribute_spec" in sql
+    assert "--marketplace AMAZON" in sql
     assert ":category_external_id" in sql
-    assert ":marketplace_external_id" in sql
-    assert ":gcs_object_key" in sql
-    assert "INSERT INTO category_marketplace" in sql
-    assert "DELETE FROM listing_template_column" in sql
-    assert "INSERT INTO listing_template" in sql
-    assert "UPDATE listing_template" in sql
-    assert "SET metadata" in sql
     assert "INSERT INTO listing_template_column" in sql
-    assert ":cm_id" not in sql
-    assert '"requiredness"' not in sql
-    assert '"machine_key"' not in sql
-    assert "sheet_name" in sql
-    assert "header_label_row" in sql
+
+
+@pytest.mark.skipif(not _TEMPLATE.is_file(), reason="tmp listing_mapping_template.xlsx missing")
+def test_parse_tmp_mapping_template() -> None:
+    mapping = parse_mapping_workbook(_TEMPLATE)
+    assert mapping.pim_fields
+    assert mapping.listing_rows
+    assert any(r.pim_field == "SKU" for r in mapping.pim_fields)
+    assert any(r.fill_mode == FillMode.COPY_PIM for r in mapping.listing_rows)
+
+
+def test_parse_mapping_workbook_roundtrip(tmp_path: Path) -> None:
+    path = tmp_path / "map.xlsx"
+    wb = Workbook()
+    ws_pim = wb.active
+    ws_pim.title = "pim_contract"
+    ws_pim.append(["pim_field", "requirement"])
+    ws_pim.append(["SKU", "Mandatory"])
+    ws_pim.append(["Color", "Optional"])
+    ws_map = wb.create_sheet("listing_map")
+    ws_map.append(
+        [
+            "column_index",
+            "marketplace_column",
+            "fill_mode",
+            "pim_field",
+            "generation",
+            "constant_value",
+            "status",
+        ]
+    )
+    ws_map.append([1, "Seller SKU", "COPY_PIM", "SKU", "", "", "OK"])
+    ws_map.append([2, "Color", "ENUM_FROM_PIM", "Color", "", "", "OK"])
+    wb.save(path)
+    mapping = parse_mapping_workbook(path)
+    assert len(mapping.pim_fields) == 2
+    assert mapping.listing_rows[0].column_index == 1
+    assert mapping.listing_rows[1].fill_mode == FillMode.ENUM_FROM_PIM

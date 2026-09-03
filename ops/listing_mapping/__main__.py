@@ -1,19 +1,18 @@
-"""Offline CLI: mapping CSV + marketplace .xlsm → human-run listing SQL.
+"""Offline CLI: mapping workbook + marketplace .xlsm → human-run listing SQL.
 
-Valid Values / Dropdown Lists sheet names come from
-``ops/listing_mapping/config/marketplace_listing_workbooks.json`` keyed by the
-CSV marketplace column header (e.g. Amazon) — not from CLI flags.
+Uses the restricted Excel mapping template (pim_contract + listing_map) and a
+marketplace adapter (AMAZON implemented; FLIPKART/MYNTRA stubs).
 
 From repo root (server venv):
 
   PYTHONPATH=ops:server python -m listing_mapping \\
+    --marketplace AMAZON \\
     --xlsm /path/to/CATEGORY.xlsm \\
-    --csv /path/to/mapping.csv \\
-    --sheet-name Template \\
-    --header-label-row 4 \\
-    --machine-key-row 5 \\
-    --data-start-row 7 \\
+    --mapping tmp/listing_mapping_template.xlsx \\
     --out tmp/sql/003_<category>_listing_mapping.sql
+
+Optional layout overrides (when a blank workbook differs from marketplace defaults):
+  --sheet-name --header-label-row --machine-key-row --data-start-row
 """
 
 from __future__ import annotations
@@ -23,52 +22,60 @@ import sys
 from pathlib import Path
 
 from listing_mapping import _bootstrap  # noqa: F401
-from listing_mapping.csv import parse_mapping_csv
-from listing_mapping.marketplace_workbook import sheets_for_marketplace
+from listing_mapping.mapping_workbook import parse_mapping_workbook
+from listing_mapping.marketplace import parse_marketplace_id
+from listing_mapping.marketplace.registry import get_adapter
 from listing_mapping.overlay import overlay_columns
 from listing_mapping.render import render_mapping_sql
-
-from utils.listing_template_columns import WorkbookLayout, build_columns
+from utils.listing_template_columns import build_columns
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--marketplace",
+        required=True,
+        help="Marketplace adapter id: AMAZON | FLIPKART | MYNTRA",
+    )
     parser.add_argument("--xlsm", type=Path, required=True)
-    parser.add_argument("--csv", type=Path, required=True)
+    parser.add_argument(
+        "--mapping",
+        type=Path,
+        required=True,
+        help="Listing mapping Excel workbook (pim_contract + listing_map)",
+    )
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--sheet-name", required=True)
-    parser.add_argument("--header-label-row", type=int, required=True)
-    parser.add_argument("--machine-key-row", type=int, required=True)
-    parser.add_argument("--data-start-row", type=int, required=True)
+    parser.add_argument("--sheet-name", default=None)
+    parser.add_argument("--header-label-row", type=int, default=None)
+    parser.add_argument("--machine-key-row", type=int, default=None)
+    parser.add_argument("--data-start-row", type=int, default=None)
     args = parser.parse_args(argv)
 
     if not args.xlsm.is_file():
         print(f"xlsm not found: {args.xlsm}", file=sys.stderr)
         return 1
-    if not args.csv.is_file():
-        print(f"csv not found: {args.csv}", file=sys.stderr)
+    if not args.mapping.is_file():
+        print(f"mapping workbook not found: {args.mapping}", file=sys.stderr)
         return 1
     for name, value in (
         ("--header-label-row", args.header_label_row),
         ("--machine-key-row", args.machine_key_row),
         ("--data-start-row", args.data_start_row),
     ):
-        if value < 1:
+        if value is not None and value < 1:
             print(f"{name} must be >= 1, got {value}", file=sys.stderr)
             return 1
 
     try:
-        mapping = parse_mapping_csv(args.csv)
-        sheets = sheets_for_marketplace(mapping.marketplace_header)
-        layout = WorkbookLayout(
+        marketplace_id = parse_marketplace_id(args.marketplace)
+        adapter = get_adapter(marketplace_id)
+        layout = adapter.workbook_layout(
             sheet_name=args.sheet_name,
             header_label_row=args.header_label_row,
             machine_key_row=args.machine_key_row,
             data_start_row=args.data_start_row,
-            valid_values_sheet=sheets.valid_values_sheet,
-            dropdown_lists_sheet=sheets.dropdown_lists_sheet,
-            data_definitions_sheet=sheets.data_definitions_sheet,
         )
+        mapping = parse_mapping_workbook(args.mapping)
         workbook_columns = build_columns(
             args.xlsm,
             layout=layout,
@@ -80,11 +87,11 @@ def main(argv: list[str] | None = None) -> int:
             attribute_spec=result.attribute_spec,
             layout=layout,
             xlsm_name=args.xlsm.name,
-            csv_name=args.csv.name,
-            marketplace_header=mapping.marketplace_header,
+            mapping_name=args.mapping.name,
+            marketplace_id=marketplace_id.value,
             warnings=result.warnings,
         )
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, FileNotFoundError, NotImplementedError) as exc:
         print(f"listing_mapping failed: {exc}", file=sys.stderr)
         return 1
 
@@ -97,8 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         by_fill[fill] = by_fill.get(fill, 0) + 1
     print(
         f"Wrote {args.out} ({len(result.columns)} columns, fill_types={by_fill}, "
-        f"marketplace={mapping.marketplace_header!r}, "
-        f"valid_values_sheet={layout.valid_values_sheet!r}, "
+        f"marketplace={marketplace_id.value}, "
+        f"sheet={layout.sheet_name!r}, data_start_row={layout.data_start_row}, "
         f"allowed={len(result.attribute_spec['allowed'])}, "
         f"mandatory={len(result.attribute_spec['mandatory'])}, "
         f"warnings={len(result.warnings)})",

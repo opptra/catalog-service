@@ -15,8 +15,8 @@ def render_mapping_sql(
     attribute_spec: dict[str, list[str]],
     layout: WorkbookLayout,
     xlsm_name: str,
-    csv_name: str,
-    marketplace_header: str,
+    mapping_name: str,
+    marketplace_id: str,
     warnings: list[str] | None = None,
 ) -> str:
     by_stage: dict[int, int] = defaultdict(int)
@@ -51,23 +51,23 @@ def render_mapping_sql(
 
     lines = [
         "-- Human-run only. Agent does not apply this against any database.",
-        f"-- Generated from {xlsm_name} + {csv_name} by ops.listing_mapping",
-        f"-- Marketplace CSV column header: {marketplace_header}",
+        f"-- Generated from {xlsm_name} + {mapping_name} by ops.listing_mapping",
+        f"-- Marketplace adapter: {marketplace_id}",
         "--",
         "-- Re-generate (from repo root, PYTHONPATH=ops:server):",
         "--   python -m listing_mapping \\",
+        f"--     --marketplace {marketplace_id} \\",
         f"--     --xlsm /path/to/{xlsm_name} \\",
-        f"--     --csv /path/to/{csv_name} \\",
-        f"--     --sheet-name {layout.sheet_name} \\",
-        f"--     --header-label-row {layout.header_label_row} \\",
-        f"--     --machine-key-row {layout.machine_key_row} \\",
-        f"--     --data-start-row {layout.data_start_row} \\",
+        f"--     --mapping /path/to/{mapping_name} \\",
         "--     --out tmp/sql/003_<category>_listing_mapping.sql",
         "--",
-        f"-- Marketplace sheet titles loaded for {marketplace_header!r} from",
-        "-- ops/listing_mapping/config/marketplace_listing_workbooks.json "
-        f"(valid_values={layout.valid_values_sheet!r}, "
-        f"dropdown_lists={layout.dropdown_lists_sheet!r}).",
+        (
+            f"-- Workbook layout ({marketplace_id}): sheet={layout.sheet_name!r} "
+            f"labels={layout.header_label_row} keys={layout.machine_key_row} "
+            f"data={layout.data_start_row}; "
+            f"valid_values={layout.valid_values_sheet!r}, "
+            f"dropdown_lists={layout.dropdown_lists_sheet!r}."
+        ),
         "--",
         "-- Placeholders (set before apply):",
         "--   :category_external_id     — categories.external_id (UUID)",
@@ -106,7 +106,7 @@ def render_mapping_sql(
             "BEGIN;",
             "",
             "-- ---------------------------------------------------------------------------",
-            "-- 1) Category PIM allow/mandatory list (from mapping CSV Requirement)",
+            "-- 1) Category PIM allow/mandatory list (from mapping pim_contract)",
             "-- ---------------------------------------------------------------------------",
             "UPDATE categories",
             f"SET attribute_spec = {_json_sql(attribute_spec_json)}::jsonb",
