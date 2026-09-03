@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
+from dto.listing_config import ListingColumnConfig
+from entities.catalog.attribute_enums import AttributeName, ListingValueSourceFrom
 from listing_mapping.mapping_workbook import (
     FillMode,
     ListingMapRow,
     MappingWorkbook,
     build_attribute_spec,
 )
-
-from dto.listing_config import ListingColumnConfig
-from entities.catalog.attribute_enums import AttributeName, ListingValueSourceFrom
 
 
 @dataclass(frozen=True)
@@ -34,6 +33,16 @@ def _sku_master_source(pim_field: str) -> dict[str, str]:
     return {"from": ListingValueSourceFrom.SKU_MASTER.value, "key": pim_field}
 
 
+_ORDINAL_GENERATION = frozenset(
+    {
+        AttributeName.ITEM_HIGHLIGHTS,
+        AttributeName.BULLET_POINTS,
+        AttributeName.IMAGE,
+        AttributeName.A_PLUS,
+    }
+)
+
+
 def _parse_generation_token(token: str) -> dict[str, Any]:
     """Parse TITLE / BULLET_POINTS:1 / IMAGE:2 → GENERATION source fields."""
     text = token.strip()
@@ -44,7 +53,9 @@ def _parse_generation_token(token: str) -> dict[str, Any]:
         name = AttributeName(name_raw.strip())
         n = int(rest.strip())
         if n < 1:
-            raise ValueError(f"generation index/slot must be >= 1, got {n} in {token!r}")
+            raise ValueError(
+                f"generation index/slot must be >= 1, got {n} in {token!r}"
+            )
         if name in {AttributeName.IMAGE, AttributeName.A_PLUS}:
             return {
                 "from": ListingValueSourceFrom.GENERATION.value,
@@ -66,13 +77,41 @@ def _parse_generation_token(token: str) -> dict[str, Any]:
     }
 
 
+def _expand_generation_ordinals(rows: list[ListingMapRow]) -> list[ListingMapRow]:
+    """Assign IMAGE / BULLET_POINTS / ITEM_HIGHLIGHTS slots by column_index order."""
+    counts: dict[str, int] = {}
+    expanded: dict[int, ListingMapRow] = {}
+    for row in sorted(rows, key=lambda item: item.column_index):
+        gen = (row.generation or "").strip()
+        if not gen or row.fill_mode not in {FillMode.COPY_GENERATION, FillMode.IMAGE}:
+            expanded[row.column_index] = row
+            continue
+        if ":" in gen:
+            raise ValueError(
+                f"column_index={row.column_index}: generation {gen!r} must be a bare "
+                "name (ITEM_HIGHLIGHTS, BULLET_POINTS, IMAGE). Repeat it on each "
+                "column; numbering is assigned by column_index order."
+            )
+        name = AttributeName(gen)
+        if name in _ORDINAL_GENERATION:
+            n = counts.get(name.value, 0) + 1
+            counts[name.value] = n
+            gen = f"{name.value}:{n}"
+        else:
+            gen = name.value
+        expanded[row.column_index] = replace(row, generation=gen)
+    return [expanded[row.column_index] for row in rows]
+
+
 def _attach_enum_lists(config: dict[str, Any], workbook_config: dict[str, Any]) -> None:
     if workbook_config.get("depends_on") is not None:
         config["depends_on"] = workbook_config["depends_on"]
     if workbook_config.get("valid_values"):
         config["valid_values"] = list(workbook_config["valid_values"])
     if workbook_config.get("valid_values_by_parent"):
-        config["valid_values_by_parent"] = deepcopy(workbook_config["valid_values_by_parent"])
+        config["valid_values_by_parent"] = deepcopy(
+            workbook_config["valid_values_by_parent"]
+        )
 
 
 def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
@@ -86,14 +125,18 @@ def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
 
     if mode == FillMode.CONSTANT:
         if not row.constant_value:
-            raise ValueError(f"column_index={row.column_index}: CONSTANT requires constant_value")
+            raise ValueError(
+                f"column_index={row.column_index}: CONSTANT requires constant_value"
+            )
         config["fill_type"] = "CONSTANT"
         config["constant_value"] = row.constant_value
         return config
 
     if mode == FillMode.COPY_PIM:
         if not row.pim_field:
-            raise ValueError(f"column_index={row.column_index}: COPY_PIM requires pim_field")
+            raise ValueError(
+                f"column_index={row.column_index}: COPY_PIM requires pim_field"
+            )
         if _is_dropdown(workbook_config):
             # Dropdown cells must stay ENUM; treat as ENUM_FROM_PIM.
             config["fill_type"] = "ENUM"
@@ -106,7 +149,9 @@ def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
 
     if mode == FillMode.ENUM_FROM_PIM:
         if not row.pim_field:
-            raise ValueError(f"column_index={row.column_index}: ENUM_FROM_PIM requires pim_field")
+            raise ValueError(
+                f"column_index={row.column_index}: ENUM_FROM_PIM requires pim_field"
+            )
         if not _is_dropdown(workbook_config):
             raise ValueError(
                 f"column_index={row.column_index}: ENUM_FROM_PIM but workbook column "
@@ -151,11 +196,13 @@ def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
 
     if mode == FillMode.IMAGE:
         if not row.generation:
-            raise ValueError(f"column_index={row.column_index}: IMAGE requires generation")
+            raise ValueError(
+                f"column_index={row.column_index}: IMAGE requires generation"
+            )
         source = _parse_generation_token(row.generation)
         if source.get("attribute_name") != AttributeName.IMAGE.value:
             raise ValueError(
-                f"column_index={row.column_index}: IMAGE generation must be IMAGE:n, "
+                f"column_index={row.column_index}: IMAGE generation must be IMAGE, "
                 f"got {row.generation!r}"
             )
         config["fill_type"] = "IMAGE"
@@ -182,12 +229,13 @@ def overlay_columns(
     by_index = {int(col["column_index"]): col for col in columns}
     mapped: set[int] = set()
     warnings: list[str] = []
+    listing_rows = _expand_generation_ordinals(list(mapping.listing_rows))
 
-    for row in mapping.listing_rows:
+    for row in listing_rows:
         col = by_index.get(row.column_index)
         if col is None:
             raise ValueError(
-                f"listing_map column_index={row.column_index} not found in workbook "
+                f"mapping column_index={row.column_index} not found in workbook "
                 f"(known indices: {sorted(by_index)[:20]}…)"
             )
         if row.column_index in mapped:
@@ -205,7 +253,7 @@ def overlay_columns(
         preview = ", ".join(str(i) for i in missing[:20])
         more = "…" if len(missing) > 20 else ""
         raise ValueError(
-            "listing_map must cover every workbook column_index "
+            "mapping must cover every workbook column_index "
             f"(no silent SKIP). Missing: {preview}{more}"
         )
 

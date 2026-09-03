@@ -20,10 +20,10 @@ from listing_mapping.overlay import overlay_columns
 from listing_mapping.render import render_mapping_sql
 from openpyxl import Workbook
 
-from utils.listing_template_columns import WorkbookLayout
+from utils.listing_template_columns import WorkbookLayout, build_columns
 
 _REPO = Path(__file__).resolve().parents[2]
-_TEMPLATE = _REPO / "tmp" / "listing_mapping_template.xlsx"
+_MAP = _REPO / "ops" / "docs" / "listing_mapping_template.xlsx"
 
 
 def _col(
@@ -75,6 +75,36 @@ def _mapping(
     )
 
 
+def _write_mapping(
+    path: Path,
+    *,
+    rows: list[tuple[int, str, str, str, str, str]],
+    pim: list[tuple[str, str]] | None = None,
+    sheet: str = "amazon_mapping",
+) -> None:
+    wb = Workbook()
+    ws_pim = wb.active
+    ws_pim.title = "pim_contract"
+    ws_pim.append(["pim_field", "requirement"])
+    for field, req in pim or [("SKU", "Mandatory"), ("Color", "Optional")]:
+        ws_pim.append([field, req])
+    ws_map = wb.create_sheet(sheet)
+    ws_map.append(
+        [
+            "column_index",
+            "marketplace_column",
+            "fill_mode",
+            "pim_field",
+            "generation",
+            "constant_value",
+            "status",
+        ]
+    )
+    for row in rows:
+        ws_map.append([*row, "OK"])
+    wb.save(path)
+
+
 def test_parse_marketplace_id() -> None:
     assert parse_marketplace_id("amazon") is MarketplaceId.AMAZON
     assert parse_marketplace_id("AMAZON") is MarketplaceId.AMAZON
@@ -101,9 +131,19 @@ def test_amazon_adapter_overrides() -> None:
     assert layout.header_label_row == 4
 
 
-def test_flipkart_not_implemented() -> None:
-    with pytest.raises(NotImplementedError, match="FLIPKART"):
-        get_adapter(MarketplaceId.FLIPKART).workbook_layout()
+def test_flipkart_adapter_default_layout() -> None:
+    layout = get_adapter(MarketplaceId.FLIPKART).workbook_layout()
+    assert layout.sheet_name == "bedsheet"
+    assert layout.header_label_row == 1
+    assert layout.machine_key_row == 2
+    assert layout.data_start_row == 5
+    assert layout.valid_values_sheet is None
+
+
+def test_flipkart_adapter_overrides() -> None:
+    layout = get_adapter(MarketplaceId.FLIPKART).workbook_layout(sheet_name="curtain")
+    assert layout.sheet_name == "curtain"
+    assert layout.data_start_row == 5
 
 
 def test_build_attribute_spec_injects_sku() -> None:
@@ -144,7 +184,7 @@ def test_overlay_by_column_index_fill_modes() -> None:
             ListingMapRow(2, FillMode.ENUM_FROM_PIM, "Color", None, None),
             ListingMapRow(3, FillMode.ENUM_AI, None, None, None),
             ListingMapRow(4, FillMode.COPY_GENERATION, None, "TITLE", None),
-            ListingMapRow(5, FillMode.IMAGE, None, "IMAGE:1", None),
+            ListingMapRow(5, FillMode.IMAGE, None, "IMAGE", None),
             ListingMapRow(6, FillMode.AI_TEXT, None, None, None),
             ListingMapRow(7, FillMode.SKIP, None, None, None),
         ]
@@ -166,6 +206,38 @@ def test_overlay_by_column_index_fill_modes() -> None:
     assert by_index[7]["fill_type"] == "SKIP"
     assert "requiredness" not in by_index[1]
     assert "machine_key" not in by_index[1]
+
+
+def test_overlay_repeats_generation_name_by_column_order() -> None:
+    workbook = [
+        _col(column_index=1, label="Highlight A"),
+        _col(column_index=2, label="Highlight B"),
+        _col(column_index=3, label="Bullet A"),
+        _col(column_index=4, label="Bullet B"),
+        _col(column_index=5, label="Image A"),
+        _col(column_index=6, label="Image B"),
+    ]
+    mapping = _mapping(
+        [
+            ListingMapRow(1, FillMode.COPY_GENERATION, None, "ITEM_HIGHLIGHTS", None),
+            ListingMapRow(2, FillMode.COPY_GENERATION, None, "ITEM_HIGHLIGHTS", None),
+            ListingMapRow(3, FillMode.COPY_GENERATION, None, "BULLET_POINTS", None),
+            ListingMapRow(4, FillMode.COPY_GENERATION, None, "BULLET_POINTS", None),
+            ListingMapRow(5, FillMode.IMAGE, None, "IMAGE", None),
+            ListingMapRow(6, FillMode.IMAGE, None, "IMAGE", None),
+        ]
+    )
+    result = overlay_columns(workbook, mapping)
+    by_index = {c["column_index"]: c["config"]["source"] for c in result.columns}
+    assert by_index[1]["attribute_name"] == "ITEM_HIGHLIGHTS"
+    assert by_index[1]["index"] == 1
+    assert by_index[2]["index"] == 2
+    assert by_index[3]["attribute_name"] == "BULLET_POINTS"
+    assert by_index[3]["index"] == 1
+    assert by_index[4]["index"] == 2
+    assert by_index[5]["attribute_name"] == "IMAGE"
+    assert by_index[5]["slot"] == 1
+    assert by_index[6]["slot"] == 2
 
 
 def test_overlay_missing_column_index_fails() -> None:
@@ -217,80 +289,94 @@ def test_render_mapping_sql() -> None:
     assert "INSERT INTO listing_template_column" in sql
 
 
-@pytest.mark.skipif(not _TEMPLATE.is_file(), reason="tmp listing_mapping_template.xlsx missing")
-def test_parse_tmp_mapping_template() -> None:
-    mapping = parse_mapping_workbook(_TEMPLATE)
-    assert mapping.pim_fields
-    assert mapping.marketplace_columns
-    assert mapping.listing_rows
-    assert len(mapping.marketplace_columns) == len(mapping.listing_rows)
-    assert any(r.pim_field == "SKU" for r in mapping.pim_fields)
-    assert any(r.fill_mode == FillMode.COPY_PIM for r in mapping.listing_rows)
+@pytest.mark.skipif(not _MAP.is_file(), reason="listing mapping template xlsx missing")
+def test_parse_tmp_mapping_template_examples() -> None:
+    amazon = parse_mapping_workbook(_MAP, MarketplaceId.AMAZON)
+    flipkart = parse_mapping_workbook(_MAP, MarketplaceId.FLIPKART)
+    myntra = parse_mapping_workbook(_MAP, MarketplaceId.MYNTRA)
+    assert any(r.pim_field == "SKU" for r in amazon.pim_fields)
+    for mapping in (amazon, flipkart, myntra):
+        assert mapping.listing_rows
+        assert len(mapping.marketplace_columns) == len(mapping.listing_rows)
+        modes = {row.fill_mode for row in mapping.listing_rows}
+        assert FillMode.COPY_PIM in modes
+        assert FillMode.IMAGE in modes
+        assert FillMode.SKIP in modes
 
 
 def test_parse_mapping_workbook_requires_fill_mode_for_each_marketplace_column(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "map.xlsx"
-    wb = Workbook()
-    ws_pim = wb.active
-    ws_pim.title = "pim_contract"
-    ws_pim.append(["pim_field", "requirement"])
-    ws_pim.append(["SKU", "Mandatory"])
-    ws_pim.append(["Color", "Optional"])
-    ws_mkt = wb.create_sheet("marketplace_columns")
-    ws_mkt.append(["column_index", "marketplace_column"])
-    ws_mkt.append([1, "Seller SKU"])
-    ws_mkt.append([2, "Color"])
-    ws_map = wb.create_sheet("listing_map")
-    ws_map.append(
-        [
-            "column_index",
-            "marketplace_column",
-            "fill_mode",
-            "pim_field",
-            "generation",
-            "constant_value",
-            "status",
-        ]
+    _write_mapping(
+        path,
+        rows=[
+            (1, "Seller SKU", "COPY_PIM", "SKU", "", ""),
+            (2, "Color", "", "", "", ""),
+        ],
     )
-    ws_map.append([1, "Seller SKU", "COPY_PIM", "SKU", "", "", "OK"])
-    # Row 2 intentionally missing fill_mode
-    ws_map.append([2, "Color", "", "", "", "", ""])
-    wb.save(path)
     with pytest.raises(ValueError, match="fill_mode required"):
-        parse_mapping_workbook(path)
+        parse_mapping_workbook(path, MarketplaceId.AMAZON)
 
 
 def test_parse_mapping_workbook_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "map.xlsx"
-    wb = Workbook()
-    ws_pim = wb.active
-    ws_pim.title = "pim_contract"
-    ws_pim.append(["pim_field", "requirement"])
-    ws_pim.append(["SKU", "Mandatory"])
-    ws_pim.append(["Color", "Optional"])
-    ws_mkt = wb.create_sheet("marketplace_columns")
-    ws_mkt.append(["column_index", "marketplace_column"])
-    ws_mkt.append([1, "Seller SKU"])
-    ws_mkt.append([2, "Color"])
-    ws_map = wb.create_sheet("listing_map")
-    ws_map.append(
-        [
-            "column_index",
-            "marketplace_column",
-            "fill_mode",
-            "pim_field",
-            "generation",
-            "constant_value",
-            "status",
-        ]
+    _write_mapping(
+        path,
+        rows=[
+            (1, "Seller SKU", "COPY_PIM", "SKU", "", ""),
+            (2, "Color", "ENUM_FROM_PIM", "Color", "", ""),
+        ],
     )
-    ws_map.append([1, "Seller SKU", "COPY_PIM", "SKU", "", "", "OK"])
-    ws_map.append([2, "Color", "ENUM_FROM_PIM", "Color", "", "", "OK"])
-    wb.save(path)
-    mapping = parse_mapping_workbook(path)
+    mapping = parse_mapping_workbook(path, MarketplaceId.AMAZON)
     assert len(mapping.pim_fields) == 2
     assert len(mapping.marketplace_columns) == 2
     assert mapping.listing_rows[0].column_index == 1
     assert mapping.listing_rows[1].fill_mode == FillMode.ENUM_FROM_PIM
+
+
+def test_build_columns_flipkart_index_and_dropdown_sheets(tmp_path: Path) -> None:
+    path = tmp_path / "bedsheet.xlsx"
+    wb = Workbook()
+    ws_idx = wb.active
+    ws_idx.title = "Index"
+    ws_idx["A1"] = "Sub-categories in the file"
+    ws_idx["C1"] = "Allowed Values"
+    ws_idx["D1"] = "Bedsheet"
+    ws_idx["A2"] = "bedsheet"
+    ws_idx["D2"] = "Color"
+    ws_idx["D3"] = "Red"
+    ws_idx["D4"] = "Blue"
+    ws = wb.create_sheet("bedsheet")
+    ws["A1"] = "Seller SKU ID"
+    ws["B1"] = "Country Of Origin"
+    ws["C1"] = "Color"
+    ws["D1"] = "Main Image URL"
+    ws["A2"] = "Text"
+    ws["B2"] = "Single - Text"
+    ws["C2"] = "Click Here to get Allowed Values"
+    ws["D2"] = "URL"
+    dd = wb.create_sheet("DropDownValuesForColumn1")
+    dd["A1"] = "India"
+    dd["A2"] = "China"
+    bogus = wb.create_sheet("DropDownValuesForColumn3")
+    bogus["A1"] = "should-not-attach-to-url-column"
+    wb.save(path)
+
+    columns = build_columns(
+        path,
+        layout=WorkbookLayout(
+            sheet_name="bedsheet",
+            header_label_row=1,
+            machine_key_row=2,
+            data_start_row=5,
+        ),
+        include_requiredness=False,
+    )
+    by_index = {c["column_index"]: c["config"] for c in columns}
+    assert by_index[1]["fill_type"] == "DIRECT_MAP"
+    assert by_index[2]["fill_type"] == "ENUM"
+    assert by_index[2]["valid_values"] == ["India", "China"]
+    assert by_index[3]["fill_type"] == "ENUM"
+    assert by_index[3]["valid_values"] == ["Red", "Blue"]
+    assert by_index[4]["fill_type"] == "DIRECT_MAP"

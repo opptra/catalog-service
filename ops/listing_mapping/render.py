@@ -59,7 +59,7 @@ def render_mapping_sql(
         f"--     --marketplace {marketplace_id} \\",
         f"--     --xlsm /path/to/{xlsm_name} \\",
         f"--     --mapping /path/to/{mapping_name} \\",
-        "--     --out tmp/sql/003_<category>_listing_mapping.sql",
+        "--     --out tmp/listing_mapping/<marketplace>/sql/003_<category>_listing_mapping.sql",
         "--",
         (
             f"-- Workbook layout ({marketplace_id}): sheet={layout.sheet_name!r} "

@@ -1,28 +1,123 @@
 """Seed a mapping workbook from a blank marketplace .xlsm.
 
-Fills ``marketplace_columns`` from the workbook and applies an explicit
-``listing_map`` fill_mode for every column (no silent SKIP).
+Fills the matching marketplace mapping sheet (``amazon_mapping`` / ``flipkart_mapping``
+/ ``myntra_mapping``) from the blank workbook. Every column gets an explicit
+fill_mode (no silent SKIP). Other marketplace sheets are created empty, or kept
+when ``--out`` already has them.
 
 From repo root (server venv):
 
   PYTHONPATH=ops:server python -m listing_mapping.seed_from_xlsm \\
     --marketplace AMAZON \\
-    --xlsm \"$HOME/Downloads/Marketplace Template/BED_LINEN_SET (1).xlsm\" \\
-    --out tmp/listing_mapping_bed_linen_set.xlsx
+    --xlsm tmp/listing_mapping/input/BED_LINEN_SET.xlsm \\
+    --out tmp/listing_mapping/input/listing_mapping.xlsx
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from pathlib import Path
 
 from listing_mapping import _bootstrap  # noqa: F401
-from listing_mapping.build_template import build
+from listing_mapping.build_template import MAPPING_SHEETS, build
 from listing_mapping.marketplace import parse_marketplace_id
 from listing_mapping.marketplace.registry import get_adapter
-
+from openpyxl import load_workbook
 from utils.listing_template_columns import build_columns
+
+
+def _cell_text(value: object | None) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _bare_generation(value: str) -> str:
+    if ":" not in value:
+        return value
+    return value.split(":", 1)[0].strip()
+
+
+def _read_pim_rows(path: Path) -> list[tuple[str, str]]:
+    if not path.is_file():
+        return []
+    wb = load_workbook(path, data_only=True)
+    names = {str(name).casefold(): name for name in wb.sheetnames}
+    if "pim_contract" not in names:
+        return []
+    ws = wb[names["pim_contract"]]
+    rows: list[tuple[str, str]] = []
+    for r in range(2, (ws.max_row or 1) + 1):
+        field = _cell_text(ws.cell(r, 1).value)
+        req = _cell_text(ws.cell(r, 2).value)
+        if not field:
+            continue
+        rows.append((field, req or "Optional"))
+    return rows
+
+
+def _read_mapping_sheet_rows(
+    path: Path, sheet_name: str
+) -> list[tuple[int, str, str, str, str, str]]:
+    if not path.is_file():
+        return []
+    wb = load_workbook(path, data_only=False)
+    names = {str(name).casefold(): name for name in wb.sheetnames}
+    key = sheet_name.casefold()
+    if key not in names:
+        return []
+    ws = wb[names[key]]
+    rows: list[tuple[int, str, str, str, str, str]] = []
+    for r in range(2, (ws.max_row or 1) + 1):
+        idx_raw = ws.cell(r, 1).value
+        if idx_raw is None or idx_raw == "":
+            continue
+        if isinstance(idx_raw, str) and idx_raw.startswith("="):
+            continue
+        try:
+            idx = int(idx_raw)
+        except (TypeError, ValueError):
+            continue
+        mode = _cell_text(ws.cell(r, 3).value)
+        if not mode:
+            continue
+        rows.append(
+            (
+                idx,
+                _cell_text(ws.cell(r, 2).value),
+                mode,
+                _cell_text(ws.cell(r, 4).value),
+                _bare_generation(_cell_text(ws.cell(r, 5).value)),
+                _cell_text(ws.cell(r, 6).value),
+            )
+        )
+    return rows
+
+
+def _existing_marketplace_maps(
+    path: Path,
+) -> dict[str, list[tuple[int, str, str, str, str, str]]]:
+    out: dict[str, list[tuple[int, str, str, str, str, str]]] = {}
+    for marketplace_id, sheet_name in MAPPING_SHEETS:
+        rows = _read_mapping_sheet_rows(path, sheet_name)
+        if rows:
+            out[marketplace_id] = rows
+    return out
+
+
+def _merge_pim_rows(
+    seed_rows: list[tuple[str, str]],
+    existing_rows: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    if not existing_rows:
+        return seed_rows
+    if not seed_rows:
+        return existing_rows
+    seen = {name for name, _req in seed_rows}
+    extra = [row for row in existing_rows if row[0] not in seen]
+    return seed_rows + extra
 
 
 def _is_dropdown(config: dict) -> bool:
@@ -82,7 +177,7 @@ def _bed_linen_map_rows(
 
     # --- generated copy ---
     add(7, "COPY_GENERATION", gen="TITLE")
-    add(8, "COPY_GENERATION", gen="ITEM_HIGHLIGHTS:1")
+    add(8, "COPY_GENERATION", gen="ITEM_HIGHLIGHTS")
 
     # --- brand / ids ---
     add(9, "ENUM_FROM_PIM", pim="Brand")
@@ -100,14 +195,14 @@ def _bed_linen_map_rows(
     add(20, "SKIP")  # National Stock Number
 
     # --- images (main + 8 others; swatch unused) ---
-    add(21, "IMAGE", gen="IMAGE:1")
-    for slot, idx in enumerate(range(22, 30), start=2):
-        add(idx, "IMAGE", gen=f"IMAGE:{slot}")
+    add(21, "IMAGE", gen="IMAGE")
+    for idx in range(22, 30):
+        add(idx, "IMAGE", gen="IMAGE")
     add(30, "SKIP")  # Swatch Image URL
 
     add(31, "COPY_GENERATION", gen="DESCRIPTION")
-    for n, idx in enumerate(range(32, 37), start=1):
-        add(idx, "COPY_GENERATION", gen=f"BULLET_POINTS:{n}")
+    for idx in range(32, 37):
+        add(idx, "COPY_GENERATION", gen="BULLET_POINTS")
     add(37, "COPY_GENERATION", gen="BACKEND_KEYWORDS")
 
     # --- product attributes ---
@@ -220,7 +315,12 @@ def _bed_linen_map_rows(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--marketplace", required=True)
-    parser.add_argument("--xlsm", type=Path, required=True)
+    parser.add_argument(
+        "--xlsm",
+        type=Path,
+        required=True,
+        help="Blank marketplace listing workbook (.xlsm, .xlsx, or .xls)",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--sheet-name", default=None)
     parser.add_argument("--header-label-row", type=int, default=None)
@@ -229,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.xlsm.is_file():
-        print(f"xlsm not found: {args.xlsm}", file=sys.stderr)
+        print(f"listing workbook not found: {args.xlsm}", file=sys.stderr)
         return 1
 
     try:
@@ -268,24 +368,24 @@ def main(argv: list[str] | None = None) -> int:
         pim_rows = [("SKU", "Mandatory")]
 
     # Every marketplace column gets an explicit fill_mode (SKIP unless starter).
-    map_rows = [
-        (idx, *(starters.get(idx, ("SKIP", "", "", "")))) for idx, _label in mkt_rows
+    sheet_rows = [
+        (idx, label, *(starters.get(idx, ("SKIP", "", "", ""))))
+        for idx, label in mkt_rows
     ]
+
+    maps = _existing_marketplace_maps(args.out)
+    maps[marketplace_id.value] = sheet_rows
+    pim_rows = _merge_pim_rows(pim_rows, _read_pim_rows(args.out))
 
     out = build(
         out_xlsx=args.out,
-        out_dir=args.out.with_suffix("").parent / (args.out.stem + "_sheets"),
-        out_readme=args.out.with_name(args.out.stem + "_README.txt"),
         pim_rows=pim_rows,
-        mkt_rows=mkt_rows,
-        map_rows=map_rows,
-        write_sidecar_csv=True,
+        marketplace_maps=maps,
     )
-    from collections import Counter
 
-    counts = Counter(row[1] for row in map_rows)
+    counts = Counter(row[2] for row in sheet_rows)
     print(
-        f"Wrote {out} ({len(mkt_rows)} columns; fill_modes={dict(counts)})",
+        f"Wrote {out} ({marketplace_id.value} {len(sheet_rows)} columns; fill_modes={dict(counts)})",
         file=sys.stderr,
     )
     return 0

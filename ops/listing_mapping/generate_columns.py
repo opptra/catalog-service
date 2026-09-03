@@ -25,7 +25,12 @@ from utils.listing_template_columns import write_sql
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--xlsm", type=Path, required=True)
+    parser.add_argument(
+        "--xlsm",
+        type=Path,
+        required=True,
+        help="Blank marketplace listing workbook (.xlsm, .xlsx, or .xls)",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(
         "--marketplace",
@@ -38,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-start-row", type=int, default=None)
     args = parser.parse_args(argv)
     if not args.xlsm.is_file():
-        print(f"xlsm not found: {args.xlsm}", file=sys.stderr)
+        print(f"listing workbook not found: {args.xlsm}", file=sys.stderr)
         return 1
     for name, value in (
         ("--header-label-row", args.header_label_row),

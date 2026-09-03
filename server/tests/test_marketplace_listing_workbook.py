@@ -31,6 +31,19 @@ def test_amazon_adapter_uses_config() -> None:
 
 
 def test_unknown_marketplace_config_fails() -> None:
-    # Config only has AMAZON; Flipkart adapter exists but has no config entry.
     with pytest.raises(ValueError, match="No workbook config"):
-        config_for(MarketplaceId.FLIPKART)
+        config_for(MarketplaceId.MYNTRA)
+
+
+def test_flipkart_config_layout() -> None:
+    cfg = config_for(MarketplaceId.FLIPKART)
+    assert cfg.sheet_name == "bedsheet"
+    assert cfg.header_label_row == 1
+    assert cfg.data_start_row == 5
+    assert cfg.valid_values_sheet is None
+
+
+def test_flipkart_adapter_uses_config() -> None:
+    layout = get_adapter(MarketplaceId.FLIPKART).workbook_layout()
+    assert layout.sheet_name == "bedsheet"
+    assert layout.data_start_row == 5

@@ -1,15 +1,22 @@
-"""Offline CLI: mapping workbook + marketplace .xlsm → human-run listing SQL.
+"""Offline CLI: mapping workbook + marketplace listing workbook → human-run listing SQL.
 
-Uses the restricted Excel mapping template (pim_contract + listing_map) and a
-marketplace adapter (AMAZON implemented; FLIPKART/MYNTRA stubs).
+Uses the restricted Excel mapping template (pim_contract + amazon_mapping /
+flipkart_mapping / myntra_mapping) and a marketplace adapter (AMAZON, FLIPKART;
+MYNTRA stub). One mapping workbook; SQL output is per marketplace.
 
 From repo root (server venv):
 
   PYTHONPATH=ops:server python -m listing_mapping \\
     --marketplace AMAZON \\
-    --xlsm /path/to/CATEGORY.xlsm \\
-    --mapping tmp/listing_mapping_template.xlsx \\
-    --out tmp/sql/003_<category>_listing_mapping.sql
+    --xlsm tmp/listing_mapping/input/BED_LINEN_SET.xlsm \\
+    --mapping ops/docs/listing_mapping_template.xlsx \\
+    --out tmp/listing_mapping/amazon/sql/003_bed_linen_set_listing_mapping.sql
+
+  PYTHONPATH=ops:server python -m listing_mapping \\
+    --marketplace FLIPKART \\
+    --xlsm tmp/listing_mapping/input/bedsheet.xls \\
+    --mapping ops/docs/listing_mapping_template.xlsx \\
+    --out tmp/listing_mapping/flipkart/sql/003_bedsheet_listing_mapping.sql
 
 Optional layout overrides (when a blank workbook differs from marketplace defaults):
   --sheet-name --header-label-row --machine-key-row --data-start-row
@@ -27,7 +34,6 @@ from listing_mapping.marketplace import parse_marketplace_id
 from listing_mapping.marketplace.registry import get_adapter
 from listing_mapping.overlay import overlay_columns
 from listing_mapping.render import render_mapping_sql
-
 from utils.listing_template_columns import build_columns
 
 
@@ -38,12 +44,17 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Marketplace adapter id: AMAZON | FLIPKART | MYNTRA",
     )
-    parser.add_argument("--xlsm", type=Path, required=True)
+    parser.add_argument(
+        "--xlsm",
+        type=Path,
+        required=True,
+        help="Blank marketplace listing workbook (.xlsm, .xlsx, or .xls)",
+    )
     parser.add_argument(
         "--mapping",
         type=Path,
         required=True,
-        help="Listing mapping Excel workbook (pim_contract + listing_map)",
+        help="Listing mapping Excel workbook (pim_contract + per-marketplace mapping sheets)",
     )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--sheet-name", default=None)
@@ -53,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.xlsm.is_file():
-        print(f"xlsm not found: {args.xlsm}", file=sys.stderr)
+        print(f"listing workbook not found: {args.xlsm}", file=sys.stderr)
         return 1
     if not args.mapping.is_file():
         print(f"mapping workbook not found: {args.mapping}", file=sys.stderr)
@@ -76,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
             machine_key_row=args.machine_key_row,
             data_start_row=args.data_start_row,
         )
-        mapping = parse_mapping_workbook(args.mapping)
+        mapping = parse_mapping_workbook(args.mapping, marketplace_id)
         workbook_columns = build_columns(
             args.xlsm,
             layout=layout,
