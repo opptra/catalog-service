@@ -10,6 +10,8 @@ Prefer the installed skills over guessing:
 
 - Project structure, client/server API contract, and repo conventions → **catalog-service-conventions**
 - FastAPI, Pydantic, Postgres, and React specifics → the matching framework skill
+- Rebuild a generation job's original CSV + images ZIP from sku_master + GCS → **export-job-inputs**
+- Pack unstructured catalog CSVs + public Drive links into wizard `attributes.csv` + `images.zip` → **pack-inbound-inputs**
 
 This file does not repeat the rest of those rules. It sets the operating loop below.
 

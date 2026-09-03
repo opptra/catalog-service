@@ -1,6 +1,7 @@
 import base64
 import binascii
 import json
+import time
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -8,6 +9,27 @@ from uuid import UUID
 import httpx
 
 from core.exceptions import OpenRouterError
+
+_RETRY_STATUSES = {429, 502, 503, 529}
+_RETRY_ATTEMPTS = 3
+
+
+def _payload_error(data: dict[str, Any]) -> str | None:
+    error = data.get("error")
+    if isinstance(error, dict):
+        message = error.get("message") or error.get("code")
+        return str(message) if message else str(error)
+    if isinstance(error, str) and error.strip():
+        return error.strip()
+    return None
+
+
+def _short_http_detail(response: httpx.Response) -> str:
+    text = (response.text or "").strip()
+    content_type = response.headers.get("content-type", "")
+    if "text/html" in content_type or text.startswith("<!"):
+        return f"HTTP {response.status_code}"
+    return text[:500]
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,11 +142,17 @@ class OpenRouterClient:
         max_tokens: int | None = None,
         cache_prefix: str | None = None,
         session_id: str | None = None,
+        timeout: float | None = None,
+        image_references: list[ReferenceImage] | None = None,
     ) -> dict[str, Any]:
         """Force the model to call ``tool`` and return its parsed arguments as a dict.
 
         Used for structured outputs: the tool is never executed — its JSON Schema parameters
         *are* the payload. Prefer this over free-form ``response_format: json_object`` strings.
+
+        ``image_references`` (when set) attach images with a text label immediately before
+        each one so the model can tell roles apart. Takes precedence over unlabeled
+        ``image_urls``.
         """
         if not model:
             raise ValueError("model is required")
@@ -146,10 +174,14 @@ class OpenRouterClient:
             max_tokens=max_tokens,
             cache_prefix=cache_prefix,
             session_id=session_id,
+            image_references=image_references,
         )
         body["tools"] = [tool]
         body["tool_choice"] = {"type": "function", "function": {"name": tool_name}}
-        return self._tool_arguments(self.chat_completions(body), tool_name=tool_name)
+        return self._tool_arguments(
+            self.chat_completions(body, timeout=timeout),
+            tool_name=tool_name,
+        )
 
     def _chat_body(
         self,
@@ -162,10 +194,11 @@ class OpenRouterClient:
         max_tokens: int | None,
         cache_prefix: str | None = None,
         session_id: str | None = None,
+        image_references: list[ReferenceImage] | None = None,
     ) -> dict[str, Any]:
         prefix = cache_prefix or ""
         cache_prefix_block = bool(prefix.strip())
-        use_multipart = cache_prefix_block or bool(image_urls)
+        use_multipart = cache_prefix_block or bool(image_urls) or bool(image_references)
 
         if use_multipart:
             user_content: Any = []
@@ -178,7 +211,12 @@ class OpenRouterClient:
                     }
                 )
             user_content.append({"type": "text", "text": prompt})
-            if image_urls:
+            if image_references:
+                for ref in image_references:
+                    if ref.label:
+                        user_content.append({"type": "text", "text": ref.label})
+                    user_content.append({"type": "image_url", "image_url": {"url": ref.url}})
+            elif image_urls:
                 user_content.extend(
                     {"type": "image_url", "image_url": {"url": url}} for url in image_urls
                 )
@@ -301,17 +339,42 @@ class OpenRouterClient:
         *,
         timeout: float | None = None,
     ) -> dict[str, Any]:
-        try:
-            response = self._http.post(path, json=body, timeout=timeout)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            detail = exc.response.text[:500]
-            raise OpenRouterError(
-                f"OpenRouter {path} failed [{exc.response.status_code}]: {detail}"
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise OpenRouterError(f"OpenRouter {path} request error: {exc}") from exc
-        return response.json()
+        last_error: OpenRouterError | None = None
+        for attempt in range(_RETRY_ATTEMPTS):
+            try:
+                response = self._http.post(path, json=body, timeout=timeout)
+                if response.status_code in _RETRY_STATUSES and attempt < _RETRY_ATTEMPTS - 1:
+                    last_error = OpenRouterError(
+                        f"OpenRouter {path} failed [{response.status_code}]: "
+                        f"{_short_http_detail(response)}"
+                    )
+                    time.sleep(2**attempt)
+                    continue
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_error = OpenRouterError(
+                    f"OpenRouter {path} failed [{exc.response.status_code}]: "
+                    f"{_short_http_detail(exc.response)}"
+                )
+                if exc.response.status_code in _RETRY_STATUSES and attempt < _RETRY_ATTEMPTS - 1:
+                    time.sleep(2**attempt)
+                    continue
+                raise last_error from exc
+            except httpx.HTTPError as exc:
+                raise OpenRouterError(f"OpenRouter {path} request error: {exc}") from exc
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise OpenRouterError(
+                    f"OpenRouter {path} returned non-JSON [{response.status_code}]"
+                ) from exc
+            if not isinstance(data, dict):
+                raise OpenRouterError(f"OpenRouter {path} returned a non-object")
+            payload_error = _payload_error(data)
+            if payload_error:
+                raise OpenRouterError(f"OpenRouter error: {payload_error}")
+            return data
+        raise last_error or OpenRouterError(f"OpenRouter {path} failed")
 
     @staticmethod
     def _message_text(data: dict[str, Any]) -> str:
@@ -327,6 +390,9 @@ class OpenRouterClient:
 
     @staticmethod
     def _tool_arguments(data: dict[str, Any], *, tool_name: str) -> dict[str, Any]:
+        payload_error = _payload_error(data)
+        if payload_error:
+            raise OpenRouterError(f"OpenRouter error: {payload_error}")
         try:
             choice = data["choices"][0]
             message = choice["message"]
