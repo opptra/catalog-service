@@ -17,9 +17,7 @@ def parse_marketplace_id(raw: str) -> MarketplaceId:
         return MarketplaceId(needle.upper())
     except ValueError as exc:
         known = ", ".join(m.value for m in MarketplaceId)
-        raise ValueError(
-            f"Unknown marketplace {raw!r}. Expected one of: {known}"
-        ) from exc
+        raise ValueError(f"Unknown marketplace {raw!r}. Expected one of: {known}") from exc
 
 
 __all__ = ["MarketplaceId", "parse_marketplace_id"]

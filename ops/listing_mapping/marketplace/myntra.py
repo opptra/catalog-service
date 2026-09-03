@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from listing_mapping.marketplace import MarketplaceId
+
 from utils.listing_template_columns import WorkbookLayout
 
 

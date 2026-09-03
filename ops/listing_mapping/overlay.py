@@ -6,14 +6,15 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from dto.listing_config import ListingColumnConfig
-from entities.catalog.attribute_enums import AttributeName, ListingValueSourceFrom
 from listing_mapping.mapping_workbook import (
     FillMode,
     ListingMapRow,
     MappingWorkbook,
     build_attribute_spec,
 )
+
+from dto.listing_config import ListingColumnConfig
+from entities.catalog.attribute_enums import AttributeName, ListingValueSourceFrom
 
 
 @dataclass(frozen=True)
@@ -43,9 +44,7 @@ def _parse_generation_token(token: str) -> dict[str, Any]:
         name = AttributeName(name_raw.strip())
         n = int(rest.strip())
         if n < 1:
-            raise ValueError(
-                f"generation index/slot must be >= 1, got {n} in {token!r}"
-            )
+            raise ValueError(f"generation index/slot must be >= 1, got {n} in {token!r}")
         if name in {AttributeName.IMAGE, AttributeName.A_PLUS}:
             return {
                 "from": ListingValueSourceFrom.GENERATION.value,
@@ -73,9 +72,7 @@ def _attach_enum_lists(config: dict[str, Any], workbook_config: dict[str, Any]) 
     if workbook_config.get("valid_values"):
         config["valid_values"] = list(workbook_config["valid_values"])
     if workbook_config.get("valid_values_by_parent"):
-        config["valid_values_by_parent"] = deepcopy(
-            workbook_config["valid_values_by_parent"]
-        )
+        config["valid_values_by_parent"] = deepcopy(workbook_config["valid_values_by_parent"])
 
 
 def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
@@ -89,18 +86,14 @@ def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
 
     if mode == FillMode.CONSTANT:
         if not row.constant_value:
-            raise ValueError(
-                f"column_index={row.column_index}: CONSTANT requires constant_value"
-            )
+            raise ValueError(f"column_index={row.column_index}: CONSTANT requires constant_value")
         config["fill_type"] = "CONSTANT"
         config["constant_value"] = row.constant_value
         return config
 
     if mode == FillMode.COPY_PIM:
         if not row.pim_field:
-            raise ValueError(
-                f"column_index={row.column_index}: COPY_PIM requires pim_field"
-            )
+            raise ValueError(f"column_index={row.column_index}: COPY_PIM requires pim_field")
         if _is_dropdown(workbook_config):
             # Dropdown cells must stay ENUM; treat as ENUM_FROM_PIM.
             config["fill_type"] = "ENUM"
@@ -113,9 +106,7 @@ def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
 
     if mode == FillMode.ENUM_FROM_PIM:
         if not row.pim_field:
-            raise ValueError(
-                f"column_index={row.column_index}: ENUM_FROM_PIM requires pim_field"
-            )
+            raise ValueError(f"column_index={row.column_index}: ENUM_FROM_PIM requires pim_field")
         if not _is_dropdown(workbook_config):
             raise ValueError(
                 f"column_index={row.column_index}: ENUM_FROM_PIM but workbook column "
@@ -160,9 +151,7 @@ def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
 
     if mode == FillMode.IMAGE:
         if not row.generation:
-            raise ValueError(
-                f"column_index={row.column_index}: IMAGE requires generation"
-            )
+            raise ValueError(f"column_index={row.column_index}: IMAGE requires generation")
         source = _parse_generation_token(row.generation)
         if source.get("attribute_name") != AttributeName.IMAGE.value:
             raise ValueError(
@@ -174,10 +163,6 @@ def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
         return config
 
     raise ValueError(f"Unhandled fill_mode {mode}")
-
-
-def _skip_config(col: dict[str, Any]) -> dict[str, Any]:
-    return {"fill_type": "SKIP", "label": col["config"]["label"]}
 
 
 def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -215,10 +200,14 @@ def overlay_columns(
             )
         col["config"] = _validate_config(_apply_row(col, row))
 
-    for col in columns:
-        if int(col["column_index"]) in mapped:
-            continue
-        col["config"] = _validate_config(_skip_config(col))
+    missing = sorted(set(by_index) - mapped)
+    if missing:
+        preview = ", ".join(str(i) for i in missing[:20])
+        more = "…" if len(missing) > 20 else ""
+        raise ValueError(
+            "listing_map must cover every workbook column_index "
+            f"(no silent SKIP). Missing: {preview}{more}"
+        )
 
     fill_by_index = {c["column_index"]: c["config"]["fill_type"] for c in columns}
     for col in columns:

@@ -2,11 +2,12 @@
 
 Sheets:
   - pim_contract: pim_field, requirement
-  - listing_map: column_index, fill_mode, pim_field, generation, constant_value
-  - marketplace_columns: optional vocabulary (column_index unique key)
+  - marketplace_columns: column_index (unique) + marketplace_column
+  - listing_map: row-aligned with marketplace_columns; fill_mode required
 
-``marketplace_column`` on listing_map may be a VLOOKUP formula — ignored at
-parse time; matching is by column_index only.
+``column_index`` / ``marketplace_column`` on listing_map may be formulas that
+mirror marketplace_columns — parser takes indices from marketplace_columns and
+requires a fill_mode on the same Excel row.
 """
 
 from __future__ import annotations
@@ -37,6 +38,13 @@ class PimFieldRow:
 
 
 @dataclass(frozen=True)
+class MarketplaceColumnRow:
+    excel_row: int
+    column_index: int
+    marketplace_column: str
+
+
+@dataclass(frozen=True)
 class ListingMapRow:
     column_index: int
     fill_mode: FillMode
@@ -48,6 +56,7 @@ class ListingMapRow:
 @dataclass(frozen=True)
 class MappingWorkbook:
     pim_fields: list[PimFieldRow]
+    marketplace_columns: list[MarketplaceColumnRow]
     listing_rows: list[ListingMapRow]
 
 
@@ -62,6 +71,17 @@ def _cell_str(value: object | None) -> str:
         # Unevaluated formula (e.g. status / VLOOKUP) — treat as empty for inputs.
         return ""
     return str(value).strip()
+
+
+def _as_int(value: object | None) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str) and value.startswith("="):
+        return None
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 def _header_map(ws: Worksheet) -> dict[str, int]:
@@ -124,7 +144,57 @@ def _parse_pim_contract(ws: Worksheet) -> list[PimFieldRow]:
     return rows
 
 
-def _parse_listing_map(ws: Worksheet) -> list[ListingMapRow]:
+def _parse_marketplace_columns(ws: Worksheet) -> list[MarketplaceColumnRow]:
+    headers = _header_map(ws)
+    cols = _require_headers(
+        headers,
+        {
+            "column index": "column_index",
+            "marketplace column": "marketplace_column",
+        },
+        sheet="marketplace_columns",
+    )
+    rows: list[MarketplaceColumnRow] = []
+    seen: set[int] = set()
+    for r in range(2, (ws.max_row or 1) + 1):
+        idx_raw = ws.cell(r, cols["column index"]).value
+        name = _cell_str(ws.cell(r, cols["marketplace column"]).value)
+        if idx_raw is None or idx_raw == "":
+            if not name:
+                continue
+            raise ValueError(f"marketplace_columns row {r}: column_index is empty")
+        try:
+            column_index = int(idx_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"marketplace_columns row {r}: column_index must be an int, got {idx_raw!r}"
+            ) from exc
+        if column_index < 1:
+            raise ValueError(f"marketplace_columns row {r}: column_index must be >= 1")
+        if column_index in seen:
+            raise ValueError(f"marketplace_columns row {r}: duplicate column_index {column_index}")
+        seen.add(column_index)
+        if not name:
+            raise ValueError(
+                f"marketplace_columns row {r}: marketplace_column is empty "
+                f"for column_index={column_index}"
+            )
+        rows.append(
+            MarketplaceColumnRow(
+                excel_row=r,
+                column_index=column_index,
+                marketplace_column=name,
+            )
+        )
+    if not rows:
+        raise ValueError("marketplace_columns has no data rows")
+    return rows
+
+
+def _parse_listing_map_for_marketplace(
+    ws: Worksheet,
+    marketplace_columns: list[MarketplaceColumnRow],
+) -> list[ListingMapRow]:
     headers = _header_map(ws)
     cols = _require_headers(
         headers,
@@ -138,30 +208,25 @@ def _parse_listing_map(ws: Worksheet) -> list[ListingMapRow]:
     gen_col = headers.get("generation")
     const_col = headers.get("constant value")
 
+    mkt_by_row = {row.excel_row: row for row in marketplace_columns}
+    max_row = max(ws.max_row or 1, max(mkt_by_row))
+
     rows: list[ListingMapRow] = []
-    seen_idx: set[int] = set()
-    for r in range(2, (ws.max_row or 1) + 1):
-        idx_raw = ws.cell(r, cols["column index"]).value
+    for mkt in marketplace_columns:
+        r = mkt.excel_row
         mode_raw = _cell_str(ws.cell(r, cols["fill mode"]).value)
-        if idx_raw is None or idx_raw == "":
-            if not mode_raw:
-                continue
-            raise ValueError(f"listing_map row {r}: column_index is empty")
-        try:
-            column_index = int(idx_raw)
-        except (TypeError, ValueError) as exc:
+        static_idx = _as_int(ws.cell(r, cols["column index"]).value)
+        if static_idx is not None and static_idx != mkt.column_index:
             raise ValueError(
-                f"listing_map row {r}: column_index must be an int, got {idx_raw!r}"
-            ) from exc
-        if column_index < 1:
-            raise ValueError(f"listing_map row {r}: column_index must be >= 1")
-        if column_index in seen_idx:
-            raise ValueError(
-                f"listing_map row {r}: duplicate column_index {column_index}"
+                f"listing_map row {r}: column_index={static_idx} does not match "
+                f"marketplace_columns column_index={mkt.column_index}"
             )
-        seen_idx.add(column_index)
         if not mode_raw:
-            raise ValueError(f"listing_map row {r}: fill_mode is empty")
+            raise ValueError(
+                f"listing_map row {r}: fill_mode required for "
+                f"marketplace_columns column_index={mkt.column_index} "
+                f"({mkt.marketplace_column!r})"
+            )
         try:
             fill_mode = FillMode(mode_raw)
         except ValueError as exc:
@@ -169,21 +234,33 @@ def _parse_listing_map(ws: Worksheet) -> list[ListingMapRow]:
             raise ValueError(
                 f"listing_map row {r}: invalid fill_mode {mode_raw!r}. Expected: {known}"
             ) from exc
-
         pim = _cell_str(ws.cell(r, pim_col).value) if pim_col else ""
         gen = _cell_str(ws.cell(r, gen_col).value) if gen_col else ""
         const = _cell_str(ws.cell(r, const_col).value) if const_col else ""
         rows.append(
             ListingMapRow(
-                column_index=column_index,
+                column_index=mkt.column_index,
                 fill_mode=fill_mode,
                 pim_field=pim or None,
                 generation=gen or None,
                 constant_value=const or None,
             )
         )
-    if not rows:
-        raise ValueError("listing_map has no data rows")
+
+    for r in range(2, max_row + 1):
+        if r in mkt_by_row:
+            continue
+        mode_raw = _cell_str(ws.cell(r, cols["fill mode"]).value)
+        pim = _cell_str(ws.cell(r, pim_col).value) if pim_col else ""
+        gen = _cell_str(ws.cell(r, gen_col).value) if gen_col else ""
+        const = _cell_str(ws.cell(r, const_col).value) if const_col else ""
+        static_idx = _as_int(ws.cell(r, cols["column index"]).value)
+        if mode_raw or pim or gen or const or static_idx is not None:
+            raise ValueError(
+                f"listing_map row {r}: has mapping inputs but no marketplace_columns "
+                "row on this Excel row (listing_map is row-aligned with "
+                "marketplace_columns)"
+            )
     return rows
 
 
@@ -196,10 +273,13 @@ def parse_mapping_workbook(path: Path) -> MappingWorkbook:
         names = {n.casefold(): n for n in wb.sheetnames}
         if "pim_contract" not in names:
             raise ValueError("Mapping workbook missing sheet 'pim_contract'")
+        if "marketplace_columns" not in names:
+            raise ValueError("Mapping workbook missing sheet 'marketplace_columns'")
         if "listing_map" not in names:
             raise ValueError("Mapping workbook missing sheet 'listing_map'")
         pim = _parse_pim_contract(wb[names["pim_contract"]])
-        listing = _parse_listing_map(wb[names["listing_map"]])
+        marketplace = _parse_marketplace_columns(wb[names["marketplace_columns"]])
+        listing = _parse_listing_map_for_marketplace(wb[names["listing_map"]], marketplace)
     finally:
         wb.close()
 
@@ -210,7 +290,11 @@ def parse_mapping_workbook(path: Path) -> MappingWorkbook:
                 f"listing_map column_index={row.column_index}: pim_field "
                 f"{row.pim_field!r} is not on pim_contract"
             )
-    return MappingWorkbook(pim_fields=pim, listing_rows=listing)
+    return MappingWorkbook(
+        pim_fields=pim,
+        marketplace_columns=marketplace,
+        listing_rows=listing,
+    )
 
 
 def build_attribute_spec(pim_fields: list[PimFieldRow]) -> dict[str, list[str]]:

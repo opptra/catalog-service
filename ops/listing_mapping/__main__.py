@@ -27,6 +27,7 @@ from listing_mapping.marketplace import parse_marketplace_id
 from listing_mapping.marketplace.registry import get_adapter
 from listing_mapping.overlay import overlay_columns
 from listing_mapping.render import render_mapping_sql
+
 from utils.listing_template_columns import build_columns
 
 

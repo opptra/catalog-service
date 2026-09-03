@@ -6,6 +6,8 @@ Uniqueness is by Excel ``column_index`` (not by inventing numbered labels).
 ``listing_map`` selects ``column_index``; ``marketplace_column`` is looked up.
 """
 
+# ruff: noqa: E402, E501
+
 from __future__ import annotations
 
 import csv
@@ -33,7 +35,6 @@ HEADER_FONT = Font(bold=True, color="FFFFFF")
 OK_FILL = PatternFill("solid", fgColor="C6EFCE")
 ERR_FILL = PatternFill("solid", fgColor="FFC7CE")
 ERR_FONT = Font(color="9C0006", bold=True)
-LOOKUP_FILL = PatternFill("solid", fgColor="F2F2F2")
 TITLE_FONT = Font(bold=True, size=14, color="1F4E79")
 SECTION_FONT = Font(bold=True, size=11, color="1F4E79")
 BODY_FONT = Font(size=11)
@@ -44,9 +45,11 @@ THIN = Border(
     bottom=Side(style="thin", color="B0B0B0"),
 )
 
-MAP_ROWS = 120
 PIM_ROWS = 80
-# Amazon category workbooks often exceed 200 columns.
+# Max marketplace_columns / listing_map data rows (header is row 1).
+# listing_map keeps formula rows through this ceiling so a new marketplace_columns
+# entry auto-appears; blank sources stay blank (no Excel 0), and fill_mode stays
+# required so mapping cannot be skipped.
 MKT_ROWS = 320
 ARRAY_MAX = 10
 SLOT_MAX = 12
@@ -116,29 +119,42 @@ def _generation_tokens() -> list[str]:
     return tokens
 
 
-def _name_lookup_formula(row: int) -> str:
-    """Show marketplace_column for the selected column_index."""
+def _index_mirror_formula(row: int) -> str:
+    """Mirror marketplace_columns.column_index onto the same listing_map row.
+
+    Blank source cells must stay blank — a bare reference becomes 0 in Excel.
+    """
     return (
-        f'=IF(A{row}="","",'
+        f'=IF(\'marketplace_columns\'!A{row}="","",'
+        f'\'marketplace_columns\'!A{row})'
+    )
+
+
+def _name_lookup_formula(row: int) -> str:
+    """Show marketplace_column for the mirrored column_index."""
+    return (
+        f'=IF(OR(A{row}="",A{row}=0),"",'
         f"IFERROR(VLOOKUP(A{row},'marketplace_columns'!$A$2:$B${MKT_ROWS},2,FALSE),\"\"))"
     )
 
 
-def _status_formula(row: int, *, gen_last: int) -> str:
+def _status_formula(row: int, *, gen_last: int, map_last_row: int) -> str:
     """Validate listing_map row. A=column_index, C=fill_mode, D=pim, E=gen, F=constant.
 
     Uses nested IF only (no IFS) so Excel versions without IFS do not show #NAME?.
+    Empty / unused rows (A blank or 0 and no fill_mode) stay blank.
     """
     a, c, d, e, f = f"A{row}", f"C{row}", f"D{row}", f"E{row}", f"F{row}"
     idx = f"'marketplace_columns'!$A$2:$A${MKT_ROWS}"
     fill = "'lists'!$A$2:$A$9"
     pim = f"'pim_contract'!$A$2:$A${PIM_ROWS}"
     gen = f"'lists'!$C$2:$C${gen_last}"
+    # Keep the same IF nesting depth as the last known-good template.
     return (
-        f'=IF(AND({a}="",{c}=""),"",'
-        f'IF({a}="","ERROR: column_index required",'
+        f'=IF(AND(OR({a}="",{a}=0),{c}=""),"",'
+        f'IF(OR({a}="",{a}=0),"ERROR: column_index required",'
         f'IF(COUNTIF({idx},{a})=0,"ERROR: column_index not in marketplace_columns",'
-        f'IF(COUNTIF($A$2:$A${MAP_ROWS},{a})>1,"ERROR: duplicate column_index in listing_map",'
+        f'IF(COUNTIF($A$2:$A${map_last_row},{a})>1,"ERROR: duplicate column_index in listing_map",'
         f'IF({c}="","ERROR: fill_mode required",'
         f'IF(COUNTIF({fill},{c})=0,"ERROR: invalid fill_mode",'
         f'IF({c}="COPY_PIM",'
@@ -176,8 +192,9 @@ def _readme_blocks() -> list[tuple[str, str]]:
         ),
         (
             (
-                "3. listing_map — pick column_index from the dropdown; "
-                "marketplace_column fills in automatically. Then set fill_mode."
+                "3. listing_map — one row per marketplace_columns row (index is "
+                "mirrored). Set fill_mode for every row; blank fill_mode is ERROR. "
+                "Use SKIP only when you intentionally omit the column."
             ),
             "body",
         ),
@@ -197,12 +214,22 @@ def _readme_blocks() -> list[tuple[str, str]]:
         ),
         (
             (
-                "C. On listing_map, pick column_index (dropdown). The name appears "
-                "next to it. Then pick fill_mode and the related fields."
+                "C. On listing_map, each marketplace_columns row already appears "
+                "(column_index / marketplace_column are mirrored by formula). Set "
+                "fill_mode — leave blank and status stays ERROR until you choose a "
+                "mode (including SKIP). Add a new marketplace_columns row and the "
+                "matching listing_map row fills in automatically; you must still "
+                "set fill_mode."
             ),
             "body",
         ),
-        ("D. status must be OK (green). Fix any ERROR row before handoff.", "body"),
+        (
+            (
+                "D. status must be OK (green) on every marketplace_columns row. "
+                "There is no silent SKIP — every defined column needs an explicit fill_mode."
+            ),
+            "body",
+        ),
         ("", "body"),
         ("Uniqueness", "section"),
         (
@@ -393,12 +420,25 @@ def build(
     map_rows = list(map_rows) if map_rows is not None else _default_map_rows()
     if len(mkt_rows) > MKT_ROWS - 1:
         raise ValueError(
-            f"marketplace_columns has {len(mkt_rows)} rows; raise MKT_ROWS "
-            f"(currently {MKT_ROWS})"
+            f"marketplace_columns has {len(mkt_rows)} rows; raise MKT_ROWS (currently {MKT_ROWS})"
         )
-    if len(map_rows) > MAP_ROWS - 1:
+    map_by_idx = {row[0]: row for row in map_rows}
+    if len(map_by_idx) != len(map_rows):
+        raise ValueError("listing_map map_rows contain duplicate column_index values")
+    mkt_indices = [row[0] for row in mkt_rows]
+    if len(set(mkt_indices)) != len(mkt_indices):
+        raise ValueError("marketplace_columns contain duplicate column_index values")
+    missing_map = [idx for idx in mkt_indices if idx not in map_by_idx]
+    if missing_map:
         raise ValueError(
-            f"listing_map has {len(map_rows)} rows; raise MAP_ROWS (currently {MAP_ROWS})"
+            "Every marketplace_columns column_index needs a listing_map fill_mode; "
+            f"missing: {missing_map[:20]}{'…' if len(missing_map) > 20 else ''}"
+        )
+    extra_map = sorted(set(map_by_idx) - set(mkt_indices))
+    if extra_map:
+        raise ValueError(
+            "listing_map has column_index values not on marketplace_columns: "
+            f"{extra_map[:20]}{'…' if len(extra_map) > 20 else ''}"
         )
 
     out_xlsx = out_xlsx or OUT_XLSX
@@ -415,11 +455,7 @@ def build(
         if text:
             cell.value = text
             cell.font = (
-                TITLE_FONT
-                if kind == "title"
-                else SECTION_FONT
-                if kind == "section"
-                else BODY_FONT
+                TITLE_FONT if kind == "title" else SECTION_FONT if kind == "section" else BODY_FONT
             )
             cell.alignment = Alignment(wrap_text=True, vertical="top")
     ws_readme.column_dimensions["A"].width = 112
@@ -442,7 +478,6 @@ def build(
     r_req = "'lists'!$B$2:$B$3"
     r_gen = f"'lists'!$C$2:$C${gen_last}"
     r_pim = f"'pim_contract'!$A$2:$A${PIM_ROWS}"
-    r_idx = f"'marketplace_columns'!$A$2:$A${MKT_ROWS}"
 
     # pim_contract
     ws_pim = wb.create_sheet("pim_contract")
@@ -469,13 +504,13 @@ def build(
     for r, row in enumerate(mkt_rows, start=2):
         _set(ws_mkt, r, 1, row[0])
         _set(ws_mkt, r, 2, row[1])
-    for r in range(len(mkt_rows) + 2, MKT_ROWS + 1):
-        _set(ws_mkt, r, 1, None)
-        _set(ws_mkt, r, 2, None)
     _style_header(ws_mkt, 2)
     _autosize(ws_mkt, [14, 28])
 
-    # listing_map — select index; name is looked up
+    # listing_map — formula rows through MKT_ROWS so new marketplace_columns
+    # entries auto-mirror. Blank sources stay blank (no Excel 0). fill_mode is
+    # blank on spare rows → status ERROR once an index appears (must map explicitly).
+    # column_index / marketplace_column are formula-driven — no special fill.
     ws_map = wb.create_sheet("listing_map")
     map_headers = [
         "column_index",
@@ -489,60 +524,48 @@ def build(
     for i, header in enumerate(map_headers, start=1):
         ws_map.cell(1, i, header)
 
-    for r, row in enumerate(map_rows, start=2):
-        _set(ws_map, r, 1, row[0])
+    map_last_row = MKT_ROWS
+    for r in range(2, map_last_row + 1):
+        idx_cell = ws_map.cell(r, 1)
+        idx_cell.value = _index_mirror_formula(r)
         name_cell = ws_map.cell(r, 2)
         name_cell.value = _name_lookup_formula(r)
-        name_cell.border = THIN
-        name_cell.fill = LOOKUP_FILL
-        _set(ws_map, r, 3, row[1])
-        _set(ws_map, r, 4, row[2])
-        _set(ws_map, r, 5, row[3])
-        _set(ws_map, r, 6, row[4])
         status = ws_map.cell(r, 7)
-        status.value = _status_formula(r, gen_last=gen_last)
-        status.border = THIN
+        status.value = _status_formula(r, gen_last=gen_last, map_last_row=map_last_row)
 
-    for r in range(len(map_rows) + 2, MAP_ROWS + 1):
-        for c in (1, 3, 4, 5, 6):
-            _set(ws_map, r, c, None)
-        name_cell = ws_map.cell(r, 2)
-        name_cell.value = _name_lookup_formula(r)
-        name_cell.border = THIN
-        name_cell.fill = LOOKUP_FILL
-        status = ws_map.cell(r, 7)
-        status.value = _status_formula(r, gen_last=gen_last)
-        status.border = THIN
+        mkt_offset = r - 2
+        if mkt_offset < len(mkt_rows):
+            mapped = map_by_idx[mkt_rows[mkt_offset][0]]
+            _set(ws_map, r, 3, mapped[1])
+            _set(ws_map, r, 4, mapped[2])
+            _set(ws_map, r, 5, mapped[3])
+            _set(ws_map, r, 6, mapped[4])
+            for col in (1, 2, 7):
+                ws_map.cell(r, col).border = THIN
 
     _style_header(ws_map, 7)
     _autosize(ws_map, [14, 22, 18, 14, 22, 16, 55])
 
     for dv, rng in (
-        (
-            _list_dv(
-                r_idx, "column_index", "Pick column_index from marketplace_columns."
-            ),
-            f"A2:A{MAP_ROWS}",
-        ),
-        (_list_dv(r_fill, "fill_mode", "Pick fill_mode only."), f"C2:C{MAP_ROWS}"),
+        (_list_dv(r_fill, "fill_mode", "Pick fill_mode only."), f"C2:C{map_last_row}"),
         (
             _list_dv(r_pim, "pim_field", "Pick from pim_contract only."),
-            f"D2:D{MAP_ROWS}",
+            f"D2:D{map_last_row}",
         ),
         (
             _list_dv(r_gen, "generation", "Pick generation token only."),
-            f"E2:E{MAP_ROWS}",
+            f"E2:E{map_last_row}",
         ),
     ):
         ws_map.add_data_validation(dv)
         dv.add(rng)
 
     ws_map.conditional_formatting.add(
-        f"G2:G{MAP_ROWS}",
+        f"G2:G{map_last_row}",
         FormulaRule(formula=['LEFT(G2,5)="ERROR"'], fill=ERR_FILL, font=ERR_FONT),
     )
     ws_map.conditional_formatting.add(
-        f"G2:G{MAP_ROWS}",
+        f"G2:G{map_last_row}",
         FormulaRule(formula=['G2="OK"'], fill=OK_FILL),
     )
 
@@ -563,9 +586,7 @@ def build(
             ["column_index", "fill_mode", "pim_field", "generation", "constant_value"],
             map_rows,
         )
-        write_csv(
-            out_dir / "generations.csv", ["generation"], [[g] for g in generations]
-        )
+        write_csv(out_dir / "generations.csv", ["generation"], [[g] for g in generations])
         out_readme.write_text(
             "\n".join(text for text, _ in _readme_blocks()) + "\n",
             encoding="utf-8",

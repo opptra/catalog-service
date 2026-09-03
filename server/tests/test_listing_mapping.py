@@ -9,6 +9,7 @@ from listing_mapping.mapping_workbook import (
     FillMode,
     ListingMapRow,
     MappingWorkbook,
+    MarketplaceColumnRow,
     PimFieldRow,
     build_attribute_spec,
     parse_mapping_workbook,
@@ -49,6 +50,29 @@ def _col(
         "workbook_key": None,
         "config": config,
     }
+
+
+def _mapping(
+    listing_rows: list[ListingMapRow],
+    *,
+    pim_fields: list[PimFieldRow] | None = None,
+) -> MappingWorkbook:
+    return MappingWorkbook(
+        pim_fields=pim_fields
+        or [
+            PimFieldRow("SKU", True),
+            PimFieldRow("Color", True),
+        ],
+        marketplace_columns=[
+            MarketplaceColumnRow(
+                excel_row=2 + i,
+                column_index=row.column_index,
+                marketplace_column=f"col-{row.column_index}",
+            )
+            for i, row in enumerate(listing_rows)
+        ],
+        listing_rows=listing_rows,
+    )
 
 
 def test_parse_marketplace_id() -> None:
@@ -114,19 +138,16 @@ def test_overlay_by_column_index_fill_modes() -> None:
         _col(column_index=6, label="Notes"),
         _col(column_index=7, label="Unused"),
     ]
-    mapping = MappingWorkbook(
-        pim_fields=[
-            PimFieldRow("SKU", True),
-            PimFieldRow("Color", True),
-        ],
-        listing_rows=[
+    mapping = _mapping(
+        [
             ListingMapRow(1, FillMode.COPY_PIM, "SKU", None, None),
             ListingMapRow(2, FillMode.ENUM_FROM_PIM, "Color", None, None),
             ListingMapRow(3, FillMode.ENUM_AI, None, None, None),
             ListingMapRow(4, FillMode.COPY_GENERATION, None, "TITLE", None),
             ListingMapRow(5, FillMode.IMAGE, None, "IMAGE:1", None),
             ListingMapRow(6, FillMode.AI_TEXT, None, None, None),
-        ],
+            ListingMapRow(7, FillMode.SKIP, None, None, None),
+        ]
     )
     result = overlay_columns(workbook, mapping)
     by_index = {c["column_index"]: c["config"] for c in result.columns}
@@ -147,11 +168,24 @@ def test_overlay_by_column_index_fill_modes() -> None:
     assert "machine_key" not in by_index[1]
 
 
+def test_overlay_missing_column_index_fails() -> None:
+    workbook = [
+        _col(column_index=1, label="Seller SKU"),
+        _col(column_index=2, label="Color"),
+    ]
+    mapping = _mapping(
+        [ListingMapRow(1, FillMode.COPY_PIM, "SKU", None, None)],
+        pim_fields=[PimFieldRow("SKU", True)],
+    )
+    with pytest.raises(ValueError, match="no silent SKIP"):
+        overlay_columns(workbook, mapping)
+
+
 def test_overlay_unknown_column_index_fails() -> None:
     workbook = [_col(column_index=1, label="Seller SKU")]
-    mapping = MappingWorkbook(
+    mapping = _mapping(
+        [ListingMapRow(99, FillMode.COPY_PIM, "SKU", None, None)],
         pim_fields=[PimFieldRow("SKU", True)],
-        listing_rows=[ListingMapRow(99, FillMode.COPY_PIM, "SKU", None, None)],
     )
     with pytest.raises(ValueError, match="not found in workbook"):
         overlay_columns(workbook, mapping)
@@ -159,9 +193,9 @@ def test_overlay_unknown_column_index_fails() -> None:
 
 def test_render_mapping_sql() -> None:
     workbook = [_col(column_index=1, label="Seller SKU")]
-    mapping = MappingWorkbook(
+    mapping = _mapping(
+        [ListingMapRow(1, FillMode.COPY_PIM, "SKU", None, None)],
         pim_fields=[PimFieldRow("SKU", True)],
-        listing_rows=[ListingMapRow(1, FillMode.COPY_PIM, "SKU", None, None)],
     )
     result = overlay_columns(workbook, mapping)
     sql = render_mapping_sql(
@@ -187,9 +221,45 @@ def test_render_mapping_sql() -> None:
 def test_parse_tmp_mapping_template() -> None:
     mapping = parse_mapping_workbook(_TEMPLATE)
     assert mapping.pim_fields
+    assert mapping.marketplace_columns
     assert mapping.listing_rows
+    assert len(mapping.marketplace_columns) == len(mapping.listing_rows)
     assert any(r.pim_field == "SKU" for r in mapping.pim_fields)
     assert any(r.fill_mode == FillMode.COPY_PIM for r in mapping.listing_rows)
+
+
+def test_parse_mapping_workbook_requires_fill_mode_for_each_marketplace_column(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "map.xlsx"
+    wb = Workbook()
+    ws_pim = wb.active
+    ws_pim.title = "pim_contract"
+    ws_pim.append(["pim_field", "requirement"])
+    ws_pim.append(["SKU", "Mandatory"])
+    ws_pim.append(["Color", "Optional"])
+    ws_mkt = wb.create_sheet("marketplace_columns")
+    ws_mkt.append(["column_index", "marketplace_column"])
+    ws_mkt.append([1, "Seller SKU"])
+    ws_mkt.append([2, "Color"])
+    ws_map = wb.create_sheet("listing_map")
+    ws_map.append(
+        [
+            "column_index",
+            "marketplace_column",
+            "fill_mode",
+            "pim_field",
+            "generation",
+            "constant_value",
+            "status",
+        ]
+    )
+    ws_map.append([1, "Seller SKU", "COPY_PIM", "SKU", "", "", "OK"])
+    # Row 2 intentionally missing fill_mode
+    ws_map.append([2, "Color", "", "", "", "", ""])
+    wb.save(path)
+    with pytest.raises(ValueError, match="fill_mode required"):
+        parse_mapping_workbook(path)
 
 
 def test_parse_mapping_workbook_roundtrip(tmp_path: Path) -> None:
@@ -200,6 +270,10 @@ def test_parse_mapping_workbook_roundtrip(tmp_path: Path) -> None:
     ws_pim.append(["pim_field", "requirement"])
     ws_pim.append(["SKU", "Mandatory"])
     ws_pim.append(["Color", "Optional"])
+    ws_mkt = wb.create_sheet("marketplace_columns")
+    ws_mkt.append(["column_index", "marketplace_column"])
+    ws_mkt.append([1, "Seller SKU"])
+    ws_mkt.append([2, "Color"])
     ws_map = wb.create_sheet("listing_map")
     ws_map.append(
         [
@@ -217,5 +291,6 @@ def test_parse_mapping_workbook_roundtrip(tmp_path: Path) -> None:
     wb.save(path)
     mapping = parse_mapping_workbook(path)
     assert len(mapping.pim_fields) == 2
+    assert len(mapping.marketplace_columns) == 2
     assert mapping.listing_rows[0].column_index == 1
     assert mapping.listing_rows[1].fill_mode == FillMode.ENUM_FROM_PIM

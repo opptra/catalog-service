@@ -1,8 +1,7 @@
 """Seed a mapping workbook from a blank marketplace .xlsm.
 
-Fills ``marketplace_columns`` from the workbook and applies a starter
-``listing_map`` for Amazon BED_LINEN_SET-style layouts (safe fill_modes that
-respect dropdown vs free-text columns).
+Fills ``marketplace_columns`` from the workbook and applies an explicit
+``listing_map`` fill_mode for every column (no silent SKIP).
 
 From repo root (server venv):
 
@@ -22,6 +21,7 @@ from listing_mapping import _bootstrap  # noqa: F401
 from listing_mapping.build_template import build
 from listing_mapping.marketplace import parse_marketplace_id
 from listing_mapping.marketplace.registry import get_adapter
+
 from utils.listing_template_columns import build_columns
 
 
@@ -35,11 +35,30 @@ def _label_key(label: str) -> str:
     return " ".join(label.casefold().split())
 
 
+def _bed_linen_pim_rows() -> list[tuple[str, str]]:
+    """Customer flatfile fields we expect for bed linen."""
+    return [
+        ("SKU", "Mandatory"),
+        ("Brand", "Mandatory"),
+        ("Color", "Mandatory"),
+        ("Size", "Mandatory"),
+        ("Material", "Optional"),
+        ("Pattern", "Optional"),
+        ("Thread Count", "Optional"),
+        ("Number of Pieces", "Optional"),
+        ("Manufacturer", "Optional"),
+        ("Model Number", "Optional"),
+    ]
+
+
 def _bed_linen_map_rows(
     by_index: dict[int, dict],
-) -> list[tuple[int, str, str, str, str]]:
-    """Starter mapping for Amazon BED_LINEN_SET column layout."""
-    rows: list[tuple[int, str, str, str, str]] = []
+) -> dict[int, tuple[str, str, str, str]]:
+    """Explicit fill_modes for every Amazon BED_LINEN_SET column.
+
+    Returns partial overrides; caller fills remaining indices with SKIP.
+    """
+    rows: dict[int, tuple[str, str, str, str]] = {}
 
     def add(
         idx: int,
@@ -51,37 +70,138 @@ def _bed_linen_map_rows(
     ) -> None:
         if idx not in by_index:
             raise ValueError(f"Expected column_index={idx} in workbook")
-        rows.append((idx, mode, pim, gen, const))
+        rows[idx] = (mode, pim, gen, const)
 
+    # --- identity / variation structure ---
     add(1, "COPY_PIM", pim="SKU")
-    # Product Type has a single allowed value in this workbook.
     add(2, "CONSTANT", const="BED_LINEN_SET")
     add(3, "CONSTANT", const="Edit (Partial Update)")
-    add(4, "ENUM_AI")  # Parentage Level (dropdown)
-    add(5, "SKIP")  # Parent SKU — free text, not ENUM
+    add(4, "ENUM_AI")  # Parentage Level
+    add(5, "SKIP")  # Parent SKU — set manually when listing children
     add(6, "ENUM_AI")  # Variation Theme Name
+
+    # --- generated copy ---
     add(7, "COPY_GENERATION", gen="TITLE")
     add(8, "COPY_GENERATION", gen="ITEM_HIGHLIGHTS:1")
+
+    # --- brand / ids ---
     add(9, "ENUM_FROM_PIM", pim="Brand")
     add(10, "SKIP")  # Product Id Type
     add(11, "SKIP")  # Product Id
 
+    # --- browse (first node only; rest unused) ---
+    add(12, "ENUM_AI")
+    for idx in range(13, 17):
+        add(idx, "SKIP")
+
+    add(17, "COPY_PIM", pim="Model Number")
+    add(18, "COPY_PIM", pim="Manufacturer")
+    add(19, "SKIP")  # UNSPSC
+    add(20, "SKIP")  # National Stock Number
+
+    # --- images (main + 8 others; swatch unused) ---
     add(21, "IMAGE", gen="IMAGE:1")
     for slot, idx in enumerate(range(22, 30), start=2):
         add(idx, "IMAGE", gen=f"IMAGE:{slot}")
+    add(30, "SKIP")  # Swatch Image URL
 
     add(31, "COPY_GENERATION", gen="DESCRIPTION")
     for n, idx in enumerate(range(32, 37), start=1):
         add(idx, "COPY_GENERATION", gen=f"BULLET_POINTS:{n}")
     add(37, "COPY_GENERATION", gen="BACKEND_KEYWORDS")
 
-    add(39, "ENUM_FROM_PIM", pim="Material")  # first Material slot
+    # --- product attributes ---
+    add(38, "ENUM_AI")  # Style
+    add(39, "ENUM_FROM_PIM", pim="Material")
+    for idx in range(40, 44):  # extra Material slots
+        add(idx, "SKIP")
+    add(44, "COPY_PIM", pim="Material")  # Fabric Type (free text) ← Material
+    for idx in range(45, 49):
+        add(idx, "SKIP")
+    add(49, "COPY_PIM", pim="Number of Pieces")  # Number of Items
+    add(50, "AI_TEXT")  # Item Type Name
     add(51, "ENUM_FROM_PIM", pim="Color")
     add(52, "ENUM_FROM_PIM", pim="Size")
-    add(78, "ENUM_FROM_PIM", pim="Pattern")
+    add(53, "COPY_PIM", pim="Number of Pieces")
+    add(54, "COPY_PIM", pim="Model Number")  # Part Number
+    add(55, "ENUM_AI")  # Theme (first)
+    for idx in range(56, 60):
+        add(idx, "SKIP")
+    add(60, "ENUM_AI")  # Weave Type
+    add(61, "ENUM_AI")  # Care Instructions (first)
+    for idx in range(62, 66):
+        add(idx, "SKIP")
+    add(66, "SKIP")  # Manufacturer Contact Information
 
-    # Sanity: ENUM_* only on dropdown columns; IMAGE/COPY_GENERATION not on enums.
-    for idx, mode, _pim, _gen, _const in rows:
+    # display dims — not in bed-linen PIM
+    for idx in range(67, 78):
+        add(idx, "SKIP")
+
+    add(78, "ENUM_FROM_PIM", pim="Pattern")
+    add(79, "SKIP")  # Finish Type
+    add(80, "SKIP")  # Unit Count
+    add(81, "SKIP")  # Unit Count Type
+    add(82, "SKIP")  # Product Site Launch Date
+
+    add(83, "ENUM_AI")  # Included Components (first)
+    for idx in range(84, 88):
+        add(idx, "SKIP")
+
+    # sports / league — not bed linen
+    for idx in range(88, 95):
+        add(idx, "SKIP")
+
+    add(95, "SKIP")  # External Product Information Entity
+    add(96, "SKIP")
+    add(97, "SKIP")  # Pillow Size
+    add(98, "COPY_PIM", pim="Thread Count")
+    add(99, "ENUM_AI")  # Seasons (first)
+    for idx in range(100, 104):
+        add(idx, "SKIP")
+
+    # importer / packer / pillowcase / sheet geometry — skip unless later needed
+    for idx in range(104, 134):
+        add(idx, "SKIP")
+
+    add(134, "SKIP")  # Is Green Purchasing Law Compliant
+    add(135, "SKIP")  # Item Weight
+    add(136, "SKIP")  # Item Weight Unit
+
+    # offer / condition / gift / image locations (non-URL)
+    for idx in range(137, 151):
+        add(idx, "SKIP")
+
+    # refurbished / accessories / battery — skip
+    for idx in range(151, 162):
+        add(idx, "SKIP")
+
+    # inventory / pricing / B2B / shipping — ops fills outside this flow
+    for idx in range(162, 195):
+        add(idx, "SKIP")
+
+    # package / item dims
+    for idx in range(195, 209):
+        add(idx, "SKIP")
+
+    add(209, "ENUM_AI")  # Country of Origin
+
+    # hazmat / GHS / age / regulation ids / compliance media
+    for idx in range(210, 262):
+        add(idx, "SKIP")
+
+    # bed-linen compliance enums — model picks from constrained lists
+    add(262, "ENUM_AI")  # Compliance - Bed Linen Set Components
+    add(263, "ENUM_AI")  # Compliance - Is Handmade
+    add(264, "ENUM_AI")  # Compliance - Printing method
+    add(265, "ENUM_AI")  # Compliance Weave Type
+    add(266, "ENUM_AI")  # Compliance - Outer Surface Material
+    add(267, "ENUM_AI")  # Compliance - Embellishment Feature
+
+    for idx in range(268, 273):
+        add(idx, "SKIP")  # GHS Chemical H Code
+
+    # Validate mode vs dropdown shape.
+    for idx, (mode, _pim, _gen, _const) in rows.items():
         cfg = by_index[idx]
         dd = _is_dropdown(cfg)
         label = cfg.get("label")
@@ -134,23 +254,22 @@ def main(argv: list[str] | None = None) -> int:
     if (
         marketplace_id.value == "AMAZON"
         and _label_key(by_index.get(2, {}).get("label", "")) == "product type"
+        and _label_key(by_index.get(1, {}).get("label", "")) == "sku"
     ):
-        map_rows = _bed_linen_map_rows(by_index)
+        starters = _bed_linen_map_rows(by_index)
+        pim_rows = _bed_linen_pim_rows()
     else:
         print(
-            "No starter listing_map for this workbook shape; "
-            "wrote marketplace_columns only (empty listing_map not allowed).",
+            "No category-specific starter map for this workbook shape; "
+            "defaulting every column_index to explicit SKIP.",
             file=sys.stderr,
         )
-        return 1
+        starters = {}
+        pim_rows = [("SKU", "Mandatory")]
 
-    pim_rows = [
-        ("SKU", "Mandatory"),
-        ("Color", "Mandatory"),
-        ("Size", "Mandatory"),
-        ("Material", "Optional"),
-        ("Brand", "Mandatory"),
-        ("Pattern", "Optional"),
+    # Every marketplace column gets an explicit fill_mode (SKIP unless starter).
+    map_rows = [
+        (idx, *(starters.get(idx, ("SKIP", "", "", "")))) for idx, _label in mkt_rows
     ]
 
     out = build(
@@ -162,9 +281,11 @@ def main(argv: list[str] | None = None) -> int:
         map_rows=map_rows,
         write_sidecar_csv=True,
     )
+    from collections import Counter
+
+    counts = Counter(row[1] for row in map_rows)
     print(
-        f"Wrote {out} ({len(mkt_rows)} marketplace columns, "
-        f"{len(map_rows)} listing_map rows; unmapped columns → SKIP at overlay)",
+        f"Wrote {out} ({len(mkt_rows)} columns; fill_modes={dict(counts)})",
         file=sys.stderr,
     )
     return 0

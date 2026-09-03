@@ -19,6 +19,7 @@ from pathlib import Path
 from listing_mapping import _bootstrap  # noqa: F401
 from listing_mapping.marketplace import parse_marketplace_id
 from listing_mapping.marketplace.registry import get_adapter
+
 from utils.listing_template_columns import write_sql
 
 

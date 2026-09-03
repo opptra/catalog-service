@@ -10,9 +10,7 @@ from listing_mapping.marketplace import MarketplaceId
 from pydantic import BaseModel, ConfigDict, Field
 
 _CONFIG_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "config"
-    / "marketplace_listing_workbooks.json"
+    Path(__file__).resolve().parent.parent / "config" / "marketplace_listing_workbooks.json"
 )
 
 
