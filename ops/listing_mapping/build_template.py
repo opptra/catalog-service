@@ -113,9 +113,10 @@ def _status_formula(row: int, *, gen_last: int, map_last_row: int) -> str:
         f"E{row}",
         f"F{row}",
     )
-    fill = "'lists'!$A$2:$A$9"
+    fill = "'lists'!$A$2:$A$8"
     pim = f"'pim_contract'!$A$2:$A${PIM_ROWS}"
     gen = f"'lists'!$C$2:$C${gen_last}"
+    optional_pim_ok = f'AND({e}="",{f}="",OR({d}="",COUNTIF({pim},{d})>0))'
     return (
         f'=IF(AND(OR({a}="",{a}=0),{c}=""),"",'
         f'IF(OR({a}="",{a}=0),"ERROR: column_index required",'
@@ -124,177 +125,149 @@ def _status_formula(row: int, *, gen_last: int, map_last_row: int) -> str:
         f'IF({c}="","ERROR: fill_mode required",'
         f'IF(COUNTIF({fill},{c})=0,"ERROR: invalid fill_mode",'
         f'IF({c}="COPY_PIM",'
-        f'IF(AND({d}<>"",COUNTIF({pim},{d})>0,{e}="",{f}=""),"OK","ERROR: COPY_PIM needs pim_field only"),'
-        f'IF({c}="ENUM_FROM_PIM",'
-        f'IF(AND({d}<>"",COUNTIF({pim},{d})>0,{e}="",{f}=""),"OK","ERROR: ENUM_FROM_PIM needs pim_field only"),'
+        f'IF(AND({d}<>"",COUNTIF({pim},{d})>0,{e}="",{f}=""),'
+        f'"OK","ERROR: COPY_PIM needs pim_field only"),'
+        f'IF({c}="ENUM",'
+        f'IF({optional_pim_ok},"OK","ERROR: ENUM pim optional; gen/const blank"),'
+        f'IF({c}="AI_TEXT",'
+        f'IF({optional_pim_ok},"OK","ERROR: AI_TEXT pim optional; gen/const blank"),'
         f'IF({c}="COPY_GENERATION",'
-        f'IF(AND({e}<>"",COUNTIF({gen},{e})>0,{d}="",{f}=""),"OK","ERROR: COPY_GENERATION needs generation only"),'
+        f'IF(AND({e}<>"",COUNTIF({gen},{e})>0,{d}="",{f}=""),'
+        f'"OK","ERROR: COPY_GENERATION needs generation only"),'
         f'IF({c}="IMAGE",'
-        f'IF(AND({e}<>"",COUNTIF({gen},{e})>0,{d}="",{f}=""),"OK","ERROR: IMAGE needs generation only"),'
+        f'IF(AND({e}<>"",COUNTIF({gen},{e})>0,{d}="",{f}=""),'
+        f'"OK","ERROR: IMAGE needs generation only"),'
         f'IF({c}="CONSTANT",'
-        f'IF(AND({f}<>"",{d}="",{e}=""),"OK","ERROR: CONSTANT needs constant_value only"),'
-        f'IF(OR({c}="ENUM_AI",{c}="AI_TEXT",{c}="SKIP"),'
-        f'IF(AND({d}="",{e}="",{f}=""),"OK","ERROR: this mode must leave pim/generation/constant blank"),'
+        f'IF(AND({f}<>"",{d}="",{e}=""),'
+        f'"OK","ERROR: CONSTANT needs constant_value only"),'
+        f'IF({c}="SKIP",'
+        f'IF(AND({d}="",{e}="",{f}=""),'
+        f'"OK","ERROR: SKIP must leave pim/gen/const blank"),'
         f'"ERROR: unhandled fill_mode"'
-        f"))))))))))))"
+        f")))))))))))))"
     )
 
 
 def _readme_blocks() -> list[tuple[str, str]]:
     return [
-        ("Listing mapping — starter template (examples only)", "title"),
+        ("Listing mapping — how to fill this workbook", "title"),
         ("", "body"),
         (
             (
-                "Rows already on amazon_mapping / flipkart_mapping / myntra_mapping are "
-                "examples of every fill_mode — not a real category. Replace them with "
-                "column_index + header names from the blank marketplace workbook. "
-                "Leave extra example rows in place only while you learn the sheet."
+                "Example rows on amazon_mapping / flipkart_mapping / myntra_mapping are "
+                "samples only. Replace them with real column_index + header names from "
+                "the blank marketplace workbook for your category."
             ),
             "body",
         ),
         ("", "body"),
-        ("What each sheet is for", "section"),
+        ("Sheets", "section"),
         (
-            "1. pim_contract — fields we ask the customer (Mandatory / Optional). Shared across marketplaces.",
+            "pim_contract — customer fields (Mandatory / Optional). Shared by all marketplaces.",
             "body",
         ),
         (
             (
-                "2. amazon_mapping / flipkart_mapping / myntra_mapping — one sheet per "
-                "marketplace. Each row is one Excel column: column_index + marketplace_column "
-                "+ fill_mode. Set fill_mode for every row that has a column_index; blank "
-                "fill_mode is ERROR. Use SKIP only when you intentionally omit the column."
+                "amazon_mapping / flipkart_mapping / myntra_mapping — one sheet per marketplace. "
+                "Each row is one column from that marketplace’s blank workbook."
             ),
             "body",
         ),
         (
-            "3. lists — dropdown vocabulary only. Do not edit unless you know why.",
+            "lists — dropdown values for fill_mode and generation. Leave alone.",
             "body",
         ),
         ("", "body"),
-        ("Fill order", "section"),
+        ("How to fill a marketplace sheet", "section"),
         (
-            "A. Add customer fields on pim_contract (examples are already there).",
+            "1. Put customer fields on pim_contract first (only what you will ask for).",
             "body",
         ),
         (
             (
-                "B. On the marketplace sheet, enter each blank-workbook column’s Excel "
-                "column_index and header name, then set fill_mode. Leave fill_mode blank "
-                "and status stays ERROR until you choose a mode (including SKIP)."
+                "2. For each blank-workbook column: set column_index, marketplace_column, "
+                "and fill_mode. Every row with a column_index needs an explicit fill_mode "
+                "(use SKIP if you intentionally leave it blank)."
             ),
             "body",
         ),
         (
-            (
-                "C. status must be OK (green) on every row that has a column_index. "
-                "There is no silent SKIP — every defined column needs an explicit fill_mode."
-            ),
+            "3. status must be OK (green) on every filled row before you hand this off.",
             "body",
         ),
-        ("", "body"),
-        ("Uniqueness", "section"),
         (
             (
-                "column_index is unique per marketplace sheet (Excel column number from that "
-                "marketplace’s blank template). Same display name can appear on different indices."
+                "column_index is the Excel column number from the blank template "
+                "(unique per marketplace sheet)."
             ),
             "body",
         ),
         ("", "body"),
-        ("When to pick each fill_mode", "section"),
+        ("Which columns to set for each fill_mode", "section"),
         (
             (
-                "COPY_PIM — plain copy of a customer field (not a marketplace dropdown). "
+                "COPY_PIM — copy a customer field as-is (not a marketplace dropdown). "
                 "Set pim_field only."
             ),
             "body",
         ),
         (
             (
+                "ENUM — marketplace dropdown. Writes only from the allowed list. "
+                "pim_field is optional: set it when there is a related customer field; "
+                "leave it blank when there is not."
+            ),
+            "body",
+        ),
+        (
+            (
+                "AI_TEXT — free-text marketplace field (not a dropdown). "
+                "pim_field is optional: set it to prefer that customer value when present; "
+                "leave it blank to always generate text."
+            ),
+            "body",
+        ),
+        (
+            (
                 "COPY_GENERATION — copy an already-generated value "
-                "(title, bullets, description, keywords). Set generation only."
+                "(title, bullets, description, keywords). Set generation only "
+                "(pick from the dropdown; repeat the same name on each matching column)."
             ),
-            "body",
-        ),
-        (
-            "IMAGE — generated image URL. Set generation to IMAGE (repeat on each image column).",
             "body",
         ),
         (
             (
-                "AI_TEXT — free-text marketplace field (not a dropdown) with no PIM twin "
-                "and not from generation."
+                "IMAGE — generated image URL. Set generation to IMAGE "
+                "(repeat on each image column)."
             ),
             "body",
         ),
-        ("CONSTANT — fixed string (e.g. Update). Set constant_value only.", "body"),
-        ("SKIP — leave blank. Leave pim/generation/constant blank.", "body"),
-        ("", "body"),
-        ("Marketplace dropdowns (ENUM)", "section"),
+        ("CONSTANT — fixed string. Set constant_value only.", "body"),
         (
-            "Both ENUM modes write only values from that marketplace’s allowed list. Never free text.",
+            "SKIP — leave blank. Leave pim_field, generation, and constant_value empty.",
             "body",
         ),
         ("", "body"),
-        ("ENUM_FROM_PIM — customer has a related PIM field (set pim_field).", "body"),
+        ("Quick rules", "section"),
         (
             (
-                "  1) PIM value exact-matches an allowed option (case-insensitive) "
-                "→ write that option. No model."
+                "• For ENUM and AI_TEXT, pim_field is optional. "
+                "For every other mode, follow the column rules above."
             ),
             "body",
         ),
         (
-            (
-                "  2) No match → model picks from the allowed list using the full PIM bag "
-                "+ product photos (mapped field is a hint). Weak evidence → may stay blank."
-            ),
-            "body",
-        ),
-        ("", "body"),
-        (
-            (
-                "ENUM_AI — no dedicated PIM field. Leave pim_field blank. Always model-picks "
-                "from the allowed list using the full PIM bag + photos."
-            ),
-            "body",
-        ),
-        ("", "body"),
-        ("When is the model involved?", "section"),
-        (
-            (
-                "ENUM_FROM_PIM mismatch → model (list-constrained). "
-                "ENUM_AI → always model (list-constrained). AI_TEXT → free text. "
-                "COPY_* / IMAGE / CONSTANT / SKIP / exact ENUM match → no model."
-            ),
-            "body",
-        ),
-        ("", "body"),
-        ("generation tokens", "section"),
-        (
-            (
-                "Pick the attribute name only: TITLE, DESCRIPTION, KEY_FEATURES, "
-                "BACKEND_KEYWORDS, ITEM_HIGHLIGHTS, BULLET_POINTS, IMAGE, A_PLUS. "
-                "No :1 / :2 suffixes."
-            ),
+            "• When you do set pim_field, it must already exist on pim_contract.",
             "body",
         ),
         (
             (
-                "Repeat the same name on every matching column (ITEM_HIGHLIGHTS on each "
-                "highlight column, BULLET_POINTS on each bullet, IMAGE on each image). "
-                "Fill uses column_index order as 1, 2, 3…"
+                "• Leave unused input columns empty "
+                "(do not mix modes — e.g. COPY_PIM must not also set generation)."
             ),
             "body",
         ),
-        ("", "body"),
-        ("Hard rules", "section"),
-        ("• Each column_index may appear at most once on a marketplace sheet.", "body"),
-        ("• pim_field must exist on pim_contract when used.", "body"),
-        ("• Keep pim_contract minimal.", "body"),
-        ("• status = OK on every filled mapping row before handoff.", "body"),
+        ("• Keep pim_contract small — only fields the customer will fill.", "body"),
         ("", "body"),
         ("Open this file in Microsoft Excel Desktop (File → Open).", "body"),
     ]
@@ -310,16 +283,17 @@ def _default_pim_rows() -> list[tuple[str, str]]:
 
 
 # One row per fill_mode, plus a second IMAGE / ITEM_HIGHLIGHTS / BULLET_POINTS
-# so the template shows repeating the same generation name.
+# so the template shows repeating the same generation name. ENUM and AI_TEXT each
+# appear twice (with and without pim_field).
 _EXAMPLE_FILLS: tuple[tuple[str, str, str, str], ...] = (
     ("COPY_PIM", "SKU", "", ""),
     ("CONSTANT", "", "", "EXAMPLE"),
-    ("ENUM_AI", "", "", ""),
+    ("ENUM", "", "", ""),
+    ("ENUM", "Brand", "", ""),
     ("SKIP", "", "", ""),
     ("COPY_GENERATION", "", "TITLE", ""),
     ("COPY_GENERATION", "", "ITEM_HIGHLIGHTS", ""),
     ("COPY_GENERATION", "", "ITEM_HIGHLIGHTS", ""),
-    ("ENUM_FROM_PIM", "Brand", "", ""),
     ("IMAGE", "", "IMAGE", ""),
     ("IMAGE", "", "IMAGE", ""),
     ("COPY_GENERATION", "", "DESCRIPTION", ""),
@@ -327,6 +301,7 @@ _EXAMPLE_FILLS: tuple[tuple[str, str, str, str], ...] = (
     ("COPY_GENERATION", "", "BULLET_POINTS", ""),
     ("COPY_GENERATION", "", "BACKEND_KEYWORDS", ""),
     ("AI_TEXT", "", "", ""),
+    ("AI_TEXT", "Color", "", ""),
 )
 
 
@@ -350,11 +325,11 @@ def _example_amazon_rows() -> list[tuple[int, str, str, str, str, str]]:
             "SKU",
             "Product Type",
             "Parentage Level",
+            "Brand Name",
             "Unused column",
             "Item Name",
             "Item Highlight",
             "Item Highlight",
-            "Brand Name",
             "Main Image URL",
             "Other Image URL",
             "Product Description",
@@ -362,6 +337,7 @@ def _example_amazon_rows() -> list[tuple[int, str, str, str, str, str]]:
             "Bullet Point",
             "Generic Keyword",
             "Item Type Name",
+            "Fabric Type",
         )
     )
 
@@ -372,11 +348,11 @@ def _example_flipkart_rows() -> list[tuple[int, str, str, str, str, str]]:
             "Seller SKU ID",
             "Listing Status",
             "Country Of Origin",
+            "Brand",
             "Flipkart Serial Number",
             "Title",
             "Item Highlight",
             "Item Highlight",
-            "Brand",
             "Main Image URL",
             "Other Image URL 1",
             "Description",
@@ -384,6 +360,7 @@ def _example_flipkart_rows() -> list[tuple[int, str, str, str, str, str]]:
             "Bullet Point",
             "Search Keywords",
             "Items Included",
+            "Fabric Detail",
         )
     )
 
@@ -394,11 +371,11 @@ def _example_myntra_rows() -> list[tuple[int, str, str, str, str, str]]:
             "SKU Code",
             "Article Type",
             "Gender",
+            "Brand",
             "Unused column",
             "Product Name",
             "Highlight",
             "Highlight",
-            "Brand",
             "Style Image",
             "Other Image",
             "Description",
@@ -406,6 +383,7 @@ def _example_myntra_rows() -> list[tuple[int, str, str, str, str, str]]:
             "Bullet",
             "Keywords",
             "Care Instructions",
+            "Fabric",
         )
     )
 
@@ -513,8 +491,7 @@ def build(
     fill_modes = [
         "COPY_PIM",
         "COPY_GENERATION",
-        "ENUM_FROM_PIM",
-        "ENUM_AI",
+        "ENUM",
         "AI_TEXT",
         "CONSTANT",
         "IMAGE",
@@ -573,7 +550,7 @@ def build(
     _autosize(ws_lists, [18, 14, 22])
     ws_lists.sheet_properties.tabColor = "808080"
 
-    r_fill = "'lists'!$A$2:$A$9"
+    r_fill = "'lists'!$A$2:$A$8"
     r_req = "'lists'!$B$2:$B$3"
     r_gen = f"'lists'!$C$2:$C${gen_last}"
     r_pim = f"'pim_contract'!$A$2:$A${PIM_ROWS}"

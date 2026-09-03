@@ -152,8 +152,9 @@ class ListingColumnConfig(BaseModel):
 
         if fill == ListingFillType.AI_TEXT:
             # Free-text fill-time generation — label is the prompt hint.
-            if self.source is not None:
-                raise ValueError("AI_TEXT must not set source")
+            # Optional SKU_MASTER source: copy non-empty PIM, else generate.
+            if self.source is not None and self.source.from_ != ListingValueSourceFrom.SKU_MASTER:
+                raise ValueError("AI_TEXT source (PIM backup) must be from=SKU_MASTER")
             if self.constant_value is not None:
                 raise ValueError("AI_TEXT must not set constant_value")
             return self

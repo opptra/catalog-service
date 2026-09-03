@@ -171,21 +171,21 @@ def _bed_linen_map_rows(
     add(1, "COPY_PIM", pim="SKU")
     add(2, "CONSTANT", const="BED_LINEN_SET")
     add(3, "CONSTANT", const="Edit (Partial Update)")
-    add(4, "ENUM_AI")  # Parentage Level
+    add(4, "ENUM")  # Parentage Level
     add(5, "SKIP")  # Parent SKU — set manually when listing children
-    add(6, "ENUM_AI")  # Variation Theme Name
+    add(6, "ENUM")  # Variation Theme Name
 
     # --- generated copy ---
     add(7, "COPY_GENERATION", gen="TITLE")
     add(8, "COPY_GENERATION", gen="ITEM_HIGHLIGHTS")
 
     # --- brand / ids ---
-    add(9, "ENUM_FROM_PIM", pim="Brand")
+    add(9, "ENUM", pim="Brand")
     add(10, "SKIP")  # Product Id Type
     add(11, "SKIP")  # Product Id
 
     # --- browse (first node only; rest unused) ---
-    add(12, "ENUM_AI")
+    add(12, "ENUM")
     for idx in range(13, 17):
         add(idx, "SKIP")
 
@@ -206,8 +206,8 @@ def _bed_linen_map_rows(
     add(37, "COPY_GENERATION", gen="BACKEND_KEYWORDS")
 
     # --- product attributes ---
-    add(38, "ENUM_AI")  # Style
-    add(39, "ENUM_FROM_PIM", pim="Material")
+    add(38, "ENUM")  # Style
+    add(39, "ENUM", pim="Material")
     for idx in range(40, 44):  # extra Material slots
         add(idx, "SKIP")
     add(44, "COPY_PIM", pim="Material")  # Fabric Type (free text) ← Material
@@ -215,15 +215,15 @@ def _bed_linen_map_rows(
         add(idx, "SKIP")
     add(49, "COPY_PIM", pim="Number of Pieces")  # Number of Items
     add(50, "AI_TEXT")  # Item Type Name
-    add(51, "ENUM_FROM_PIM", pim="Color")
-    add(52, "ENUM_FROM_PIM", pim="Size")
+    add(51, "ENUM", pim="Color")
+    add(52, "ENUM", pim="Size")
     add(53, "COPY_PIM", pim="Number of Pieces")
     add(54, "COPY_PIM", pim="Model Number")  # Part Number
-    add(55, "ENUM_AI")  # Theme (first)
+    add(55, "ENUM")  # Theme (first)
     for idx in range(56, 60):
         add(idx, "SKIP")
-    add(60, "ENUM_AI")  # Weave Type
-    add(61, "ENUM_AI")  # Care Instructions (first)
+    add(60, "ENUM")  # Weave Type
+    add(61, "ENUM")  # Care Instructions (first)
     for idx in range(62, 66):
         add(idx, "SKIP")
     add(66, "SKIP")  # Manufacturer Contact Information
@@ -232,13 +232,13 @@ def _bed_linen_map_rows(
     for idx in range(67, 78):
         add(idx, "SKIP")
 
-    add(78, "ENUM_FROM_PIM", pim="Pattern")
+    add(78, "ENUM", pim="Pattern")
     add(79, "SKIP")  # Finish Type
     add(80, "SKIP")  # Unit Count
     add(81, "SKIP")  # Unit Count Type
     add(82, "SKIP")  # Product Site Launch Date
 
-    add(83, "ENUM_AI")  # Included Components (first)
+    add(83, "ENUM")  # Included Components (first)
     for idx in range(84, 88):
         add(idx, "SKIP")
 
@@ -250,7 +250,7 @@ def _bed_linen_map_rows(
     add(96, "SKIP")
     add(97, "SKIP")  # Pillow Size
     add(98, "COPY_PIM", pim="Thread Count")
-    add(99, "ENUM_AI")  # Seasons (first)
+    add(99, "ENUM")  # Seasons (first)
     for idx in range(100, 104):
         add(idx, "SKIP")
 
@@ -278,19 +278,19 @@ def _bed_linen_map_rows(
     for idx in range(195, 209):
         add(idx, "SKIP")
 
-    add(209, "ENUM_AI")  # Country of Origin
+    add(209, "ENUM")  # Country of Origin
 
     # hazmat / GHS / age / regulation ids / compliance media
     for idx in range(210, 262):
         add(idx, "SKIP")
 
     # bed-linen compliance enums — model picks from constrained lists
-    add(262, "ENUM_AI")  # Compliance - Bed Linen Set Components
-    add(263, "ENUM_AI")  # Compliance - Is Handmade
-    add(264, "ENUM_AI")  # Compliance - Printing method
-    add(265, "ENUM_AI")  # Compliance Weave Type
-    add(266, "ENUM_AI")  # Compliance - Outer Surface Material
-    add(267, "ENUM_AI")  # Compliance - Embellishment Feature
+    add(262, "ENUM")  # Compliance - Bed Linen Set Components
+    add(263, "ENUM")  # Compliance - Is Handmade
+    add(264, "ENUM")  # Compliance - Printing method
+    add(265, "ENUM")  # Compliance Weave Type
+    add(266, "ENUM")  # Compliance - Outer Surface Material
+    add(267, "ENUM")  # Compliance - Embellishment Feature
 
     for idx in range(268, 273):
         add(idx, "SKIP")  # GHS Chemical H Code
@@ -300,14 +300,14 @@ def _bed_linen_map_rows(
         cfg = by_index[idx]
         dd = _is_dropdown(cfg)
         label = cfg.get("label")
-        if mode in {"ENUM_AI", "ENUM_FROM_PIM"} and not dd:
+        if mode == "ENUM" and not dd:
             raise ValueError(
-                f"column_index={idx} ({label!r}): {mode} requires a dropdown"
+                f"column_index={idx} ({label!r}): ENUM requires a dropdown"
             )
         if mode in {"COPY_GENERATION", "AI_TEXT", "IMAGE"} and dd:
             raise ValueError(
                 f"column_index={idx} ({label!r}): {mode} is free-text but column "
-                "is a dropdown — use ENUM_AI / ENUM_FROM_PIM"
+                "is a dropdown — use ENUM"
             )
     return rows
 

@@ -138,7 +138,7 @@ def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
                 f"column_index={row.column_index}: COPY_PIM requires pim_field"
             )
         if _is_dropdown(workbook_config):
-            # Dropdown cells must stay ENUM; treat as ENUM_FROM_PIM.
+            # Dropdown cells must stay ENUM; treat as ENUM with PIM source.
             config["fill_type"] = "ENUM"
             _attach_enum_lists(config, workbook_config)
             config["source"] = _sku_master_source(row.pim_field)
@@ -147,33 +147,35 @@ def _apply_row(col: dict[str, Any], row: ListingMapRow) -> dict[str, Any]:
         config["source"] = _sku_master_source(row.pim_field)
         return config
 
-    if mode == FillMode.ENUM_FROM_PIM:
-        if not row.pim_field:
+    if mode in {FillMode.ENUM, FillMode.ENUM_FROM_PIM, FillMode.ENUM_AI}:
+        if mode == FillMode.ENUM_FROM_PIM and not row.pim_field:
             raise ValueError(
                 f"column_index={row.column_index}: ENUM_FROM_PIM requires pim_field"
             )
+        if mode == FillMode.ENUM_AI and row.pim_field:
+            raise ValueError(
+                f"column_index={row.column_index}: ENUM_AI must leave pim_field blank"
+            )
         if not _is_dropdown(workbook_config):
             raise ValueError(
-                f"column_index={row.column_index}: ENUM_FROM_PIM but workbook column "
+                f"column_index={row.column_index}: {mode.value} but workbook column "
                 f"{config['label']!r} has no dropdown/valid_values"
             )
         config["fill_type"] = "ENUM"
         _attach_enum_lists(config, workbook_config)
-        config["source"] = _sku_master_source(row.pim_field)
-        return config
-
-    if mode == FillMode.ENUM_AI:
-        if not _is_dropdown(workbook_config):
-            raise ValueError(
-                f"column_index={row.column_index}: ENUM_AI but workbook column "
-                f"{config['label']!r} has no dropdown/valid_values"
-            )
-        config["fill_type"] = "ENUM"
-        _attach_enum_lists(config, workbook_config)
+        if row.pim_field:
+            config["source"] = _sku_master_source(row.pim_field)
         return config
 
     if mode == FillMode.AI_TEXT:
+        if _is_dropdown(workbook_config):
+            raise ValueError(
+                f"column_index={row.column_index}: AI_TEXT but workbook column "
+                f"{config['label']!r} is a dropdown — use ENUM"
+            )
         config["fill_type"] = "AI_TEXT"
+        if row.pim_field:
+            config["source"] = _sku_master_source(row.pim_field)
         return config
 
     if mode == FillMode.COPY_GENERATION:
@@ -244,7 +246,7 @@ def overlay_columns(
         if row.fill_mode == FillMode.COPY_PIM and _is_dropdown(col["config"]):
             warnings.append(
                 f"column_index={row.column_index} ({col['config'].get('label')!r}): "
-                "COPY_PIM on a dropdown — emitting ENUM_FROM_PIM behavior"
+                "COPY_PIM on a dropdown — emitting ENUM with PIM source"
             )
         col["config"] = _validate_config(_apply_row(col, row))
 

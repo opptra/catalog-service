@@ -432,6 +432,12 @@ def _resolve_stage(
             else:
                 enum_pending.append((col, effective))
         elif fill == ListingFillType.AI_TEXT:
+            source = col.config.source
+            if source is not None and source.from_ == ListingValueSourceFrom.SKU_MASTER:
+                copied = _pim_get(pim_values, source.key or "")
+                if copied is not None:
+                    results[col.column_index] = (copied, None, col.config.label)
+                    continue
             ai_text_pending.append(col)
         else:
             simple.append(col)

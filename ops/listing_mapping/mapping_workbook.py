@@ -26,12 +26,88 @@ from openpyxl.worksheet.worksheet import Worksheet
 class FillMode(StrEnum):
     COPY_PIM = "COPY_PIM"
     COPY_GENERATION = "COPY_GENERATION"
+    ENUM = "ENUM"
+    # Parser aliases for older sheets; both collapse to ENUM ± pim_field.
     ENUM_FROM_PIM = "ENUM_FROM_PIM"
     ENUM_AI = "ENUM_AI"
     AI_TEXT = "AI_TEXT"
     CONSTANT = "CONSTANT"
     IMAGE = "IMAGE"
     SKIP = "SKIP"
+
+
+def _validate_row_occupancy(row: ListingMapRow, *, sheet: str, excel_row: int) -> None:
+    """Enforce which of pim / generation / constant may be set for each fill_mode."""
+    mode = row.fill_mode
+    pim = row.pim_field
+    gen = row.generation
+    const = row.constant_value
+    loc = f"{sheet} row {excel_row} column_index={row.column_index}"
+
+    if gen and ":" in gen:
+        raise ValueError(
+            f"{loc}: generation {gen!r} must be a bare name (no :n). "
+            "Repeat the name on each column; numbering is by column_index order."
+        )
+
+    def _require_pim() -> None:
+        if not pim:
+            raise ValueError(f"{loc}: {mode.value} requires pim_field")
+
+    def _forbid_pim() -> None:
+        if pim:
+            raise ValueError(f"{loc}: {mode.value} must leave pim_field blank")
+
+    def _require_gen() -> None:
+        if not gen:
+            raise ValueError(f"{loc}: {mode.value} requires generation")
+
+    def _forbid_gen() -> None:
+        if gen:
+            raise ValueError(f"{loc}: {mode.value} must leave generation blank")
+
+    def _require_const() -> None:
+        if not const:
+            raise ValueError(f"{loc}: {mode.value} requires constant_value")
+
+    def _forbid_const() -> None:
+        if const:
+            raise ValueError(f"{loc}: {mode.value} must leave constant_value blank")
+
+    if mode == FillMode.COPY_PIM:
+        _require_pim()
+        _forbid_gen()
+        _forbid_const()
+    elif mode in {FillMode.COPY_GENERATION, FillMode.IMAGE}:
+        _require_gen()
+        _forbid_pim()
+        _forbid_const()
+    elif mode == FillMode.CONSTANT:
+        _require_const()
+        _forbid_pim()
+        _forbid_gen()
+    elif mode == FillMode.SKIP:
+        _forbid_pim()
+        _forbid_gen()
+        _forbid_const()
+    elif mode == FillMode.ENUM:
+        _forbid_gen()
+        _forbid_const()
+        # pim_field optional
+    elif mode == FillMode.ENUM_FROM_PIM:
+        _require_pim()
+        _forbid_gen()
+        _forbid_const()
+    elif mode == FillMode.ENUM_AI:
+        _forbid_pim()
+        _forbid_gen()
+        _forbid_const()
+    elif mode == FillMode.AI_TEXT:
+        _forbid_gen()
+        _forbid_const()
+        # pim_field optional
+    else:
+        raise ValueError(f"{loc}: unhandled fill_mode {mode.value}")
 
 
 @dataclass(frozen=True)
@@ -202,6 +278,14 @@ def _parse_marketplace_mapping_sheet(
             raise ValueError(
                 f"{sheet} row {r}: invalid fill_mode {mode_raw!r}. Expected: {known}"
             ) from exc
+        listing_row = ListingMapRow(
+            column_index=column_index,
+            fill_mode=fill_mode,
+            pim_field=pim or None,
+            generation=gen or None,
+            constant_value=const or None,
+        )
+        _validate_row_occupancy(listing_row, sheet=sheet, excel_row=r)
         marketplace.append(
             MarketplaceColumnRow(
                 excel_row=r,
@@ -209,15 +293,7 @@ def _parse_marketplace_mapping_sheet(
                 marketplace_column=name,
             )
         )
-        listing.append(
-            ListingMapRow(
-                column_index=column_index,
-                fill_mode=fill_mode,
-                pim_field=pim or None,
-                generation=gen or None,
-                constant_value=const or None,
-            )
-        )
+        listing.append(listing_row)
     if not marketplace:
         raise ValueError(f"{sheet} has no data rows")
     return marketplace, listing

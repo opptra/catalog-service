@@ -203,9 +203,68 @@ def test_overlay_by_column_index_fill_modes() -> None:
     assert by_index[5]["fill_type"] == "IMAGE"
     assert by_index[5]["source"]["slot"] == 1
     assert by_index[6]["fill_type"] == "AI_TEXT"
+    assert "source" not in by_index[6]
     assert by_index[7]["fill_type"] == "SKIP"
     assert "requiredness" not in by_index[1]
     assert "machine_key" not in by_index[1]
+
+
+def test_overlay_enum_and_ai_text_optional_pim() -> None:
+    workbook = [
+        _col(
+            column_index=1,
+            label="Color",
+            fill_type="ENUM",
+            valid_values=["Black", "White"],
+        ),
+        _col(
+            column_index=2,
+            label="League",
+            fill_type="ENUM",
+            valid_values=["NFL"],
+        ),
+        _col(column_index=3, label="Notes"),
+        _col(column_index=4, label="Fabric Type"),
+    ]
+    mapping = _mapping(
+        [
+            ListingMapRow(1, FillMode.ENUM, "Color", None, None),
+            ListingMapRow(2, FillMode.ENUM, None, None, None),
+            ListingMapRow(3, FillMode.AI_TEXT, None, None, None),
+            ListingMapRow(4, FillMode.AI_TEXT, "Color", None, None),
+        ]
+    )
+    result = overlay_columns(workbook, mapping)
+    by_index = {c["column_index"]: c["config"] for c in result.columns}
+    assert by_index[1]["fill_type"] == "ENUM"
+    assert by_index[1]["source"] == {"from": "SKU_MASTER", "key": "Color"}
+    assert by_index[2]["fill_type"] == "ENUM"
+    assert "source" not in by_index[2]
+    assert by_index[3]["fill_type"] == "AI_TEXT"
+    assert "source" not in by_index[3]
+    assert by_index[4]["fill_type"] == "AI_TEXT"
+    assert by_index[4]["source"] == {"from": "SKU_MASTER", "key": "Color"}
+
+
+def test_overlay_enum_on_non_dropdown_fails() -> None:
+    workbook = [_col(column_index=1, label="Notes")]
+    mapping = _mapping([ListingMapRow(1, FillMode.ENUM, None, None, None)])
+    with pytest.raises(ValueError, match="no dropdown"):
+        overlay_columns(workbook, mapping)
+
+
+def test_overlay_ai_text_on_dropdown_fails() -> None:
+    workbook = [
+        _col(
+            column_index=1,
+            label="Color",
+            fill_type="ENUM",
+            valid_values=["Black"],
+        )
+    ]
+    mapping = _mapping([ListingMapRow(1, FillMode.AI_TEXT, None, None, None)])
+    with pytest.raises(ValueError, match="is a dropdown"):
+        overlay_columns(workbook, mapping)
 
 
 def test_overlay_repeats_generation_name_by_column_order() -> None:
@@ -300,8 +359,16 @@ def test_parse_tmp_mapping_template_examples() -> None:
         assert len(mapping.marketplace_columns) == len(mapping.listing_rows)
         modes = {row.fill_mode for row in mapping.listing_rows}
         assert FillMode.COPY_PIM in modes
+        assert FillMode.ENUM in modes
+        assert FillMode.AI_TEXT in modes
         assert FillMode.IMAGE in modes
         assert FillMode.SKIP in modes
+        enum_rows = [r for r in mapping.listing_rows if r.fill_mode == FillMode.ENUM]
+        assert any(r.pim_field for r in enum_rows)
+        assert any(not r.pim_field for r in enum_rows)
+        ai_rows = [r for r in mapping.listing_rows if r.fill_mode == FillMode.AI_TEXT]
+        assert any(r.pim_field for r in ai_rows)
+        assert any(not r.pim_field for r in ai_rows)
 
 
 def test_parse_mapping_workbook_requires_fill_mode_for_each_marketplace_column(
@@ -319,20 +386,66 @@ def test_parse_mapping_workbook_requires_fill_mode_for_each_marketplace_column(
         parse_mapping_workbook(path, MarketplaceId.AMAZON)
 
 
+def test_parse_mapping_workbook_occupancy_errors_cite_sheet(tmp_path: Path) -> None:
+    path = tmp_path / "map.xlsx"
+    _write_mapping(
+        path,
+        rows=[(1, "Seller SKU", "COPY_PIM", "", "", "")],
+    )
+    with pytest.raises(ValueError, match="amazon_mapping.*COPY_PIM requires pim_field"):
+        parse_mapping_workbook(path, MarketplaceId.AMAZON)
+
+
+def test_parse_mapping_workbook_rejects_generation_ordinal(tmp_path: Path) -> None:
+    path = tmp_path / "map.xlsx"
+    _write_mapping(
+        path,
+        rows=[(1, "Bullet", "COPY_GENERATION", "", "BULLET_POINTS:1", "")],
+    )
+    with pytest.raises(ValueError, match="bare name"):
+        parse_mapping_workbook(path, MarketplaceId.AMAZON)
+
+
+def test_parse_mapping_workbook_enum_and_aliases(tmp_path: Path) -> None:
+    path = tmp_path / "map.xlsx"
+    _write_mapping(
+        path,
+        rows=[
+            (1, "Seller SKU", "COPY_PIM", "SKU", "", ""),
+            (2, "Color", "ENUM", "Color", "", ""),
+            (3, "League", "ENUM", "", "", ""),
+            (4, "Brand", "ENUM_FROM_PIM", "Color", "", ""),
+            (5, "Theme", "ENUM_AI", "", "", ""),
+            (6, "Notes", "AI_TEXT", "Color", "", ""),
+        ],
+    )
+    mapping = parse_mapping_workbook(path, MarketplaceId.AMAZON)
+    by_index = {r.column_index: r for r in mapping.listing_rows}
+    assert by_index[2].fill_mode == FillMode.ENUM
+    assert by_index[2].pim_field == "Color"
+    assert by_index[3].fill_mode == FillMode.ENUM
+    assert by_index[3].pim_field is None
+    assert by_index[4].fill_mode == FillMode.ENUM_FROM_PIM
+    assert by_index[5].fill_mode == FillMode.ENUM_AI
+    assert by_index[6].fill_mode == FillMode.AI_TEXT
+    assert by_index[6].pim_field == "Color"
+
+
 def test_parse_mapping_workbook_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "map.xlsx"
     _write_mapping(
         path,
         rows=[
             (1, "Seller SKU", "COPY_PIM", "SKU", "", ""),
-            (2, "Color", "ENUM_FROM_PIM", "Color", "", ""),
+            (2, "Color", "ENUM", "Color", "", ""),
         ],
     )
     mapping = parse_mapping_workbook(path, MarketplaceId.AMAZON)
     assert len(mapping.pim_fields) == 2
     assert len(mapping.marketplace_columns) == 2
     assert mapping.listing_rows[0].column_index == 1
-    assert mapping.listing_rows[1].fill_mode == FillMode.ENUM_FROM_PIM
+    assert mapping.listing_rows[1].fill_mode == FillMode.ENUM
+    assert mapping.listing_rows[1].pim_field == "Color"
 
 
 def test_build_columns_flipkart_index_and_dropdown_sheets(tmp_path: Path) -> None:
