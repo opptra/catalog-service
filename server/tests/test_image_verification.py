@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from core.clients.openrouter import OpenRouterClient
+from core.clients.openrouter import OpenRouterClient, ReferenceImage
 from pipelines.generation import verify
 from pipelines.generation.tools import IMAGE_VERIFICATION_TOOL_NAME
 
@@ -202,6 +202,7 @@ class _FakeClient:
     def __init__(self, payload: dict[str, Any]) -> None:
         self.payload = payload
         self.image_urls: list[str] | None = None
+        self.image_references: list[ReferenceImage] | None = None
         self.cache_prefix: str | None = None
         self.prompt: str | None = None
         self.tool_name: str | None = None
@@ -216,10 +217,12 @@ class _FakeClient:
         cache_prefix: str | None = None,
         max_tokens: int | None = None,
         session_id: str | None = None,
+        image_references: list[ReferenceImage] | None = None,
     ) -> dict[str, Any]:
         del model, session_id
         self.prompt = prompt
         self.image_urls = image_urls
+        self.image_references = image_references
         self.cache_prefix = cache_prefix
         self.tool_name = tool["function"]["name"]
         self.max_tokens = max_tokens
@@ -273,12 +276,21 @@ def test_verify_image_attaches_generated_then_capped_sources(monkeypatch: Any) -
         role="hero",
         kind="packshot",
     )
-    assert client.image_urls == [
+    assert client.image_urls is None
+    assert client.image_references is not None
+    assert [ref.url for ref in client.image_references] == [
         "data:image/png;base64,generated.png",
         "data:image/png;base64,src1.png",
         "data:image/png;base64,src2.png",
         "data:image/png;base64,src3.png",
     ]
+    assert client.image_references[0].label is not None
+    assert client.image_references[0].label.startswith("GENERATED IMAGE")
+    assert all(
+        ref.label is not None and ref.label.startswith("SOURCE PHOTO")
+        for ref in client.image_references[1:]
+    )
+    assert "Ignore every word" in (client.image_references[1].label or "")
     assert client.tool_name == IMAGE_VERIFICATION_TOOL_NAME
     assert client.cache_prefix is not None
     assert "source_assets" not in client.cache_prefix
@@ -289,6 +301,8 @@ def test_verify_image_attaches_generated_then_capped_sources(monkeypatch: Any) -
     assert "role=hero" in client.prompt
     assert "Amazon" not in client.prompt
     assert "If it appears in Description or any other value, it is NOT invented" in client.prompt
+    assert "Never read, transcribe, cite, or score text" in client.prompt
+    assert "text ON THE GENERATED IMAGE" in client.prompt
     assert "every key AND every value is a fact" in (client.cache_prefix or "")
     assert result.confidence == 88
     assert result.identity == 91
@@ -413,3 +427,105 @@ def test_verify_image_raises_when_generated_cannot_inline(monkeypatch: Any) -> N
         assert "inlined" in str(exc)
         return
     raise AssertionError("expected ValueError")
+
+
+def test_verify_image_without_sources_scores_generated_only(monkeypatch: Any) -> None:
+    monkeypatch.setattr(verify.settings, "openrouter_verify_model", "openai/gpt-4o")
+    _stub_inline(monkeypatch)
+    client = _FakeClient(
+        {
+            "identity": 80,
+            "claims": 90,
+            "quality": 80,
+            "reasoning": "No refs.",
+            "observed_text": [],
+            "mismatches": [],
+        }
+    )
+    verify.verify_image(
+        cast(OpenRouterClient, client),
+        generated_image_url="https://signed.example/generated.png",
+        product={"SKU": "ABC"},
+        attempt=1,
+    )
+    assert client.image_references is not None
+    assert len(client.image_references) == 1
+    assert (client.image_references[0].label or "").startswith("GENERATED IMAGE")
+    assert "Only the GENERATED IMAGE is attached" in (client.prompt or "")
+
+
+def test_verify_suffix_counts_inlined_sources_only(monkeypatch: Any) -> None:
+    monkeypatch.setattr(verify.settings, "openrouter_verify_model", "openai/gpt-4o")
+
+    def fake_one(url: str, timeout: float = 15.0) -> str | None:
+        del timeout
+        if "drop" in url:
+            return None
+        name = url.rstrip("/").rsplit("/", 1)[-1]
+        return f"data:image/png;base64,{name}"
+
+    monkeypatch.setattr(verify, "to_data_url", fake_one)
+    monkeypatch.setattr(
+        verify,
+        "to_data_urls",
+        lambda urls, timeout=15.0: [item for item in (fake_one(url) for url in urls) if item],
+    )
+    client = _FakeClient(
+        {
+            "identity": 90,
+            "claims": 90,
+            "quality": 80,
+            "reasoning": "ok",
+            "observed_text": [],
+            "mismatches": [],
+        }
+    )
+    verify.verify_image(
+        cast(OpenRouterClient, client),
+        generated_image_url="https://signed.example/generated.png",
+        product={"SKU": "ABC"},
+        attempt=1,
+        source_image_urls=[
+            "https://signed.example/keep.png",
+            "https://signed.example/drop.png",
+        ],
+    )
+    assert client.image_references is not None
+    assert [ref.url for ref in client.image_references] == [
+        "data:image/png;base64,generated.png",
+        "data:image/png;base64,keep.png",
+    ]
+    assert "remaining 1 attachment" in (client.prompt or "")
+
+
+def test_chat_body_interleaves_image_reference_labels() -> None:
+    client = OpenRouterClient(api_key="k", base_url="https://example.invalid")
+    try:
+        body = client._chat_body(
+            "score this",
+            model="m",
+            image_urls=None,
+            system=None,
+            temperature=None,
+            max_tokens=None,
+            cache_prefix="FACTS",
+            image_references=[
+                ReferenceImage(url="data:image/png;base64,gen", label="GENERATED IMAGE"),
+                ReferenceImage(url="data:image/png;base64,src", label="SOURCE PHOTO 1 of 1"),
+            ],
+        )
+    finally:
+        client.close()
+    content = body["messages"][0]["content"]
+    assert [part["type"] for part in content] == [
+        "text",
+        "text",
+        "text",
+        "image_url",
+        "text",
+        "image_url",
+    ]
+    texts = [part["text"] for part in content if part["type"] == "text"]
+    assert texts == ["FACTS", "score this", "GENERATED IMAGE", "SOURCE PHOTO 1 of 1"]
+    assert content[3]["image_url"]["url"] == "data:image/png;base64,gen"
+    assert content[5]["image_url"]["url"] == "data:image/png;base64,src"

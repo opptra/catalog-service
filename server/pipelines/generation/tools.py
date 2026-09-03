@@ -87,7 +87,8 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
         "name": IMAGE_VERIFICATION_TOOL_NAME,
         "description": (
             "Submit marketplace image QA for one generated catalog slot. "
-            "Score identity vs source photos, claims vs PRODUCT DATA, and quality."
+            "Score identity of the generated image vs source photos, and claims/"
+            "quality of the generated image only. Never score source photos."
         ),
         "parameters": {
             "type": "object",
@@ -97,8 +98,9 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "minimum": 0,
                     "maximum": 100,
                     "description": (
-                        "0–100 same physical variant as source photos and catalog "
-                        "Color/pack/print/silhouette."
+                        "0–100 generated image is the same physical variant as source "
+                        "photos and catalog Color/pack/print/silhouette. Do not score "
+                        "the source photos themselves."
                     ),
                 },
                 "claims": {
@@ -106,8 +108,9 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "minimum": 0,
                     "maximum": 100,
                     "description": (
-                        "0–100 on-image text agrees with PRODUCT DATA (any key or value, "
-                        "including Description). Omission may be high. Invented only if "
+                        "0–100 text ON THE GENERATED IMAGE agrees with PRODUCT DATA "
+                        "(any key or value, including Description). Never use text "
+                        "from a source photo. Omission may be high. Invented only if "
                         "the claim is nowhere in the JSON."
                     ),
                 },
@@ -116,17 +119,23 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "minimum": 0,
                     "maximum": 100,
                     "description": (
-                        "0–100 production fitness (crop, blur, readable type). Advisory."
+                        "0–100 production fitness of the GENERATED IMAGE only "
+                        "(crop, blur, readable type). Advisory. Ignore source photos."
                     ),
                 },
                 "reasoning": {
                     "type": "string",
-                    "description": "Short explanation covering identity and claims.",
+                    "description": (
+                        "Short explanation covering identity and claims on the generated image."
+                    ),
                 },
                 "observed_text": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Shopper-facing words/badges read off the generated image.",
+                    "description": (
+                        "Shopper-facing words/badges read off the GENERATED IMAGE only. "
+                        "Never from source photos."
+                    ),
                 },
                 "mismatches": {
                     "type": "array",
@@ -155,7 +164,10 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                             },
                             "observed": {
                                 "type": "string",
-                                "description": "Text or look read on the generated image.",
+                                "description": (
+                                    "Text or look read on the GENERATED IMAGE. "
+                                    "Never cite source-photo text."
+                                ),
                             },
                         },
                         "required": ["kind", "observed"],

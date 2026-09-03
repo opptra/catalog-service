@@ -143,11 +143,16 @@ class OpenRouterClient:
         cache_prefix: str | None = None,
         session_id: str | None = None,
         timeout: float | None = None,
+        image_references: list[ReferenceImage] | None = None,
     ) -> dict[str, Any]:
         """Force the model to call ``tool`` and return its parsed arguments as a dict.
 
         Used for structured outputs: the tool is never executed — its JSON Schema parameters
         *are* the payload. Prefer this over free-form ``response_format: json_object`` strings.
+
+        ``image_references`` (when set) attach images with a text label immediately before
+        each one so the model can tell roles apart. Takes precedence over unlabeled
+        ``image_urls``.
         """
         if not model:
             raise ValueError("model is required")
@@ -169,6 +174,7 @@ class OpenRouterClient:
             max_tokens=max_tokens,
             cache_prefix=cache_prefix,
             session_id=session_id,
+            image_references=image_references,
         )
         body["tools"] = [tool]
         body["tool_choice"] = {"type": "function", "function": {"name": tool_name}}
@@ -188,10 +194,11 @@ class OpenRouterClient:
         max_tokens: int | None,
         cache_prefix: str | None = None,
         session_id: str | None = None,
+        image_references: list[ReferenceImage] | None = None,
     ) -> dict[str, Any]:
         prefix = cache_prefix or ""
         cache_prefix_block = bool(prefix.strip())
-        use_multipart = cache_prefix_block or bool(image_urls)
+        use_multipart = cache_prefix_block or bool(image_urls) or bool(image_references)
 
         if use_multipart:
             user_content: Any = []
@@ -204,7 +211,12 @@ class OpenRouterClient:
                     }
                 )
             user_content.append({"type": "text", "text": prompt})
-            if image_urls:
+            if image_references:
+                for ref in image_references:
+                    if ref.label:
+                        user_content.append({"type": "text", "text": ref.label})
+                    user_content.append({"type": "image_url", "image_url": {"url": ref.url}})
+            elif image_urls:
                 user_content.extend(
                     {"type": "image_url", "image_url": {"url": url}} for url in image_urls
                 )
