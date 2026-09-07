@@ -5,6 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from listing_mapping.build_template import (
+    PIM_ROWS,
+    _pim_contract_status_formula,
+    _status_formula,
+)
 from listing_mapping.mapping_workbook import (
     FillMode,
     ListingMapRow,
@@ -369,6 +374,29 @@ def test_parse_tmp_mapping_template_examples() -> None:
         ai_rows = [r for r in mapping.listing_rows if r.fill_mode == FillMode.AI_TEXT]
         assert any(r.pim_field for r in ai_rows)
         assert any(not r.pim_field for r in ai_rows)
+
+
+def test_status_formula_looks_through_pim_rows_and_names_the_failure() -> None:
+    assert PIM_ROWS == 1000
+    formula = _status_formula(2, gen_last=9, map_last_row=320)
+    assert f"$A${PIM_ROWS}" in formula
+    assert "ERROR: pim_field is not on pim_contract" in formula
+    assert "ERROR: generation must be blank for ENUM" in formula
+    assert "ERROR: pim_contract requirement required for this pim_field" in formula
+    pim_status = _pim_contract_status_formula(81)
+    assert "ERROR: requirement required" in pim_status
+    assert f"$A${PIM_ROWS}" in pim_status
+
+
+def test_parse_pim_contract_requires_requirement(tmp_path: Path) -> None:
+    path = tmp_path / "map.xlsx"
+    _write_mapping(
+        path,
+        rows=[(1, "Seller SKU", "COPY_PIM", "SKU", "", "")],
+        pim=[("SKU", "Mandatory"), ("Pattern", "")],
+    )
+    with pytest.raises(ValueError, match="pim_contract row 3: requirement required"):
+        parse_mapping_workbook(path, MarketplaceId.AMAZON)
 
 
 def test_parse_mapping_workbook_requires_fill_mode_for_each_marketplace_column(

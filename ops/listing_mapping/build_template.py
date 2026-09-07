@@ -42,7 +42,10 @@ THIN = Border(
     bottom=Side(style="thin", color="B0B0B0"),
 )
 
-PIM_ROWS = 80
+# Max pim_contract data rows (header is row 1). Status, dropdowns, and mapping
+# COUNTIF/COUNTIFS use this ceiling so a field added below the first block
+# still validates. Leave unused rows blank.
+PIM_ROWS = 1000
 # Max data rows per marketplace mapping sheet (header is row 1).
 # Status formulas go through this ceiling so a new column_index still validates;
 # blank index + blank fill_mode stays blank (no Excel 0). fill_mode is required
@@ -98,6 +101,79 @@ def _generation_tokens() -> list[str]:
     return [name.value for name in AttributeName]
 
 
+def _pim_name_range() -> str:
+    return f"'pim_contract'!$A$2:$A${PIM_ROWS}"
+
+
+def _pim_req_range() -> str:
+    return f"'pim_contract'!$B$2:$B${PIM_ROWS}"
+
+
+def _pim_on_sheet(d: str) -> str:
+    return f"COUNTIF({_pim_name_range()},{d})>0"
+
+
+def _pim_requirement_ok(d: str) -> str:
+    names = _pim_name_range()
+    reqs = _pim_req_range()
+    return (
+        f'(COUNTIFS({names},{d},{reqs},"Mandatory")+'
+        f'COUNTIFS({names},{d},{reqs},"Optional"))>0'
+    )
+
+
+def _copy_pim_status(d: str, e: str, f: str) -> str:
+    return (
+        f'IF({d}="","ERROR: COPY_PIM requires pim_field",'
+        f'IF(NOT({_pim_on_sheet(d)}),"ERROR: pim_field is not on pim_contract",'
+        f"IF(NOT({_pim_requirement_ok(d)}),"
+        f'"ERROR: pim_contract requirement required for this pim_field",'
+        f'IF({e}<>"","ERROR: generation must be blank for COPY_PIM",'
+        f'IF({f}<>"","ERROR: constant_value must be blank for COPY_PIM",'
+        f'"OK")))))'
+    )
+
+
+def _optional_pim_mode_status(mode: str, d: str, e: str, f: str) -> str:
+    return (
+        f'IF({e}<>"","ERROR: generation must be blank for {mode}",'
+        f'IF({f}<>"","ERROR: constant_value must be blank for {mode}",'
+        f'IF({d}="","OK",'
+        f'IF(NOT({_pim_on_sheet(d)}),"ERROR: pim_field is not on pim_contract",'
+        f"IF(NOT({_pim_requirement_ok(d)}),"
+        f'"ERROR: pim_contract requirement required for this pim_field",'
+        f'"OK")))))'
+    )
+
+
+def _generation_mode_status(mode: str, d: str, e: str, f: str, gen: str) -> str:
+    return (
+        f'IF({e}="","ERROR: {mode} requires generation",'
+        f'IF(COUNTIF({gen},{e})=0,"ERROR: generation is not in the lists sheet",'
+        f'IF({d}<>"","ERROR: pim_field must be blank for {mode}",'
+        f'IF({f}<>"","ERROR: constant_value must be blank for {mode}",'
+        f'"OK"))))'
+    )
+
+
+def _constant_status(d: str, e: str, f: str) -> str:
+    return (
+        f'IF({f}="","ERROR: CONSTANT requires constant_value",'
+        f'IF({d}<>"","ERROR: pim_field must be blank for CONSTANT",'
+        f'IF({e}<>"","ERROR: generation must be blank for CONSTANT",'
+        f'"OK")))'
+    )
+
+
+def _skip_status(d: str, e: str, f: str) -> str:
+    return (
+        f'IF({d}<>"","ERROR: pim_field must be blank for SKIP",'
+        f'IF({e}<>"","ERROR: generation must be blank for SKIP",'
+        f'IF({f}<>"","ERROR: constant_value must be blank for SKIP",'
+        f'"OK")))'
+    )
+
+
 def _status_formula(row: int, *, gen_last: int, map_last_row: int) -> str:
     """Validate one marketplace mapping row.
 
@@ -114,9 +190,7 @@ def _status_formula(row: int, *, gen_last: int, map_last_row: int) -> str:
         f"F{row}",
     )
     fill = "'lists'!$A$2:$A$8"
-    pim = f"'pim_contract'!$A$2:$A${PIM_ROWS}"
     gen = f"'lists'!$C$2:$C${gen_last}"
-    optional_pim_ok = f'AND({e}="",{f}="",OR({d}="",COUNTIF({pim},{d})>0))'
     return (
         f'=IF(AND(OR({a}="",{a}=0),{c}=""),"",'
         f'IF(OR({a}="",{a}=0),"ERROR: column_index required",'
@@ -124,27 +198,49 @@ def _status_formula(row: int, *, gen_last: int, map_last_row: int) -> str:
         f'IF(COUNTIF($A$2:$A${map_last_row},{a})>1,"ERROR: duplicate column_index",'
         f'IF({c}="","ERROR: fill_mode required",'
         f'IF(COUNTIF({fill},{c})=0,"ERROR: invalid fill_mode",'
-        f'IF({c}="COPY_PIM",'
-        f'IF(AND({d}<>"",COUNTIF({pim},{d})>0,{e}="",{f}=""),'
-        f'"OK","ERROR: COPY_PIM needs pim_field only"),'
-        f'IF({c}="ENUM",'
-        f'IF({optional_pim_ok},"OK","ERROR: ENUM pim optional; gen/const blank"),'
-        f'IF({c}="AI_TEXT",'
-        f'IF({optional_pim_ok},"OK","ERROR: AI_TEXT pim optional; gen/const blank"),'
-        f'IF({c}="COPY_GENERATION",'
-        f'IF(AND({e}<>"",COUNTIF({gen},{e})>0,{d}="",{f}=""),'
-        f'"OK","ERROR: COPY_GENERATION needs generation only"),'
-        f'IF({c}="IMAGE",'
-        f'IF(AND({e}<>"",COUNTIF({gen},{e})>0,{d}="",{f}=""),'
-        f'"OK","ERROR: IMAGE needs generation only"),'
-        f'IF({c}="CONSTANT",'
-        f'IF(AND({f}<>"",{d}="",{e}=""),'
-        f'"OK","ERROR: CONSTANT needs constant_value only"),'
-        f'IF({c}="SKIP",'
-        f'IF(AND({d}="",{e}="",{f}=""),'
-        f'"OK","ERROR: SKIP must leave pim/gen/const blank"),'
+        f'IF({c}="COPY_PIM",{_copy_pim_status(d, e, f)},'
+        f'IF({c}="ENUM",{_optional_pim_mode_status("ENUM", d, e, f)},'
+        f'IF({c}="AI_TEXT",{_optional_pim_mode_status("AI_TEXT", d, e, f)},'
+        f'IF({c}="COPY_GENERATION",{_generation_mode_status("COPY_GENERATION", d, e, f, gen)},'
+        f'IF({c}="IMAGE",{_generation_mode_status("IMAGE", d, e, f, gen)},'
+        f'IF({c}="CONSTANT",{_constant_status(d, e, f)},'
+        f'IF({c}="SKIP",{_skip_status(d, e, f)},'
         f'"ERROR: unhandled fill_mode"'
         f")))))))))))))"
+    )
+
+
+def _pim_contract_status_formula(row: int) -> str:
+    """Validate one pim_contract row.
+
+    A=pim_field, B=requirement. Empty rows stay blank. A field without
+    requirement is an error (do not treat blank as Optional).
+    """
+    a, b = f"A{row}", f"B{row}"
+    req = "'lists'!$B$2:$B$3"
+    return (
+        f'=IF(AND({a}="",{b}=""),"",'
+        f'IF({a}="","ERROR: pim_field required",'
+        f'IF(COUNTIF($A$2:$A${PIM_ROWS},{a})>1,"ERROR: duplicate pim_field",'
+        f'IF({b}="","ERROR: requirement required",'
+        f"IF(COUNTIF({req},{b})=0,"
+        f'"ERROR: requirement must be Mandatory or Optional",'
+        f'"OK")))))'
+    )
+
+
+def _add_status_cf(ws, cell_range: str, start_cell: str) -> None:
+    ws.conditional_formatting.add(
+        cell_range,
+        FormulaRule(
+            formula=[f'LEFT({start_cell},5)="ERROR"'],
+            fill=ERR_FILL,
+            font=ERR_FONT,
+        ),
+    )
+    ws.conditional_formatting.add(
+        cell_range,
+        FormulaRule(formula=[f'{start_cell}="OK"'], fill=OK_FILL),
     )
 
 
@@ -163,7 +259,11 @@ def _readme_blocks() -> list[tuple[str, str]]:
         ("", "body"),
         ("Sheets", "section"),
         (
-            "pim_contract — customer fields (Mandatory / Optional). Shared by all marketplaces.",
+            (
+                "pim_contract — customer fields (Mandatory / Optional). Shared by all "
+                "marketplaces. Add a field on any row through 1000. Every pim_field "
+                "needs a requirement; status must be OK."
+            ),
             "body",
         ),
         (
@@ -180,7 +280,10 @@ def _readme_blocks() -> list[tuple[str, str]]:
         ("", "body"),
         ("How to fill a marketplace sheet", "section"),
         (
-            "1. Put customer fields on pim_contract first (only what you will ask for).",
+            (
+                "1. Put customer fields on pim_contract first (only what you will ask for). "
+                "Set requirement to Mandatory or Optional on every field."
+            ),
             "body",
         ),
         (
@@ -192,7 +295,10 @@ def _readme_blocks() -> list[tuple[str, str]]:
             "body",
         ),
         (
-            "3. status must be OK (green) on every filled row before you hand this off.",
+            (
+                "3. status must be OK (green) on every filled pim_contract row and "
+                "every filled marketplace row before you hand this off."
+            ),
             "body",
         ),
         (
@@ -257,7 +363,10 @@ def _readme_blocks() -> list[tuple[str, str]]:
             "body",
         ),
         (
-            "• When you do set pim_field, it must already exist on pim_contract.",
+            (
+                "• When you do set pim_field, it must already exist on pim_contract "
+                "with Mandatory or Optional filled in."
+            ),
             "body",
         ),
         (
@@ -470,14 +579,7 @@ def _add_mapping_sheet(
         ws.add_data_validation(dv)
         dv.add(rng)
 
-    ws.conditional_formatting.add(
-        f"G2:G{map_last_row}",
-        FormulaRule(formula=['LEFT(G2,5)="ERROR"'], fill=ERR_FILL, font=ERR_FONT),
-    )
-    ws.conditional_formatting.add(
-        f"G2:G{map_last_row}",
-        FormulaRule(formula=['G2="OK"'], fill=OK_FILL),
-    )
+    _add_status_cf(ws, f"G2:G{map_last_row}", "G2")
 
 
 def build(
@@ -500,6 +602,11 @@ def build(
     requirements = ["Mandatory", "Optional"]
     gen_last = 1 + len(generations)
     pim_rows = list(pim_rows) if pim_rows is not None else _default_pim_rows()
+    if len(pim_rows) > PIM_ROWS - 1:
+        raise ValueError(
+            f"pim_contract has {len(pim_rows)} rows; raise PIM_ROWS "
+            f"(currently {PIM_ROWS})"
+        )
     allowed_ids = {marketplace_id for marketplace_id, _name in MAPPING_SHEETS}
     maps = {marketplace_id: [] for marketplace_id, _name in MAPPING_SHEETS}
     if marketplace_maps is None:
@@ -557,20 +664,22 @@ def build(
 
     # pim_contract
     ws_pim = wb.create_sheet("pim_contract")
-    pim_headers = ["pim_field", "requirement"]
+    pim_headers = ["pim_field", "requirement", "status"]
     for i, header in enumerate(pim_headers, start=1):
         ws_pim.cell(1, i, header)
     for r, row in enumerate(pim_rows, start=2):
         _set(ws_pim, r, 1, row[0])
         _set(ws_pim, r, 2, row[1])
-    for r in range(len(pim_rows) + 2, PIM_ROWS + 1):
-        _set(ws_pim, r, 1, None)
-        _set(ws_pim, r, 2, None)
-    _style_header(ws_pim, 2)
-    _autosize(ws_pim, [24, 14])
+    for r in range(2, PIM_ROWS + 1):
+        status = ws_pim.cell(r, 3)
+        status.value = _pim_contract_status_formula(r)
+        status.border = THIN
+    _style_header(ws_pim, 3)
+    _autosize(ws_pim, [24, 14, 55])
     dv_req = _list_dv(r_req, "requirement", "Pick Mandatory or Optional.")
     ws_pim.add_data_validation(dv_req)
     dv_req.add(f"B2:B{PIM_ROWS}")
+    _add_status_cf(ws_pim, f"C2:C{PIM_ROWS}", "C2")
 
     for marketplace_id, sheet_name in MAPPING_SHEETS:
         _add_mapping_sheet(

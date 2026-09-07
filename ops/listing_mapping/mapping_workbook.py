@@ -140,7 +140,7 @@ class MappingWorkbook:
 
 
 _REQ_MANDATORY = frozenset({"mandatory", "required", "always", "true", "yes", "1"})
-_REQ_OPTIONAL = frozenset({"optional", "false", "no", "0", ""})
+_REQ_OPTIONAL = frozenset({"optional", "false", "no", "0"})
 
 
 def _cell_str(value: object | None) -> str:
@@ -216,6 +216,8 @@ def _parse_pim_contract(ws: Worksheet) -> list[PimFieldRow]:
             raise ValueError(f"pim_contract row {r}: pim_field is empty")
         if field in seen:
             raise ValueError(f"pim_contract row {r}: duplicate pim_field {field!r}")
+        if not req:
+            raise ValueError(f"pim_contract row {r}: requirement required")
         seen.add(field)
         rows.append(PimFieldRow(pim_field=field, mandatory=_parse_requirement(req)))
     if not rows:
