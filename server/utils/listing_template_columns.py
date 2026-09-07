@@ -1,8 +1,8 @@
 """Build listing_template_column configs from a marketplace listing workbook.
 
 Discovers dropdowns from Excel list-validation formulas (Amazon) and from
-``DropDownValuesForColumn*`` / Index allowed-value sheets (Flipkart). No
-category-specific column names hard-coded.
+``DropDownValuesForColumn*`` / Index allowed-value sheets / ``Boolean`` type
+hints (Flipkart). No category-specific column names hard-coded.
 
 Does not write to any database.
 """
@@ -84,6 +84,13 @@ def _looks_like_url_column(label: str, type_hint: str) -> bool:
     if hint == "url":
         return True
     return "url" in label.casefold()
+
+
+def _boolean_enum_from_type_hint(type_hint: str) -> list[str] | None:
+    """Flipkart type row ``Single - Boolean`` → Yes/No (template-documented values)."""
+    if "boolean" not in type_hint.casefold():
+        return None
+    return ["Yes", "No"]
 
 
 def _workbook_from_xls(path: Path) -> Workbook:
@@ -420,6 +427,8 @@ def build_columns(
                 sheet_enum = dropdown_by_col.get(col_index)
             if not sheet_enum:
                 sheet_enum = dropdown_by_label.get(label_s)
+            if not sheet_enum:
+                sheet_enum = _boolean_enum_from_type_hint(type_hint)
         if formula is None and sheet_enum:
             config = {
                 "fill_type": "ENUM",

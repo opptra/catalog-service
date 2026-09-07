@@ -236,6 +236,12 @@ def overlay_columns(
     for row in listing_rows:
         col = by_index.get(row.column_index)
         if col is None:
+            # Blank Excel columns are omitted from the parsed workbook. SKIP
+            # on those indices is a no-op (Flipkart listing sheets often leave
+            # a gap, e.g. column 10 empty between Parent Variant FSN and
+            # Listing Status).
+            if row.fill_mode == FillMode.SKIP:
+                continue
             raise ValueError(
                 f"mapping column_index={row.column_index} not found in workbook "
                 f"(known indices: {sorted(by_index)[:20]}…)"

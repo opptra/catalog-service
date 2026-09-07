@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import pytest
+from listing_mapping.__main__ import collect_apply_ids, jobs_from_args
 from listing_mapping.build_template import (
     PIM_ROWS,
     _pim_contract_status_formula,
@@ -22,7 +24,7 @@ from listing_mapping.mapping_workbook import (
 from listing_mapping.marketplace import MarketplaceId, parse_marketplace_id
 from listing_mapping.marketplace.registry import get_adapter
 from listing_mapping.overlay import overlay_columns
-from listing_mapping.render import render_mapping_sql
+from listing_mapping.render import ApplyIds, render_mapping_sql
 from openpyxl import Workbook
 
 from utils.listing_template_columns import WorkbookLayout, build_columns
@@ -110,11 +112,204 @@ def _write_mapping(
     wb.save(path)
 
 
-def test_parse_marketplace_id() -> None:
+def test_jobs_from_args_all_at_once(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        marketplace=None,
+        xlsm=None,
+        out=None,
+        out_dir=tmp_path / "sql",
+        amazon_xlsm=tmp_path / "amazon.xlsm",
+        flipkart_xlsm=tmp_path / "flipkart.xls",
+        myntra_xlsm=tmp_path / "myntra.xlsx",
+        amazon_sheet_name="Template",
+        flipkart_sheet_name="bedsheet",
+        myntra_sheet_name="Bedsheets",
+        sheet_name=None,
+        header_label_row=None,
+        machine_key_row=None,
+        data_start_row=None,
+        only=None,
+    )
+    jobs = jobs_from_args(args)
+    assert [job.marketplace_id for job in jobs] == [
+        MarketplaceId.AMAZON,
+        MarketplaceId.FLIPKART,
+        MarketplaceId.MYNTRA,
+    ]
+    assert jobs[0].out.name == "amazon_listing_mapping.sql"
+    assert jobs[1].sheet_name == "bedsheet"
+    assert jobs[2].sheet_name == "Bedsheets"
+
+
+def test_jobs_from_args_rejects_mixed_modes(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        marketplace="AMAZON",
+        xlsm=tmp_path / "amazon.xlsm",
+        out=tmp_path / "out.sql",
+        out_dir=tmp_path / "sql",
+        amazon_xlsm=tmp_path / "amazon.xlsm",
+        flipkart_xlsm=None,
+        myntra_xlsm=None,
+        amazon_sheet_name=None,
+        flipkart_sheet_name=None,
+        myntra_sheet_name=None,
+        sheet_name=None,
+        header_label_row=None,
+        machine_key_row=None,
+        data_start_row=None,
+        only=None,
+    )
+    with pytest.raises(ValueError, match="not both"):
+        jobs_from_args(args)
     assert parse_marketplace_id("amazon") is MarketplaceId.AMAZON
     assert parse_marketplace_id("AMAZON") is MarketplaceId.AMAZON
     with pytest.raises(ValueError, match="Unknown marketplace"):
         parse_marketplace_id("SHOPIFY")
+
+
+def test_jobs_from_args_only_amazon_keeps_other_files(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        marketplace=None,
+        xlsm=None,
+        out=None,
+        out_dir=tmp_path / "sql",
+        amazon_xlsm=tmp_path / "amazon.xlsm",
+        flipkart_xlsm=tmp_path / "flipkart.xls",
+        myntra_xlsm=tmp_path / "myntra.xlsx",
+        amazon_sheet_name=None,
+        flipkart_sheet_name=None,
+        myntra_sheet_name=None,
+        sheet_name=None,
+        header_label_row=None,
+        machine_key_row=None,
+        data_start_row=None,
+        only="AMAZON",
+    )
+    jobs = jobs_from_args(args)
+    assert [job.marketplace_id for job in jobs] == [MarketplaceId.AMAZON]
+
+
+def test_jobs_from_args_amazon_file_only(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        marketplace=None,
+        xlsm=None,
+        out=None,
+        out_dir=tmp_path / "sql",
+        amazon_xlsm=tmp_path / "amazon.xlsm",
+        flipkart_xlsm=None,
+        myntra_xlsm=None,
+        amazon_sheet_name=None,
+        flipkart_sheet_name=None,
+        myntra_sheet_name=None,
+        sheet_name=None,
+        header_label_row=None,
+        machine_key_row=None,
+        data_start_row=None,
+        only=None,
+    )
+    jobs = jobs_from_args(args)
+    assert [job.marketplace_id for job in jobs] == [MarketplaceId.AMAZON]
+
+
+def test_jobs_from_args_only_without_matching_file(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        marketplace=None,
+        xlsm=None,
+        out=None,
+        out_dir=tmp_path / "sql",
+        amazon_xlsm=tmp_path / "amazon.xlsm",
+        flipkart_xlsm=None,
+        myntra_xlsm=None,
+        amazon_sheet_name=None,
+        flipkart_sheet_name=None,
+        myntra_sheet_name=None,
+        sheet_name=None,
+        header_label_row=None,
+        machine_key_row=None,
+        data_start_row=None,
+        only="FLIPKART",
+    )
+    with pytest.raises(ValueError, match="FLIPKART"):
+        jobs_from_args(args)
+
+
+def test_collect_apply_ids_from_flags_only_selected_jobs(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        marketplace=None,
+        xlsm=None,
+        out=None,
+        out_dir=tmp_path / "sql",
+        amazon_xlsm=tmp_path / "amazon.xlsm",
+        flipkart_xlsm=tmp_path / "flipkart.xls",
+        myntra_xlsm=tmp_path / "myntra.xlsx",
+        amazon_sheet_name=None,
+        flipkart_sheet_name=None,
+        myntra_sheet_name=None,
+        sheet_name=None,
+        header_label_row=None,
+        machine_key_row=None,
+        data_start_row=None,
+        only="AMAZON",
+        category_external_id="1c6b0000-0000-4000-8000-000000000001",
+        marketplace_external_id=None,
+        gcs_object_key=None,
+        amazon_marketplace_external_id="1c6b0000-0000-4000-8000-0000000000aa",
+        flipkart_marketplace_external_id="1c6b0000-0000-4000-8000-0000000000ff",
+        myntra_marketplace_external_id="1c6b0000-0000-4000-8000-0000000000bb",
+        amazon_gcs_object_key="listing-templates/amazon.xlsm",
+        flipkart_gcs_object_key="listing-templates/flipkart.xls",
+        myntra_gcs_object_key="listing-templates/myntra.xlsx",
+    )
+    jobs = jobs_from_args(args)
+    selected = collect_apply_ids(args, jobs, prompt=lambda _label: pytest.fail("prompted"))
+    assert len(selected) == 1
+    job, ids = selected[0]
+    assert job.marketplace_id is MarketplaceId.AMAZON
+    assert ids.category_external_id == "1c6b0000-0000-4000-8000-000000000001"
+    assert ids.marketplace_external_id == "1c6b0000-0000-4000-8000-0000000000aa"
+    assert ids.gcs_object_key == "listing-templates/amazon.xlsm"
+
+
+def test_collect_apply_ids_blank_skips_extra_marketplace(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        marketplace=None,
+        xlsm=None,
+        out=None,
+        out_dir=tmp_path / "sql",
+        amazon_xlsm=tmp_path / "amazon.xlsm",
+        flipkart_xlsm=tmp_path / "flipkart.xls",
+        myntra_xlsm=tmp_path / "myntra.xlsx",
+        amazon_sheet_name=None,
+        flipkart_sheet_name=None,
+        myntra_sheet_name=None,
+        sheet_name=None,
+        header_label_row=None,
+        machine_key_row=None,
+        data_start_row=None,
+        only=None,
+        category_external_id=None,
+        marketplace_external_id=None,
+        gcs_object_key=None,
+        amazon_marketplace_external_id=None,
+        flipkart_marketplace_external_id=None,
+        myntra_marketplace_external_id=None,
+        amazon_gcs_object_key=None,
+        flipkart_gcs_object_key=None,
+        myntra_gcs_object_key=None,
+    )
+    jobs = jobs_from_args(args)
+    answers = {
+        "category.external_id (UUID)": "1c6b0000-0000-4000-8000-000000000001",
+        "AMAZON marketplace.external_id (UUID, Enter to skip)": (
+            "1c6b0000-0000-4000-8000-0000000000aa"
+        ),
+        "AMAZON gcs_object_key (blank if listing_template already exists)": "",
+        "FLIPKART marketplace.external_id (UUID, Enter to skip)": "",
+        "MYNTRA marketplace.external_id (UUID, Enter to skip)": "",
+    }
+    selected = collect_apply_ids(args, jobs, prompt=lambda label: answers[label])
+    assert [job.marketplace_id for job, _ids in selected] == [MarketplaceId.AMAZON]
+    assert selected[0][1].gcs_object_key == ""
 
 
 def test_amazon_adapter_default_layout() -> None:
@@ -143,6 +338,21 @@ def test_flipkart_adapter_default_layout() -> None:
     assert layout.machine_key_row == 2
     assert layout.data_start_row == 5
     assert layout.valid_values_sheet is None
+
+
+def test_myntra_adapter_default_layout() -> None:
+    layout = get_adapter(MarketplaceId.MYNTRA).workbook_layout()
+    assert layout.sheet_name == "Bedsheets"
+    assert layout.header_label_row == 3
+    assert layout.machine_key_row == 3
+    assert layout.data_start_row == 4
+    assert layout.valid_values_sheet is None
+
+
+def test_myntra_adapter_overrides() -> None:
+    layout = get_adapter(MarketplaceId.MYNTRA).workbook_layout(sheet_name="Curtains")
+    assert layout.sheet_name == "Curtains"
+    assert layout.data_start_row == 4
 
 
 def test_flipkart_adapter_overrides() -> None:
@@ -327,6 +537,24 @@ def test_overlay_unknown_column_index_fails() -> None:
         overlay_columns(workbook, mapping)
 
 
+def test_overlay_skip_blank_workbook_column() -> None:
+    workbook = [
+        _col(column_index=1, label="Seller SKU"),
+        _col(column_index=3, label="Listing Status"),
+    ]
+    mapping = _mapping(
+        [
+            ListingMapRow(1, FillMode.COPY_PIM, "SKU", None, None),
+            ListingMapRow(2, FillMode.SKIP, None, None, None),
+            ListingMapRow(3, FillMode.CONSTANT, None, None, "ACTIVE"),
+        ],
+        pim_fields=[PimFieldRow("SKU", True)],
+    )
+    result = overlay_columns(workbook, mapping)
+    assert [c["column_index"] for c in result.columns] == [1, 3]
+    assert result.columns[1]["config"]["fill_type"] == "CONSTANT"
+
+
 def test_render_mapping_sql() -> None:
     workbook = [_col(column_index=1, label="Seller SKU")]
     mapping = _mapping(
@@ -346,11 +574,31 @@ def test_render_mapping_sql() -> None:
         xlsm_name="cat.xlsm",
         mapping_name="map.xlsx",
         marketplace_id="AMAZON",
+        apply_ids=ApplyIds(
+            category_external_id="1c6b0000-0000-4000-8000-000000000001",
+            marketplace_external_id="1c6b0000-0000-4000-8000-000000000002",
+            gcs_object_key="listing-templates/amazon.xlsm",
+        ),
     )
     assert "UPDATE categories" in sql
+    assert "jsonb_array_elements" in sql
+    assert "Does not replace or drop existing entries" in sql
+    assert "SET attribute_spec = '{" not in sql
     assert "--marketplace AMAZON" in sql
-    assert ":category_external_id" in sql
+    assert "CAST('1c6b0000-0000-4000-8000-000000000001' AS uuid)" in sql
+    assert "CAST('1c6b0000-0000-4000-8000-000000000002' AS uuid)" in sql
+    assert "CAST('listing-templates/amazon.xlsm' AS text)" in sql
+    assert ":category_external_id" not in sql
+    assert "--category-external-id 1c6b0000-0000-4000-8000-000000000001" in sql
     assert "INSERT INTO listing_template_column" in sql
+    assert "FROM listing_template lt\n    FROM " not in sql
+    assert (
+        "FROM listing_template lt\n"
+        "    JOIN category_marketplace cm ON cm.id = lt.category_marketplace_id"
+    ) in sql
+    assert "::jsonb" not in sql
+    assert "CAST(" in sql
+    assert "AS jsonb)" in sql
 
 
 @pytest.mark.skipif(not _MAP.is_file(), reason="listing mapping template xlsx missing")
@@ -493,10 +741,12 @@ def test_build_columns_flipkart_index_and_dropdown_sheets(tmp_path: Path) -> Non
     ws["B1"] = "Country Of Origin"
     ws["C1"] = "Color"
     ws["D1"] = "Main Image URL"
+    ws["E1"] = "Washable"
     ws["A2"] = "Text"
     ws["B2"] = "Single - Text"
     ws["C2"] = "Click Here to get Allowed Values"
     ws["D2"] = "URL"
+    ws["E2"] = "Single - Boolean"
     dd = wb.create_sheet("DropDownValuesForColumn1")
     dd["A1"] = "India"
     dd["A2"] = "China"
@@ -521,3 +771,5 @@ def test_build_columns_flipkart_index_and_dropdown_sheets(tmp_path: Path) -> Non
     assert by_index[3]["fill_type"] == "ENUM"
     assert by_index[3]["valid_values"] == ["Red", "Blue"]
     assert by_index[4]["fill_type"] == "DIRECT_MAP"
+    assert by_index[5]["fill_type"] == "ENUM"
+    assert by_index[5]["valid_values"] == ["Yes", "No"]

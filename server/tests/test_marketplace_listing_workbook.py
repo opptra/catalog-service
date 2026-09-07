@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from listing_mapping.marketplace import MarketplaceId
 from listing_mapping.marketplace.config import clear_config_cache, config_for
 from listing_mapping.marketplace.registry import get_adapter
@@ -30,9 +29,12 @@ def test_amazon_adapter_uses_config() -> None:
     assert layout.data_start_row == 7
 
 
-def test_unknown_marketplace_config_fails() -> None:
-    with pytest.raises(ValueError, match="No workbook config"):
-        config_for(MarketplaceId.MYNTRA)
+def test_myntra_config_layout() -> None:
+    cfg = config_for(MarketplaceId.MYNTRA)
+    assert cfg.sheet_name == "Bedsheets"
+    assert cfg.header_label_row == 3
+    assert cfg.data_start_row == 4
+    assert cfg.valid_values_sheet is None
 
 
 def test_flipkart_config_layout() -> None:
