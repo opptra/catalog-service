@@ -32,7 +32,6 @@ def generate_texts_tool(fields: list[dict[str, Any]]) -> dict[str, Any]:
         col = str(item["column_index"])
         required_cols.append(col)
         label = item.get("label") or col
-        machine = item.get("machine_key")
         properties[col] = {
             "type": "object",
             "additionalProperties": False,
@@ -48,9 +47,8 @@ def generate_texts_tool(fields: list[dict[str, Any]]) -> dict[str, Any]:
                 "value": {
                     "type": "string",
                     "description": (
-                        f"Short marketplace text for '{label}'"
-                        + (f" ({machine})" if machine else "")
-                        + ". Required when action=fill; omit when action=skip."
+                        f"Short marketplace text for '{label}'. "
+                        "Required when action=fill; omit when action=skip."
                     ),
                 },
             },
@@ -107,7 +105,6 @@ def generate_texts(
             {
                 "column_index": str(item["column_index"]),
                 "label": item.get("label"),
-                "machine_key": item.get("machine_key"),
                 "instruction": (
                     "Return decisions[column_index]={action:'fill', value:'...'} only "
                     "if evidence clearly supports it; otherwise {action:'skip'}."

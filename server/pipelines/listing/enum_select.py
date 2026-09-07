@@ -134,7 +134,6 @@ def pick_enums(
             {
                 "column_index": str(item["column_index"]),
                 "label": item.get("label"),
-                "machine_key": item.get("machine_key"),
                 "valid_values": item["valid_values"],
                 "instruction": (
                     "Return decisions[column_index]={action:'fill', value:<one of "
