@@ -10,7 +10,7 @@ from entities.catalog.base import Base
 
 
 class ListingTemplate(Base):
-    """Blank Amazon listing workbook for one category × marketplace pair."""
+    """Blank marketplace listing workbook for one category × marketplace pair."""
 
     __tablename__ = "listing_template"
     __table_args__ = (

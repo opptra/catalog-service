@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from core.clients.gcs import GcsClient
 from core.exceptions import CategoryNotFoundError, MarketplaceNotFoundError
-from dto.listing_config import ListingTemplateMetadata
 from dto.response.catalog import (
     MarketplaceSelectionAttributeItemResponse,
     MarketplaceSelectionAttributeResponse,
@@ -31,18 +30,10 @@ from services import category as category_service
 from services import marketplace_attribute as marketplace_attribute_service
 from services.category import DEFAULT_LEAF_PAGE_SIZE
 from utils import flatfile as flatfile_utils
+from utils.listing_marketplace import metadata_for_listing_upload
+from utils.listing_workbook import content_type_for, detect_openxml_kind
 
 __all__ = ["DEFAULT_LEAF_PAGE_SIZE"]
-
-_LISTING_TEMPLATE_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-_DEFAULT_LISTING_METADATA = ListingTemplateMetadata(
-    filename="listing-template.xlsx",
-    sheet_name="Template",
-    header_label_row=4,
-    machine_key_row=5,
-    data_start_row=7,
-)
 
 
 def list_leaf_categories(
@@ -69,12 +60,19 @@ def upload_listing_template(
     category_external_id: UUID,
     marketplace_external_id: UUID,
     content: bytes,
+    filename: str | None = None,
 ) -> UploadListingTemplateResponse:
-    """Store the Amazon listing template for a category × marketplace pair in GCS
+    """Store the listing workbook for a category × marketplace pair in GCS
     and upsert the matching ``listing_template`` row (creates ``category_marketplace``
     if missing). Raises ``CategoryNotFoundError`` or ``MarketplaceNotFoundError`` when
     either entity does not exist.
+
+    Accepts ``.xlsx`` or ``.xlsm`` only (not Excel 97-2003 ``.xls``). Metadata
+    (sheet + row offsets + filename) comes from the marketplace adapter so a
+    Flipkart upload is not stamped with Amazon ``Template`` / row 7.
     """
+    kind = detect_openxml_kind(content)
+
     category = category_repo.get_by_external_id(session, category_external_id)
     if category is None:
         raise CategoryNotFoundError(f"Category {category_external_id} not found")
@@ -86,7 +84,7 @@ def upload_listing_template(
     object_key = flatfile_utils.listing_template_object_key(
         marketplace_external_id, category_external_id
     )
-    gcs.upload_bytes(content, object_key, content_type=_LISTING_TEMPLATE_CONTENT_TYPE)
+    gcs.upload_bytes(content, object_key, content_type=content_type_for(kind))
 
     junction = category_marketplace_repo.get_by_marketplace_and_category(
         session, marketplace.id, category.id
@@ -101,7 +99,12 @@ def upload_listing_template(
         )
 
     existing = listing_template_repo.get_by_category_marketplace_id(session, junction.id)
-    metadata = dict(_DEFAULT_LISTING_METADATA.model_dump())
+    metadata = metadata_for_listing_upload(
+        marketplace_name=marketplace.name,
+        content=content,
+        original_filename=filename,
+        existing_metadata=existing.metadata_ if existing is not None else None,
+    ).model_dump()
     if existing is None:
         listing_template_repo.save(
             session,
@@ -113,8 +116,7 @@ def upload_listing_template(
         )
     else:
         existing.gcs_object_key = object_key
-        if not existing.metadata_:
-            existing.metadata_ = metadata
+        existing.metadata_ = metadata
         listing_template_repo.save(session, existing)
 
     return UploadListingTemplateResponse(

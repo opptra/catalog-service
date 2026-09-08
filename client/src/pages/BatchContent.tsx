@@ -76,10 +76,6 @@ function textLimitsFromConfig(
   return {}
 }
 
-function marketplaceHasListing(name: string | null | undefined): boolean {
-  return (name ?? '').trim().toLowerCase() === 'amazon'
-}
-
 type ImageModalSource =
   | { kind: 'pdp'; index: number }
   | { kind: 'attribute'; attributeName: string; index: number }
@@ -396,8 +392,10 @@ function BatchContent() {
   const marketplaceName =
     content?.marketplace_name ?? status?.marketplace_name ?? activeMarketplace?.marketplace_name ?? 'Marketplace'
 
-  const showListingExport =
-    activeMarketplaceExternalId != null && marketplaceHasListing(activeMarketplace?.marketplace_name)
+  const listingMarketplaces = (groupStatus?.marketplaces ?? []).map((item) => ({
+    marketplace_external_id: item.marketplace_external_id,
+    marketplace_name: item.marketplace_name,
+  }))
 
   const skuIdForDownload = activeSkuJob?.sku_id ?? content?.sku_id ?? null
 
@@ -702,12 +700,12 @@ function BatchContent() {
             </div>
           </header>
 
-          {showListingExport && activeMarketplaceExternalId ? (
+          {listingMarketplaces.length > 0 ? (
             <ListingExportPanel
-              key={`${jobGroupId}-${activeMarketplaceExternalId}`}
+              key={jobGroupId}
               jobGroupId={jobGroupId}
-              marketplaceExternalId={activeMarketplaceExternalId}
-              marketplaceName={activeMarketplace?.marketplace_name ?? 'Marketplace'}
+              marketplaces={listingMarketplaces}
+              preferredMarketplaceExternalId={activeMarketplaceExternalId}
               enabled={(groupStatus?.status ?? status?.status) === 'COMPLETED'}
             />
           ) : null}

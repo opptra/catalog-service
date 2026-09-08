@@ -21,6 +21,7 @@ def test_amazon_config_sheets() -> None:
     assert cfg.dropdown_lists_sheet == "Dropdown Lists"
     assert cfg.data_definitions_sheet == "Data Definitions"
     assert cfg.sheet_name == "Template"
+    assert cfg.enum_discovery == "amazon"
 
 
 def test_amazon_adapter_uses_config() -> None:
@@ -35,6 +36,7 @@ def test_myntra_config_layout() -> None:
     assert cfg.header_label_row == 3
     assert cfg.data_start_row == 4
     assert cfg.valid_values_sheet is None
+    assert cfg.enum_discovery == "myntra"
 
 
 def test_flipkart_config_layout() -> None:
@@ -43,6 +45,7 @@ def test_flipkart_config_layout() -> None:
     assert cfg.header_label_row == 1
     assert cfg.data_start_row == 5
     assert cfg.valid_values_sheet is None
+    assert cfg.enum_discovery == "flipkart"
 
 
 def test_flipkart_adapter_uses_config() -> None:

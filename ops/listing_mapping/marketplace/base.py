@@ -10,10 +10,12 @@ from utils.listing_template_columns import WorkbookLayout
 
 
 class MarketplaceAdapter(Protocol):
-    """Per-marketplace rules for blank .xlsm layout and sheet titles.
+    """Per-marketplace rules for blank listing-workbook layout.
 
-    Parent/child ENUM discovery stays in the shared workbook parser; adapters
-    supply offsets and optional sheet names that differ by marketplace.
+    Adapters supply sheet offsets and ``enum_discovery`` so Amazon named
+    ranges, Flipkart ``DropDownValuesForColumn*`` / Index sheets, and Myntra
+    ``masterdata`` ranges never share one mixed parser path. Fill is the same
+    ENUM/DIRECT_MAP engine once columns are stored.
     """
 
     @property

@@ -319,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
         "--xlsm",
         type=Path,
         required=True,
-        help="Blank marketplace listing workbook (.xlsm, .xlsx, or .xls)",
+        help="Blank marketplace listing workbook (.xlsx or .xlsm)",
     )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--sheet-name", default=None)

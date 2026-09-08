@@ -4,6 +4,7 @@ export interface ListingFillGap {
   sku_id: string
   column_label: string
   reason: string
+  message: string
 }
 
 export interface FillListingResponse {
