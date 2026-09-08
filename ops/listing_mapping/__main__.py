@@ -13,7 +13,7 @@ From repo root (server venv), Amazon only (Flipkart/Myntra files optional):
   PYTHONPATH=ops:server python -m listing_mapping \\
     --mapping ops/docs/listing_mapping_template.xlsx \\
     --amazon-xlsm tmp/listing_mapping/input/BED_LINEN_SET.xlsm \\
-    --flipkart-xlsm tmp/listing_mapping/input/bedsheet.xls \\
+    --flipkart-xlsm tmp/listing_mapping/input/bedsheet.xlsm \\
     --myntra-xlsm tmp/listing_mapping/input/myntra.xlsx \\
     --out-dir tmp/listing_mapping/sql \\
     --only AMAZON
@@ -23,7 +23,7 @@ All provided marketplaces (Enter skips a marketplace you are not ready for):
   PYTHONPATH=ops:server python -m listing_mapping \\
     --mapping ops/docs/listing_mapping_template.xlsx \\
     --amazon-xlsm tmp/listing_mapping/input/BED_LINEN_SET.xlsm \\
-    --flipkart-xlsm tmp/listing_mapping/input/bedsheet.xls \\
+    --flipkart-xlsm tmp/listing_mapping/input/bedsheet.xlsm \\
     --myntra-xlsm tmp/listing_mapping/input/myntra.xlsx \\
     --out-dir tmp/listing_mapping/sql
 
@@ -77,9 +77,7 @@ def _positive_int(name: str, value: int | None) -> None:
 def _parse_only(raw: str | None) -> frozenset[MarketplaceId] | None:
     if raw is None or not str(raw).strip():
         return None
-    return frozenset(
-        parse_marketplace_id(part) for part in str(raw).split(",") if part.strip()
-    )
+    return frozenset(parse_marketplace_id(part) for part in str(raw).split(",") if part.strip())
 
 
 def _parse_uuid(label: str, raw: str) -> str:
@@ -92,9 +90,7 @@ def _parse_uuid(label: str, raw: str) -> str:
 
 def _stdin_prompt(label: str) -> str:
     if not sys.stdin.isatty():
-        raise ValueError(
-            f"Missing {label}. Pass the CLI flags, use --only, or run in a terminal."
-        )
+        raise ValueError(f"Missing {label}. Pass the CLI flags, use --only, or run in a terminal.")
     print(f"{label}: ", end="", file=sys.stderr, flush=True)
     return sys.stdin.readline()
 
@@ -154,9 +150,7 @@ def _job_flag(
 
 def jobs_from_args(args: argparse.Namespace) -> list[MappingJob]:
     only = _parse_only(getattr(args, "only", None))
-    single = (
-        args.marketplace is not None or args.xlsm is not None or args.out is not None
-    )
+    single = args.marketplace is not None or args.xlsm is not None or args.out is not None
     all_at_once = any(
         (
             args.out_dir is not None,
@@ -210,9 +204,7 @@ def jobs_from_args(args: argparse.Namespace) -> list[MappingJob]:
             for marketplace_id, xlsm, out_name, sheet_name in provided
         ]
     elif args.marketplace is None or args.xlsm is None or args.out is None:
-        raise ValueError(
-            "Single marketplace run requires --marketplace, --xlsm, and --out"
-        )
+        raise ValueError("Single marketplace run requires --marketplace, --xlsm, and --out")
     else:
         jobs = [
             MappingJob(
@@ -234,14 +226,10 @@ def jobs_from_args(args: argparse.Namespace) -> list[MappingJob]:
             if marketplace not in {job.marketplace_id for job in selected}
         )
         if missing:
-            raise ValueError(
-                f"--only {', '.join(missing)} needs the matching listing workbook"
-            )
+            raise ValueError(f"--only {', '.join(missing)} needs the matching listing workbook")
         jobs = selected
     if not jobs:
-        raise ValueError(
-            "No marketplaces to generate. Pass a workbook or --only matching a file."
-        )
+        raise ValueError("No marketplaces to generate. Pass a workbook or --only matching a file.")
     return jobs
 
 
@@ -382,11 +370,9 @@ def main(argv: list[str] | None = None) -> int:
         "--xlsm",
         type=Path,
         default=None,
-        help="Single run: blank marketplace listing workbook",
+        help="Single run: blank marketplace listing workbook (.xlsx or .xlsm, not .xls)",
     )
-    parser.add_argument(
-        "--out", type=Path, default=None, help="Single run: output SQL path"
-    )
+    parser.add_argument("--out", type=Path, default=None, help="Single run: output SQL path")
     parser.add_argument("--sheet-name", default=None)
     parser.add_argument("--header-label-row", type=int, default=None)
     parser.add_argument("--machine-key-row", type=int, default=None)
@@ -401,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         "--flipkart-xlsm",
         type=Path,
         default=None,
-        help="All-at-once: Flipkart blank listing workbook",
+        help="All-at-once: Flipkart blank listing workbook (.xlsx or .xlsm, not .xls)",
     )
     parser.add_argument(
         "--myntra-xlsm",

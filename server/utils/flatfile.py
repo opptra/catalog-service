@@ -28,10 +28,11 @@ def template_object_key(job_external_id: UUID, filename: str) -> str:
 
 
 def listing_template_object_key(marketplace_external_id: UUID, category_external_id: UUID) -> str:
-    """Stable GCS key for the Amazon listing template for a given category × marketplace.
+    """Stable GCS key for the listing template for a given category × marketplace.
 
-    Path follows the same entity/id/asset convention as product images:
-    ``marketplaces/{marketplace_id}/categories/{category_id}/listing-template/template.xlsx``
+    Path follows the same entity/id/asset convention as product images. The
+    object key always ends in ``template.xlsx`` even when the bytes are ``.xlsm``;
+    the real filename and kind live on ``listing_template.metadata``.
     """
     return (
         f"listing-templates"

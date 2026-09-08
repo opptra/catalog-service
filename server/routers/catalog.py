@@ -83,9 +83,10 @@ def upload_listing_template(
     catalog_session: CatalogSessionDep,
     gcs: GcsDep,
 ) -> UploadListingTemplateResponse:
-    """Store the Amazon listing template for the given category × marketplace in GCS.
+    """Store the listing workbook for the given category × marketplace in GCS.
 
-    The file is expected to be an ``.xlsx`` spreadsheet (Amazon's flat-file format).
+    The file must be an ``.xlsx`` or ``.xlsm`` workbook (not Excel 97-2003 ``.xls``).
+    Flipkart blanks converted in Excel should be ``.xlsm`` when VBA must be kept.
     Uploading again overwrites the previous template for that pair.
     """
     content = file.file.read()
@@ -96,11 +97,14 @@ def upload_listing_template(
             category_external_id=category_external_id,
             marketplace_external_id=marketplace_external_id,
             content=content,
+            filename=file.filename,
         )
     except CategoryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except MarketplaceNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/marketplace-selection", response_model=MarketplaceSelectionResponse)

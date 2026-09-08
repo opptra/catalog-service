@@ -1,56 +1,26 @@
-"""Load marketplace workbook defaults from config JSON."""
+"""Load marketplace workbook defaults from the server-side JSON (one source)."""
 
 from __future__ import annotations
 
-import json
-from functools import lru_cache
-from pathlib import Path
-
 from listing_mapping.marketplace import MarketplaceId
-from pydantic import BaseModel, ConfigDict, Field
+from utils.listing_marketplace import (
+    MarketplaceWorkbookConfig,
+    clear_config_cache,
+    config_for_key,
+    workbook_layout_for_key,
+)
 from utils.listing_template_columns import WorkbookLayout
 
-_CONFIG_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "config"
-    / "marketplace_listing_workbooks.json"
-)
-
-
-class MarketplaceWorkbookConfig(BaseModel):
-    """Default blank-workbook layout for one marketplace."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    sheet_name: str
-    header_label_row: int = Field(ge=1)
-    machine_key_row: int = Field(ge=1)
-    data_start_row: int = Field(ge=1)
-    valid_values_sheet: str | None = None
-    dropdown_lists_sheet: str | None = None
-    data_definitions_sheet: str | None = None
-
-
-@lru_cache(maxsize=1)
-def _load_raw() -> dict[str, dict]:
-    if not _CONFIG_PATH.is_file():
-        raise FileNotFoundError(f"Missing marketplace workbook config: {_CONFIG_PATH}")
-    raw = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise TypeError(f"{_CONFIG_PATH} must be a JSON object keyed by marketplace id")
-    return raw
+__all__ = [
+    "MarketplaceWorkbookConfig",
+    "clear_config_cache",
+    "config_for",
+    "workbook_layout_for",
+]
 
 
 def config_for(marketplace_id: MarketplaceId) -> MarketplaceWorkbookConfig:
-    raw = _load_raw()
-    entry = raw.get(marketplace_id.value)
-    if entry is None:
-        known = ", ".join(sorted(raw.keys())) or "(none)"
-        raise ValueError(
-            f"No workbook config for {marketplace_id.value}. Known keys: {known}. "
-            f"Edit {_CONFIG_PATH}."
-        )
-    return MarketplaceWorkbookConfig.model_validate(entry)
+    return config_for_key(marketplace_id.value)
 
 
 def workbook_layout_for(
@@ -61,21 +31,10 @@ def workbook_layout_for(
     machine_key_row: int | None = None,
     data_start_row: int | None = None,
 ) -> WorkbookLayout:
-    cfg = config_for(marketplace_id)
-    return WorkbookLayout(
-        sheet_name=cfg.sheet_name if sheet_name is None else sheet_name,
-        header_label_row=(
-            cfg.header_label_row if header_label_row is None else header_label_row
-        ),
-        machine_key_row=cfg.machine_key_row
-        if machine_key_row is None
-        else machine_key_row,
-        data_start_row=cfg.data_start_row if data_start_row is None else data_start_row,
-        valid_values_sheet=cfg.valid_values_sheet,
-        dropdown_lists_sheet=cfg.dropdown_lists_sheet,
-        data_definitions_sheet=cfg.data_definitions_sheet,
+    return workbook_layout_for_key(
+        marketplace_id.value,
+        sheet_name=sheet_name,
+        header_label_row=header_label_row,
+        machine_key_row=machine_key_row,
+        data_start_row=data_start_row,
     )
-
-
-def clear_config_cache() -> None:
-    _load_raw.cache_clear()

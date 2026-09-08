@@ -1,4 +1,4 @@
-"""Listing fill — assemble Amazon workbooks from a completed generation job."""
+"""Listing fill — assemble marketplace listing workbooks from a completed generation job."""
 
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ from dto.response.listing import FillListingResponse, ListingFillGap
 from entities.catalog.attribute_enums import (
     AttributeName,
     JobType,
+    ListingFillGapReason,
     ListingFillType,
     ListingRequiredness,
     ListingValueSourceFrom,
@@ -54,7 +55,8 @@ _LISTING_FILL_WORKERS = MAX_CONCURRENT_OPS
 _FILLED_FILE_SIGNED_URL_TTL_SECONDS = 3600
 _REFERENCE_IMAGE_URL_TTL_SECONDS = 3600
 _MAX_PRODUCT_IMAGE_URLS = 7
-_LISTING_OUTPUT_CONTENT_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.12"
+# Dropdowns larger than this are not sent to the fill model (exact PIM match only).
+_ENUM_AI_MAX_VALUES = 150
 
 
 def fill_listing_for_group(
@@ -187,7 +189,7 @@ def fill_listing_for_job(
                     state.already_filled_by_index[column_index] = value
                 if gap_reason:
                     stage_gaps.append(
-                        ListingFillGap(
+                        _listing_fill_gap(
                             sku_id=state.business_sku_id,
                             column_label=label,
                             reason=gap_reason,
@@ -208,7 +210,7 @@ def fill_listing_for_job(
         raise ListingFillError(f"Failed to download listing template: {exc}") from exc
 
     try:
-        filled_bytes = workbook_utils.fill_workbook(
+        filled = workbook_utils.fill_workbook(
             template_bytes,
             metadata=metadata,
             rows=filled_rows,
@@ -216,13 +218,12 @@ def fill_listing_for_job(
     except ValueError as exc:
         raise ListingFillError(str(exc)) from exc
 
-    out_name = metadata.filename.rsplit(".", 1)[0] + "_filled.xlsm"
-    object_key = workbook_utils.listing_output_object_key(job_external_id, out_name)
+    object_key = workbook_utils.listing_output_object_key(job_external_id, filled.filename)
     try:
         gcs.upload_bytes(
-            filled_bytes,
+            filled.content,
             object_key,
-            content_type=_LISTING_OUTPUT_CONTENT_TYPE,
+            content_type=filled.content_type,
         )
         filled_url = gcs.signed_url(
             object_key, expiration_seconds=_FILLED_FILE_SIGNED_URL_TTL_SECONDS
@@ -357,11 +358,24 @@ def _values_for_parent(
     return []
 
 
+def _listing_fill_gap(
+    *,
+    sku_id: str,
+    column_label: str,
+    reason: ListingFillGapReason,
+) -> ListingFillGap:
+    return ListingFillGap(
+        sku_id=sku_id,
+        column_label=column_label,
+        reason=reason,
+    )
+
+
 def _effective_enum_values(
     col: _ParsedColumn,
     *,
     already_filled_by_index: dict[int, str],
-) -> tuple[list[str] | None, str | None]:
+) -> tuple[list[str] | None, ListingFillGapReason | None]:
     """Allowed ENUM values after parent filtering.
 
     Hierarchical columns never expose the full stored map to the picker — only
@@ -371,17 +385,20 @@ def _effective_enum_values(
     if config.depends_on is not None:
         parent_value = already_filled_by_index.get(config.depends_on)
         if not parent_value:
-            return None, "parent not filled"
+            return None, ListingFillGapReason.ENUM_PARENT_NOT_FILLED
         if config.valid_values_by_parent:
             narrowed = _values_for_parent(config.valid_values_by_parent, parent_value)
             if not narrowed:
-                return None, "no valid_values for parent"
+                return None, ListingFillGapReason.ENUM_NO_VALUES_FOR_PARENT
             return narrowed, None
         # depends_on without a parent map: still do not invent a full unfiltered list
-        return None, "ENUM missing valid_values_by_parent"
+        return None, ListingFillGapReason.ENUM_MISSING_PARENT_MAP
     if config.valid_values:
-        return list(config.valid_values), None
-    return None, "ENUM has no valid_values"
+        values = [item for item in config.valid_values if item != "__UNRESOLVED_DROPDOWN__"]
+        if not values:
+            return None, ListingFillGapReason.UNRESOLVED_DROPDOWN
+        return values, None
+    return None, ListingFillGapReason.ENUM_HAS_NO_VALID_VALUES
 
 
 def _resolve_stage(
@@ -396,14 +413,14 @@ def _resolve_stage(
     already_filled: dict[str, str],
     already_filled_by_index: dict[int, str],
     product_image_urls: list[str],
-) -> list[tuple[int, str | None, str | None, str]]:
+) -> list[tuple[int, str | None, ListingFillGapReason | None, str]]:
     """Resolve one resolve_stage band.
 
     Returns list of (column_index, value, gap_reason, label).
     """
     enum_pending: list[tuple[_ParsedColumn, list[str]]] = []
     ai_text_pending: list[_ParsedColumn] = []
-    results: dict[int, tuple[str | None, str | None, str]] = {}
+    results: dict[int, tuple[str | None, ListingFillGapReason | None, str]] = {}
 
     simple: list[_ParsedColumn] = []
     for col in stage_columns:
@@ -429,6 +446,12 @@ def _resolve_stage(
                 )
             if exact is not None:
                 results[col.column_index] = (exact, None, col.config.label)
+            elif len(effective) > _ENUM_AI_MAX_VALUES:
+                results[col.column_index] = (
+                    None,
+                    ListingFillGapReason.TOO_MANY_DROPDOWN_VALUES,
+                    col.config.label,
+                )
             else:
                 enum_pending.append((col, effective))
         elif fill == ListingFillType.AI_TEXT:
@@ -486,10 +509,10 @@ def _resolve_stage(
             allowed = set(effective)
             if value is None:
                 if col.config.requiredness == ListingRequiredness.ALWAYS:
-                    gap = "ALWAYS empty"
+                    gap = ListingFillGapReason.REQUIRED_EMPTY
                 # OPTIONAL: intentional omit when evidence is weak — not a gap
             elif value not in allowed:
-                gap = "ENUM not in valid_values"
+                gap = ListingFillGapReason.ENUM_NOT_IN_VALID_VALUES
                 value = None
             results[col.column_index] = (value, gap, col.config.label)
             if value:
@@ -517,12 +540,12 @@ def _resolve_stage(
             gap = None
             if not value:
                 if col.config.requiredness == ListingRequiredness.ALWAYS:
-                    gap = "ALWAYS empty"
+                    gap = ListingFillGapReason.REQUIRED_EMPTY
                 # OPTIONAL: intentional omit when evidence is weak — not a gap
                 value = None
             results[col.column_index] = (value, gap, col.config.label)
 
-    ordered: list[tuple[int, str | None, str | None, str]] = []
+    ordered: list[tuple[int, str | None, ListingFillGapReason | None, str]] = []
     for col in stage_columns:
         value, gap, label = results.get(
             col.column_index,
@@ -532,6 +555,12 @@ def _resolve_stage(
     return ordered
 
 
+def _required_empty_gap(config: ListingColumnConfig) -> ListingFillGapReason | None:
+    if config.requiredness == ListingRequiredness.ALWAYS:
+        return ListingFillGapReason.REQUIRED_EMPTY
+    return None
+
+
 def _resolve_simple(
     col: _ParsedColumn,
     *,
@@ -539,7 +568,7 @@ def _resolve_simple(
     dropbox: DropboxClient,
     pim_values: dict[str, Any],
     job_values: dict[tuple[AttributeName, int], _JobAttrValue],
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, ListingFillGapReason | None]:
     config = col.config
     fill_type = config.fill_type
 
@@ -582,13 +611,13 @@ def _resolve_simple(
                 entry.external_id,
                 exc,
             )
-            return None, f"IMAGE upload failed: {exc}"
+            return None, ListingFillGapReason.IMAGE_UPLOAD_FAILED
 
     if fill_type == ListingFillType.AI_TEXT:
         # Batched in _resolve_stage — should not reach here.
-        return None, "AI_TEXT must be resolved in stage batch"
+        return None, ListingFillGapReason.UNSUPPORTED_FILL_TYPE
 
-    return None, f"Unsupported fill_type {fill_type}"
+    return None, ListingFillGapReason.UNSUPPORTED_FILL_TYPE
 
 
 def _resolve_from_source(
@@ -596,19 +625,17 @@ def _resolve_from_source(
     *,
     pim_values: dict[str, Any],
     job_values: dict[tuple[AttributeName, int], _JobAttrValue],
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, ListingFillGapReason | None]:
     """Copy a value from GENERATION job bag or SKU_MASTER PIM attributes."""
     source = config.source
     if source is None:
-        gap = "ALWAYS empty" if config.requiredness == ListingRequiredness.ALWAYS else None
-        return None, gap
+        return None, _required_empty_gap(config)
 
     if source.from_ == ListingValueSourceFrom.SKU_MASTER:
         value = _pim_get(pim_values, source.key or "")
         if value:
             return value, None
-        gap = "ALWAYS empty" if config.requiredness == ListingRequiredness.ALWAYS else None
-        return None, gap
+        return None, _required_empty_gap(config)
 
     assert source.attribute_name is not None and source.slot is not None
     entry = job_values.get((source.attribute_name, source.slot))
@@ -616,10 +643,8 @@ def _resolve_from_source(
         text = _generation_source_text(entry.value, index=source.index)
         if text:
             return text, None
-        gap = "ALWAYS empty" if config.requiredness == ListingRequiredness.ALWAYS else None
-        return None, gap
-    gap = "ALWAYS empty" if config.requiredness == ListingRequiredness.ALWAYS else None
-    return None, gap
+        return None, _required_empty_gap(config)
+    return None, _required_empty_gap(config)
 
 
 def _pim_get(pim_values: dict[str, Any], key: str) -> str | None:

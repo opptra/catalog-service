@@ -10,9 +10,11 @@ from utils.listing_template_columns import WorkbookLayout
 class FlipkartAdapter:
     """Flipkart category sheet: labels row 1, type hints row 2, data from row 5.
 
-    Default ``sheet_name`` is category-specific (e.g. ``bedsheet``). Pass
-    ``--sheet-name`` when the blank workbook uses a different listing sheet.
-    Variant sheets (``Parent Variant Products``) are not used.
+    Blank must be ``.xlsx`` or ``.xlsm`` (Excel Save As from ``.xls``). Keep
+    ``.xlsm`` when the file has a VB project. Default ``sheet_name`` is
+    category-specific (e.g. ``bedsheet``). Pass ``--sheet-name`` when the
+    blank workbook uses a different listing sheet. Variant sheets
+    (``Parent Variant Products``) are not used.
     """
 
     @property

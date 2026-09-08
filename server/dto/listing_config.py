@@ -15,7 +15,7 @@ from entities.catalog.attribute_enums import (
 
 
 class ListingTemplateMetadata(BaseModel):
-    """Offsets into the blank Amazon workbook."""
+    """Offsets into the blank marketplace workbook (adapter-specific, not Amazon-only)."""
 
     model_config = ConfigDict(extra="forbid")
 

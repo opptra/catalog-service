@@ -136,7 +136,7 @@ Every rule has `fill_type`, `requiredness` (`ALWAYS` \| `OPTIONAL`), `label`. Th
 2. Offline setup lives under `ops/listing_mapping/` (not under `server/`):
    - `PYTHONPATH=ops:server python -m listing_mapping` — mapping CSV + blank `.xlsm` → attribute_spec + template metadata + column SQL
    - `PYTHONPATH=ops:server python -m listing_mapping.generate_columns` — workbook-only columns (dropdowns → `ENUM` + lists; others → `DIRECT_MAP` **with no `source`**)
-   - Marketplace Valid Values / Dropdown Lists sheet titles: `ops/listing_mapping/config/marketplace_listing_workbooks.json`
+   - Marketplace workbook layout + dropdown discovery: `server/utils/marketplace_listing_workbooks.json`
 3. Human sets `source` / `IMAGE` / `CONSTANT` / `SKIP` / `AI_TEXT` if using generate_columns alone. Fill rejects `DIRECT_MAP` with no `source`.
 4. `POST /api/listings/fill` walks stages, writes cells, returns a signed `*_filled.xlsm`.
 
