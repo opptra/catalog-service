@@ -1,8 +1,9 @@
 """Build listing_template_column configs from a marketplace listing workbook.
 
-Discovers dropdowns from Excel list-validation formulas (Amazon) and from
-``DropDownValuesForColumn*`` / Index allowed-value sheets / ``Boolean`` type
-hints (Flipkart). No category-specific column names hard-coded.
+Discovers dropdowns from Excel list-validation formulas (Amazon named
+ranges / Valid Values), ``Sheet!$A$1:$A$10`` ranges (Myntra ``masterdata``),
+and ``DropDownValuesForColumn*`` / Index allowed-value sheets / ``Boolean``
+type hints (Flipkart). No category-specific column names hard-coded.
 
 Does not write to any database.
 """
@@ -23,6 +24,8 @@ from openpyxl.utils.cell import range_boundaries
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from utils.listing_workbook import workbook_from_xls_bytes
+
 # Template cell refs like B7 / CJ7 — ignore sheet-qualified refs separately.
 _CELL_REF_RE = re.compile(r"(?<![A-Z$!'])\b([A-Z]{1,3})(\d+)\b")
 _VLOOKUP_CELL_RE = re.compile(r"VLOOKUP\(\s*([A-Z]{1,3})(\d+)", re.IGNORECASE)
@@ -33,6 +36,17 @@ _CASCADE_NAMED_RANGE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _DROPDOWN_VALUES_SHEET_RE = re.compile(r"^DropDownValuesForColumn(\d+)$")
+_UNRESOLVED_DROPDOWN = "__UNRESOLVED_DROPDOWN__"
+# ``masterdata!$B$2:$B$249`` or ``'Sheet Name'!$A$1:$A$10`` (optional end cell).
+_SHEET_RANGE_RE = re.compile(
+    r"^"
+    r"(?:'([^']+)'|([A-Za-z_][\w. ]*))"
+    r"!"
+    r"(\$?[A-Z]{1,3}\$?\d+)"
+    r"(?::(\$?[A-Z]{1,3}\$?\d+))?"
+    r"$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -95,30 +109,7 @@ def _boolean_enum_from_type_hint(type_hint: str) -> list[str] | None:
 
 def _workbook_from_xls(path: Path) -> Workbook:
     """Load Excel 97-2003 .xls into an openpyxl workbook (values only)."""
-    try:
-        import xlrd
-    except ImportError as exc:
-        raise ValueError(
-            f"Cannot read {path.name}: Flipkart .xls workbooks need xlrd. "
-            "Install it in the server venv (see server/requirements.txt)."
-        ) from exc
-
-    book = xlrd.open_workbook(str(path))
-    wb = Workbook()
-    default = wb.active
-    for sheet_index, name in enumerate(book.sheet_names()):
-        source = book.sheet_by_index(sheet_index)
-        if sheet_index == 0:
-            ws = default
-            ws.title = name
-        else:
-            ws = wb.create_sheet(title=name)
-        for row in range(source.nrows):
-            for col in range(source.ncols):
-                text = _cell_text(source.cell_value(row, col))
-                if text:
-                    ws.cell(row + 1, col + 1, text)
-    return wb
+    return workbook_from_xls_bytes(path.read_bytes())
 
 
 def _open_listing_workbook(path: Path) -> Workbook:
@@ -244,6 +235,56 @@ def _dropdown_display_to_token(
     return mapping
 
 
+def _worksheet_by_name(wb: Workbook, name: str) -> Worksheet | None:
+    if name in wb.sheetnames:
+        return wb[name]
+    needle = name.casefold()
+    for sheet_name in wb.sheetnames:
+        if sheet_name.casefold() == needle:
+            return wb[sheet_name]
+    return None
+
+
+def _values_from_sheet_range(wb: Workbook, formula: str) -> list[str]:
+    """Read allowed values from a list-validation sheet range (Myntra masterdata)."""
+    match = _SHEET_RANGE_RE.match(formula.strip())
+    if not match:
+        return []
+    sheet_name = match.group(1) or match.group(2)
+    worksheet = _worksheet_by_name(wb, sheet_name)
+    if worksheet is None:
+        return []
+    start = match.group(3).replace("$", "")
+    end_raw = match.group(4)
+    end = end_raw.replace("$", "") if end_raw else start
+    min_col, min_row, max_col, max_row = range_boundaries(f"{start}:{end}")
+    if min_row > max_row or min_col > max_col:
+        return []
+    sheet_max_row = worksheet.max_row or min_row
+    max_row = min(max_row, sheet_max_row)
+    values: list[str] = []
+    for row in range(min_row, max_row + 1):
+        for col in range(min_col, max_col + 1):
+            text = _cell_text(worksheet.cell(row, col).value)
+            if text:
+                values.append(text)
+    return values
+
+
+def _values_from_list_formula(wb: Workbook, formula: str) -> list[str]:
+    """Resolve a data-validation list formula to allowed values."""
+    cleaned = formula.strip().lstrip("=").strip()
+    if not cleaned:
+        return []
+    static = _parse_static_list(cleaned)
+    if static:
+        return static
+    named = _resolve_defined_name(wb, cleaned.strip('"'))
+    if named:
+        return named
+    return _values_from_sheet_range(wb, cleaned)
+
+
 def _resolve_defined_name(wb: Workbook, name: str) -> list[str]:
     if name not in wb.defined_names:
         return []
@@ -256,10 +297,7 @@ def _resolve_defined_name(wb: Workbook, name: str) -> list[str]:
     values: list[str] = []
     for row in range(min_row, max_row + 1):
         for col in range(min_col, max_col + 1):
-            cell = ws.cell(row, col).value
-            if cell is None:
-                continue
-            text = str(cell).strip()
+            text = _cell_text(ws.cell(row, col).value)
             if text:
                 values.append(text)
     return values
@@ -503,9 +541,7 @@ def build_columns(
         else:
             values = values_by_label.get(label_s)
             if not values:
-                values = _parse_static_list(formula)
-            if not values:
-                values = _resolve_defined_name(wb, formula.strip().strip('"'))
+                values = _values_from_list_formula(wb, formula)
             if depends_on is not None and values and parent_flat_values:
                 config["valid_values_by_parent"] = {
                     parent_val: list(values) for parent_val in parent_flat_values
@@ -515,7 +551,7 @@ def build_columns(
             elif values:
                 config["valid_values"] = values
             else:
-                config["valid_values"] = ["__UNRESOLVED_DROPDOWN__"]
+                config["valid_values"] = [_UNRESOLVED_DROPDOWN]
 
         columns.append(
             {

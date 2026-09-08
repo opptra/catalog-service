@@ -26,6 +26,7 @@ from listing_mapping.marketplace.registry import get_adapter
 from listing_mapping.overlay import overlay_columns
 from listing_mapping.render import ApplyIds, render_mapping_sql
 from openpyxl import Workbook
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from utils.listing_template_columns import WorkbookLayout, build_columns
 
@@ -773,3 +774,43 @@ def test_build_columns_flipkart_index_and_dropdown_sheets(tmp_path: Path) -> Non
     assert by_index[4]["fill_type"] == "DIRECT_MAP"
     assert by_index[5]["fill_type"] == "ENUM"
     assert by_index[5]["valid_values"] == ["Yes", "No"]
+
+
+def test_build_columns_myntra_masterdata_sheet_ranges(tmp_path: Path) -> None:
+    path = tmp_path / "myntra.xlsx"
+    wb = Workbook()
+    listing = wb.active
+    listing.title = "Bedsheets"
+    listing["A3"] = "brand"
+    listing["B3"] = "Country Of Origin"
+    listing["C3"] = "notes"
+    master = wb.create_sheet("masterdata")
+    master["B2"] = "Reebok"
+    master["B3"] = "Puma"
+    master["D2"] = "India"
+    master["D3"] = "China"
+    brand_dv = DataValidation(type="list", formula1="masterdata!$B$2:$B$3")
+    brand_dv.add("A4")
+    origin_dv = DataValidation(type="list", formula1="masterdata!$D$2:$D$3")
+    origin_dv.add("B4")
+    listing.add_data_validation(brand_dv)
+    listing.add_data_validation(origin_dv)
+    wb.save(path)
+
+    columns = build_columns(
+        path,
+        layout=WorkbookLayout(
+            sheet_name="Bedsheets",
+            header_label_row=3,
+            machine_key_row=3,
+            data_start_row=4,
+        ),
+        include_requiredness=False,
+    )
+    by_index = {c["column_index"]: c["config"] for c in columns}
+    assert by_index[1]["fill_type"] == "ENUM"
+    assert by_index[1]["valid_values"] == ["Reebok", "Puma"]
+    assert by_index[2]["fill_type"] == "ENUM"
+    assert by_index[2]["valid_values"] == ["India", "China"]
+    assert by_index[3]["fill_type"] == "DIRECT_MAP"
+    assert "__UNRESOLVED_DROPDOWN__" not in (by_index[1].get("valid_values") or [])

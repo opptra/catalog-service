@@ -46,6 +46,46 @@ function formatLoadError(error: unknown): string {
   return 'Could not load attributes.'
 }
 
+interface HighlightPart {
+  value: string
+  matched: boolean
+}
+
+function splitHighlightParts(text: string, needle: string): HighlightPart[] {
+  const lowerText = text.toLowerCase()
+  const lowerNeedle = needle.toLowerCase()
+  const parts: HighlightPart[] = []
+  let start = 0
+  let index = lowerText.indexOf(lowerNeedle, start)
+  while (index !== -1) {
+    if (index > start) {
+      parts.push({ value: text.slice(start, index), matched: false })
+    }
+    parts.push({ value: text.slice(index, index + needle.length), matched: true })
+    start = index + needle.length
+    index = lowerText.indexOf(lowerNeedle, start)
+  }
+  if (start < text.length) {
+    parts.push({ value: text.slice(start), matched: false })
+  }
+  return parts
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  const needle = query.trim()
+  if (!needle) return text
+
+  return splitHighlightParts(text, needle).map((part, index) =>
+    part.matched ? (
+      <mark key={index} className="sku-attributes-modal__mark">
+        {part.value}
+      </mark>
+    ) : (
+      <span key={index}>{part.value}</span>
+    ),
+  )
+}
+
 function SkuAttributesModal({
   open,
   skuGenerationJobExternalId,
@@ -204,8 +244,12 @@ function SkuAttributesModal({
             <dl className="sku-attributes-modal__list">
               {visible.map((item) => (
                 <div key={item.name} className="sku-attributes-modal__row">
-                  <dt>{item.name}</dt>
-                  <dd>{item.value}</dd>
+                  <dt>
+                    <HighlightedText text={item.name} query={query} />
+                  </dt>
+                  <dd>
+                    <HighlightedText text={item.value} query={query} />
+                  </dd>
                 </div>
               ))}
             </dl>
