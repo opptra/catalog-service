@@ -120,7 +120,7 @@ def test_jobs_from_args_all_at_once(tmp_path: Path) -> None:
         out=None,
         out_dir=tmp_path / "sql",
         amazon_xlsm=tmp_path / "amazon.xlsm",
-        flipkart_xlsm=tmp_path / "flipkart.xls",
+        flipkart_xlsm=tmp_path / "flipkart.xlsm",
         myntra_xlsm=tmp_path / "myntra.xlsx",
         amazon_sheet_name="Template",
         flipkart_sheet_name="bedsheet",
@@ -175,7 +175,7 @@ def test_jobs_from_args_only_amazon_keeps_other_files(tmp_path: Path) -> None:
         out=None,
         out_dir=tmp_path / "sql",
         amazon_xlsm=tmp_path / "amazon.xlsm",
-        flipkart_xlsm=tmp_path / "flipkart.xls",
+        flipkart_xlsm=tmp_path / "flipkart.xlsm",
         myntra_xlsm=tmp_path / "myntra.xlsx",
         amazon_sheet_name=None,
         flipkart_sheet_name=None,
@@ -241,7 +241,7 @@ def test_collect_apply_ids_from_flags_only_selected_jobs(tmp_path: Path) -> None
         out=None,
         out_dir=tmp_path / "sql",
         amazon_xlsm=tmp_path / "amazon.xlsm",
-        flipkart_xlsm=tmp_path / "flipkart.xls",
+        flipkart_xlsm=tmp_path / "flipkart.xlsm",
         myntra_xlsm=tmp_path / "myntra.xlsx",
         amazon_sheet_name=None,
         flipkart_sheet_name=None,
@@ -258,7 +258,7 @@ def test_collect_apply_ids_from_flags_only_selected_jobs(tmp_path: Path) -> None
         flipkart_marketplace_external_id="1c6b0000-0000-4000-8000-0000000000ff",
         myntra_marketplace_external_id="1c6b0000-0000-4000-8000-0000000000bb",
         amazon_gcs_object_key="listing-templates/amazon.xlsm",
-        flipkart_gcs_object_key="listing-templates/flipkart.xls",
+        flipkart_gcs_object_key="listing-templates/flipkart.xlsm",
         myntra_gcs_object_key="listing-templates/myntra.xlsx",
     )
     jobs = jobs_from_args(args)
@@ -278,7 +278,7 @@ def test_collect_apply_ids_blank_skips_extra_marketplace(tmp_path: Path) -> None
         out=None,
         out_dir=tmp_path / "sql",
         amazon_xlsm=tmp_path / "amazon.xlsm",
-        flipkart_xlsm=tmp_path / "flipkart.xls",
+        flipkart_xlsm=tmp_path / "flipkart.xlsm",
         myntra_xlsm=tmp_path / "myntra.xlsx",
         amazon_sheet_name=None,
         flipkart_sheet_name=None,
@@ -320,6 +320,7 @@ def test_amazon_adapter_default_layout() -> None:
     assert layout.machine_key_row == 5
     assert layout.data_start_row == 7
     assert layout.valid_values_sheet == "Valid Values"
+    assert layout.enum_discovery == "amazon"
 
 
 def test_amazon_adapter_overrides() -> None:
@@ -339,6 +340,7 @@ def test_flipkart_adapter_default_layout() -> None:
     assert layout.machine_key_row == 2
     assert layout.data_start_row == 5
     assert layout.valid_values_sheet is None
+    assert layout.enum_discovery == "flipkart"
 
 
 def test_myntra_adapter_default_layout() -> None:
@@ -348,6 +350,7 @@ def test_myntra_adapter_default_layout() -> None:
     assert layout.machine_key_row == 3
     assert layout.data_start_row == 4
     assert layout.valid_values_sheet is None
+    assert layout.enum_discovery == "myntra"
 
 
 def test_myntra_adapter_overrides() -> None:
@@ -571,6 +574,7 @@ def test_render_mapping_sql() -> None:
             header_label_row=4,
             machine_key_row=5,
             data_start_row=7,
+            enum_discovery="amazon",
         ),
         xlsm_name="cat.xlsm",
         mapping_name="map.xlsx",
@@ -762,6 +766,7 @@ def test_build_columns_flipkart_index_and_dropdown_sheets(tmp_path: Path) -> Non
             header_label_row=1,
             machine_key_row=2,
             data_start_row=5,
+            enum_discovery="flipkart",
         ),
         include_requiredness=False,
     )
@@ -774,6 +779,42 @@ def test_build_columns_flipkart_index_and_dropdown_sheets(tmp_path: Path) -> Non
     assert by_index[4]["fill_type"] == "DIRECT_MAP"
     assert by_index[5]["fill_type"] == "ENUM"
     assert by_index[5]["valid_values"] == ["Yes", "No"]
+
+
+def test_build_columns_amazon_ignores_flipkart_dropdown_sheets(tmp_path: Path) -> None:
+    """Amazon discovery must not treat Flipkart Index / column sheets as ENUM lists."""
+    path = tmp_path / "amazon.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Template"
+    ws["A4"] = "Seller SKU"
+    ws["A5"] = "item_sku"
+    ws["B4"] = "Color"
+    ws["B5"] = "color_name"
+    idx = wb.create_sheet("Index")
+    idx["C1"] = "Allowed Values"
+    idx["D2"] = "Color"
+    idx["D3"] = "ShouldNotAttach"
+    dd = wb.create_sheet("DropDownValuesForColumn1")
+    dd["A1"] = "AlsoShouldNotAttach"
+    wb.save(path)
+
+    columns = build_columns(
+        path,
+        layout=WorkbookLayout(
+            sheet_name="Template",
+            header_label_row=4,
+            machine_key_row=5,
+            data_start_row=7,
+            enum_discovery="amazon",
+        ),
+        include_requiredness=False,
+    )
+    by_index = {c["column_index"]: c["config"] for c in columns}
+    assert by_index[1]["fill_type"] == "DIRECT_MAP"
+    assert by_index[2]["fill_type"] == "DIRECT_MAP"
+    assert "ShouldNotAttach" not in (by_index[2].get("valid_values") or [])
+    assert "AlsoShouldNotAttach" not in (by_index[1].get("valid_values") or [])
 
 
 def test_build_columns_myntra_masterdata_sheet_ranges(tmp_path: Path) -> None:
@@ -804,6 +845,7 @@ def test_build_columns_myntra_masterdata_sheet_ranges(tmp_path: Path) -> None:
             header_label_row=3,
             machine_key_row=3,
             data_start_row=4,
+            enum_discovery="myntra",
         ),
         include_requiredness=False,
     )

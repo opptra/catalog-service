@@ -1,9 +1,8 @@
 """Build listing_template_column configs from a marketplace listing workbook.
 
-Discovers dropdowns from Excel list-validation formulas (Amazon named
-ranges / Valid Values), ``Sheet!$A$1:$A$10`` ranges (Myntra ``masterdata``),
-and ``DropDownValuesForColumn*`` / Index allowed-value sheets / ``Boolean``
-type hints (Flipkart). No category-specific column names hard-coded.
+Dropdown discovery is selected by ``WorkbookLayout.enum_discovery`` from the
+marketplace adapter — Amazon named ranges, Flipkart column sheets, and Myntra
+sheet ranges do not run on each other's files.
 
 Does not write to any database.
 """
@@ -15,7 +14,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
@@ -24,7 +23,7 @@ from openpyxl.utils.cell import range_boundaries
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from utils.listing_workbook import workbook_from_xls_bytes
+from utils.listing_workbook import detect_openxml_kind
 
 # Template cell refs like B7 / CJ7 — ignore sheet-qualified refs separately.
 _CELL_REF_RE = re.compile(r"(?<![A-Z$!'])\b([A-Z]{1,3})(\d+)\b")
@@ -49,18 +48,22 @@ _SHEET_RANGE_RE = re.compile(
 )
 
 
+EnumDiscovery = Literal["amazon", "flipkart", "myntra"]
+
+
 @dataclass(frozen=True)
 class WorkbookLayout:
     """Offsets into the blank marketplace workbook (same as listing_template.metadata).
 
-    All values come from the CLI / caller — no marketplace-specific defaults.
-    Optional sheet names may be omitted when that workbook has no such sheet.
+    ``enum_discovery`` is required: adapters set it so Amazon / Flipkart / Myntra
+    dropdown parsers never share one mixed path.
     """
 
     sheet_name: str
     header_label_row: int
     machine_key_row: int
     data_start_row: int
+    enum_discovery: EnumDiscovery
     valid_values_sheet: str | None = None
     dropdown_lists_sheet: str | None = None
     data_definitions_sheet: str | None = None
@@ -107,20 +110,10 @@ def _boolean_enum_from_type_hint(type_hint: str) -> list[str] | None:
     return ["Yes", "No"]
 
 
-def _workbook_from_xls(path: Path) -> Workbook:
-    """Load Excel 97-2003 .xls into an openpyxl workbook (values only)."""
-    return workbook_from_xls_bytes(path.read_bytes())
-
-
 def _open_listing_workbook(path: Path) -> Workbook:
-    suffix = path.suffix.lower()
-    if suffix in {".xlsx", ".xlsm"}:
-        return load_workbook(path, read_only=False, data_only=False, keep_vba=True)
-    if suffix == ".xls":
-        return _workbook_from_xls(path)
-    raise ValueError(
-        f"Unsupported listing workbook type {path.suffix!r}. Expected .xlsx, .xlsm, or .xls"
-    )
+    data = path.read_bytes()
+    kind = detect_openxml_kind(data)
+    return load_workbook(path, read_only=False, data_only=False, keep_vba=kind == "xlsm")
 
 
 def _dropdown_values_by_column_sheets(wb: Workbook) -> dict[int, list[str]]:
@@ -408,6 +401,143 @@ def _cascaded_values_by_parent(
     return out
 
 
+def _column_record(
+    *,
+    col_index: int,
+    key_s: str | None,
+    config: dict[str, Any],
+    depends_on: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "column_index": col_index,
+        "depends_on": depends_on,
+        # Parse-time only — used to match mapping CSV; not stored in config.
+        "workbook_key": key_s,
+        "config": config,
+    }
+
+
+def _direct_map_config(
+    label_s: str,
+    *,
+    include_requiredness: bool,
+    req_by_key: dict[str, str],
+    key_s: str | None,
+) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "fill_type": "DIRECT_MAP",
+        "label": label_s,
+    }
+    if include_requiredness:
+        config["requiredness"] = req_by_key.get(key_s or "", "OPTIONAL")
+    return config
+
+
+def _flat_enum_config(
+    label_s: str,
+    values: list[str],
+    *,
+    include_requiredness: bool,
+    req_by_key: dict[str, str],
+    key_s: str | None,
+) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "fill_type": "ENUM",
+        "label": label_s,
+        "valid_values": values,
+    }
+    if include_requiredness:
+        config["requiredness"] = req_by_key.get(key_s or "", "OPTIONAL")
+    return config
+
+
+def _amazon_enum_config(
+    *,
+    wb: Workbook,
+    layout: WorkbookLayout,
+    formula: str,
+    col_index: int,
+    label_s: str,
+    key_s: str | None,
+    data_row: int,
+    labels_by_index: dict[int, str],
+    values_by_label: dict[str, list[str]],
+    product_values: list[str],
+    product_tokens: list[str],
+    include_requiredness: bool,
+    req_by_key: dict[str, str],
+) -> tuple[dict[str, Any], int | None]:
+    parent_col = _immediate_parent_column(
+        formula=formula,
+        column_index=col_index,
+        data_row=data_row,
+    )
+    config: dict[str, Any] = {
+        "fill_type": "ENUM",
+        "label": label_s,
+    }
+    if include_requiredness:
+        config["requiredness"] = req_by_key.get(key_s or "", "OPTIONAL")
+    if parent_col is not None:
+        config["depends_on"] = parent_col
+
+    parent_label = labels_by_index.get(parent_col or -1)
+    parent_flat_values = list(values_by_label.get(parent_label or "") or []) if parent_label else []
+
+    cascaded = None
+    if parent_col is not None and _VLOOKUP_CELL_RE.search(formula):
+        cascaded = _cascaded_values_by_parent(
+            wb,
+            formula=formula,
+            parent_values=parent_flat_values,
+            product_tokens=product_tokens,
+            dropdown_lists_sheet=layout.dropdown_lists_sheet,
+        )
+
+    if cascaded is not None:
+        config["valid_values_by_parent"] = cascaded
+    else:
+        values = values_by_label.get(label_s)
+        if not values:
+            values = _values_from_list_formula(wb, formula)
+        if parent_col is not None and values and parent_flat_values:
+            config["valid_values_by_parent"] = {
+                parent_val: list(values) for parent_val in parent_flat_values
+            }
+        elif parent_col is not None and values and product_values:
+            config["valid_values_by_parent"] = {pt: list(values) for pt in product_values}
+        elif values:
+            config["valid_values"] = values
+        else:
+            config["valid_values"] = [_UNRESOLVED_DROPDOWN]
+    return config, parent_col
+
+
+def _flipkart_enum_values(
+    *,
+    wb: Workbook,
+    col_index: int,
+    label_s: str,
+    type_hint: str,
+    formula: str | None,
+    dropdown_by_col: dict[int, list[str]],
+    dropdown_by_label: dict[str, list[str]],
+) -> list[str] | None:
+    """Flipkart only: named-range DV, then DropDownValues sheets, Index, Boolean."""
+    if formula:
+        values = _values_from_list_formula(wb, formula)
+        if values:
+            return values
+    if not _looks_like_url_column(label_s, type_hint):
+        sheet_enum = dropdown_by_col.get(col_index)
+        if sheet_enum:
+            return sheet_enum
+    sheet_enum = dropdown_by_label.get(label_s)
+    if sheet_enum:
+        return sheet_enum
+    return _boolean_enum_from_type_hint(type_hint)
+
+
 def build_columns(
     xlsm_path: Path,
     *,
@@ -416,8 +546,7 @@ def build_columns(
 ) -> list[dict[str, Any]]:
     """Parse workbook → column dicts with resolve_stage + config.
 
-    ``layout`` must be supplied by the caller (CLI flags / metadata) — no
-    marketplace defaults are applied here.
+    ``layout`` comes from the marketplace adapter (offsets + ``enum_discovery``).
     When ``include_requiredness`` is False, configs omit Data Definitions
     required/optional (listing-mapping uses category attribute_spec instead).
     """
@@ -426,21 +555,31 @@ def build_columns(
         raise ValueError(f"Workbook needs sheet {layout.sheet_name!r}")
 
     ws = wb[layout.sheet_name]
+    discovery = layout.enum_discovery
     req_by_key: dict[str, str] = {}
-    if include_requiredness:
+    if include_requiredness and discovery == "amazon":
         req_by_key = _data_definition_requiredness(wb, sheet_name=layout.data_definitions_sheet)
-    values_by_label = _load_valid_values_by_label(wb, sheet_name=layout.valid_values_sheet)
-    list_formulas = _list_validations_by_column(ws)
-    dropdown_by_col = _dropdown_values_by_column_sheets(wb)
-    dropdown_by_label = _index_sheet_allowed_values(wb)
-    data_row = layout.data_start_row
-    product_values = _product_type_values(values_by_label)
-    product_tokens = (
-        [v.replace("-", "_").replace(" ", "") for v in product_values]
-        if product_values
-        else [_product_type_token(values_by_label)]
-    )
 
+    values_by_label: dict[str, list[str]] = {}
+    product_values: list[str] = []
+    product_tokens: list[str] = []
+    if discovery == "amazon":
+        values_by_label = _load_valid_values_by_label(wb, sheet_name=layout.valid_values_sheet)
+        product_values = _product_type_values(values_by_label)
+        product_tokens = (
+            [v.replace("-", "_").replace(" ", "") for v in product_values]
+            if product_values
+            else [_product_type_token(values_by_label)]
+        )
+
+    list_formulas = _list_validations_by_column(ws)
+    dropdown_by_col: dict[int, list[str]] = {}
+    dropdown_by_label: dict[str, list[str]] = {}
+    if discovery == "flipkart":
+        dropdown_by_col = _dropdown_values_by_column_sheets(wb)
+        dropdown_by_label = _index_sheet_allowed_values(wb)
+
+    data_row = layout.data_start_row
     max_col = ws.max_column or 0
     labels_by_index = {
         c: str(ws.cell(layout.header_label_row, c).value).strip()
@@ -456,110 +595,117 @@ def build_columns(
             continue
         label_s = str(label).strip() if label else f"Column {col_index}"
         key_s = str(machine_key).strip() if machine_key else None
-
         formula = list_formulas.get(col_index)
-        type_hint = key_s or ""
-        sheet_enum: list[str] | None = None
-        if formula is None:
-            if not _looks_like_url_column(label_s, type_hint):
-                sheet_enum = dropdown_by_col.get(col_index)
-            if not sheet_enum:
-                sheet_enum = dropdown_by_label.get(label_s)
-            if not sheet_enum:
-                sheet_enum = _boolean_enum_from_type_hint(type_hint)
-        if formula is None and sheet_enum:
-            config = {
-                "fill_type": "ENUM",
-                "label": label_s,
-                "valid_values": sheet_enum,
-            }
-            if include_requiredness:
-                config["requiredness"] = req_by_key.get(key_s or "", "OPTIONAL")
-            columns.append(
-                {
-                    "column_index": col_index,
-                    "depends_on": None,
-                    "workbook_key": key_s,
-                    "config": config,
-                }
-            )
-            continue
-        if formula is None:
-            # Non-dropdown defaults to DIRECT_MAP. Product sets IMAGE / CONSTANT /
-            # SKIP / AI_TEXT in DB (or a follow-up SQL) when known.
-            config = {
-                "fill_type": "DIRECT_MAP",
-                "label": label_s,
-            }
-            if include_requiredness:
-                config["requiredness"] = req_by_key.get(key_s or "", "OPTIONAL")
-            columns.append(
-                {
-                    "column_index": col_index,
-                    "depends_on": None,
-                    # Parse-time only — used to match mapping CSV; not stored in config.
-                    "workbook_key": key_s,
-                    "config": config,
-                }
-            )
-            continue
 
-        parent_col = _immediate_parent_column(
-            formula=formula,
-            column_index=col_index,
-            data_row=data_row,
-        )
-        # Parent pointer for fill is Excel column_index (stable for this template).
-        depends_on: int | None = parent_col
-
-        config = {
-            "fill_type": "ENUM",
-            "label": label_s,
-        }
-        if include_requiredness:
-            config["requiredness"] = req_by_key.get(key_s or "", "OPTIONAL")
-        if depends_on is not None:
-            config["depends_on"] = depends_on
-
-        parent_label = labels_by_index.get(parent_col or -1)
-        parent_flat_values = (
-            list(values_by_label.get(parent_label or "") or []) if parent_label else []
-        )
-
-        cascaded = None
-        if depends_on is not None and _VLOOKUP_CELL_RE.search(formula):
-            cascaded = _cascaded_values_by_parent(
-                wb,
+        if discovery == "flipkart":
+            sheet_enum = _flipkart_enum_values(
+                wb=wb,
+                col_index=col_index,
+                label_s=label_s,
+                type_hint=key_s or "",
                 formula=formula,
-                parent_values=parent_flat_values,
-                product_tokens=product_tokens,
-                dropdown_lists_sheet=layout.dropdown_lists_sheet,
+                dropdown_by_col=dropdown_by_col,
+                dropdown_by_label=dropdown_by_label,
             )
+            if sheet_enum:
+                columns.append(
+                    _column_record(
+                        col_index=col_index,
+                        key_s=key_s,
+                        config=_flat_enum_config(
+                            label_s,
+                            sheet_enum,
+                            include_requiredness=include_requiredness,
+                            req_by_key=req_by_key,
+                            key_s=key_s,
+                        ),
+                    )
+                )
+                continue
+            columns.append(
+                _column_record(
+                    col_index=col_index,
+                    key_s=key_s,
+                    config=_direct_map_config(
+                        label_s,
+                        include_requiredness=include_requiredness,
+                        req_by_key=req_by_key,
+                        key_s=key_s,
+                    ),
+                )
+            )
+            continue
 
-        if cascaded is not None:
-            config["valid_values_by_parent"] = cascaded
-        else:
-            values = values_by_label.get(label_s)
-            if not values:
+        if discovery == "myntra":
+            if formula:
                 values = _values_from_list_formula(wb, formula)
-            if depends_on is not None and values and parent_flat_values:
-                config["valid_values_by_parent"] = {
-                    parent_val: list(values) for parent_val in parent_flat_values
-                }
-            elif depends_on is not None and values and product_values:
-                config["valid_values_by_parent"] = {pt: list(values) for pt in product_values}
-            elif values:
-                config["valid_values"] = values
-            else:
-                config["valid_values"] = [_UNRESOLVED_DROPDOWN]
+                if values:
+                    columns.append(
+                        _column_record(
+                            col_index=col_index,
+                            key_s=key_s,
+                            config=_flat_enum_config(
+                                label_s,
+                                values,
+                                include_requiredness=include_requiredness,
+                                req_by_key=req_by_key,
+                                key_s=key_s,
+                            ),
+                        )
+                    )
+                    continue
+            columns.append(
+                _column_record(
+                    col_index=col_index,
+                    key_s=key_s,
+                    config=_direct_map_config(
+                        label_s,
+                        include_requiredness=include_requiredness,
+                        req_by_key=req_by_key,
+                        key_s=key_s,
+                    ),
+                )
+            )
+            continue
 
+        # Amazon: named ranges, Valid Values sheet, cascading VLOOKUP.
+        if formula is None:
+            columns.append(
+                _column_record(
+                    col_index=col_index,
+                    key_s=key_s,
+                    config=_direct_map_config(
+                        label_s,
+                        include_requiredness=include_requiredness,
+                        req_by_key=req_by_key,
+                        key_s=key_s,
+                    ),
+                )
+            )
+            continue
+
+        config, depends_on = _amazon_enum_config(
+            wb=wb,
+            layout=layout,
+            formula=formula,
+            col_index=col_index,
+            label_s=label_s,
+            key_s=key_s,
+            data_row=data_row,
+            labels_by_index=labels_by_index,
+            values_by_label=values_by_label,
+            product_values=product_values,
+            product_tokens=product_tokens,
+            include_requiredness=include_requiredness,
+            req_by_key=req_by_key,
+        )
         columns.append(
-            {
-                "column_index": col_index,
-                "depends_on": depends_on,
-                "workbook_key": key_s,
-                "config": config,
-            }
+            _column_record(
+                col_index=col_index,
+                key_s=key_s,
+                config=config,
+                depends_on=depends_on,
+            )
         )
 
     _assign_resolve_stages(columns)
