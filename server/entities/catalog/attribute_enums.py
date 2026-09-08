@@ -68,8 +68,6 @@ class ListingFillType(StrEnum):
     DIRECT_MAP = "DIRECT_MAP"
     AI_TEXT = "AI_TEXT"
     IMAGE = "IMAGE"
-    # Legacy alias for DIRECT_MAP + source.from=GENERATION (text attributes).
-    LLM_TEXT = "LLM_TEXT"
 
 
 class ListingValueSourceFrom(StrEnum):

@@ -20,6 +20,9 @@ def test_slot_prompt_fact_rendering_contract() -> None:
         ],
         brand_look="",
     )
+    assert "On-image text budget: 1 item(s)" in prompt
+    assert "once as overlay chrome" in prompt
+    assert "Letters printed on the physical product are identity" in prompt
     assert '"value" is immutable' in prompt
     assert "source_field" in prompt and "semantic context" in prompt
     assert "Thread Count: 120" in prompt or "120 Thread Count" in prompt
@@ -44,11 +47,20 @@ def test_slot_prompt_closer_separates_content_from_facts() -> None:
     )
     assert "Content and Pattern are the shot" in prompt
     assert "leaving the reference room behind" in prompt
-    assert "Only the facts JSON may determine the claims and information" in prompt
+    assert "not copy to typeset" in prompt
+    assert "never paint any word from Slot, Content, Pattern, or JSON DNA" in prompt
+    assert "mute visual marks" in prompt
+    assert "Do not copy badges, size tags, or feature callouts" in prompt
+    assert "Only the facts JSON may determine overlay claims" in prompt
+    assert "on-product print" in prompt
+    assert "Empty facts JSON means no overlay chrome" in prompt
     assert "Do not invent unsupported specifications" in prompt
     assert "Keep the product's identity from the reference photos" in prompt
+    assert "Content (composition only — not on-image copy):" in prompt
     assert "Content and Pattern describe infographic type" not in prompt
-    assert "Keep the product appearance from the reference photos as the visual priority" not in prompt
+    assert (
+        "Keep the product appearance from the reference photos as the visual priority" not in prompt
+    )
 
 
 def test_slot_prompt_no_facts_branch_unchanged() -> None:
@@ -64,4 +76,8 @@ def test_slot_prompt_no_facts_branch_unchanged() -> None:
     )
     assert "This shot has no on-image facts" in prompt
     assert "Paint no product specs" in prompt
+    assert "Keep letters that are physically on the product" in prompt
+    assert "Empty facts JSON means no overlay chrome" in prompt
+    assert "Empty facts JSON means zero words" not in prompt
     assert "Content and Pattern are the shot" in prompt
+    assert "Content (composition only — not on-image copy):" in prompt
