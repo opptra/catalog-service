@@ -2,8 +2,9 @@
 
 The vision model scores the generated image on three axes:
 
-- identity (hard) — same variant as source photos + catalog Color/Pack/silhouette
-- claims (hard) — on-image text vs ``sku_master.attributes``
+- identity (hard) — same variant as source photos + catalog Color/Pack/print/silhouette,
+  including letters physically on the product
+- claims (hard) — overlay chrome vs ``sku_master.attributes`` (on-product print is identity)
 - quality (advisory) — crop, blur, unreadable type; shown, never retries
 
 ``confidence`` persisted for the UI is ``min(identity, claims)``. Omission is
@@ -287,22 +288,29 @@ def _verify_suffix(
         "You are marketplace image QA for one generated catalog slot "
         "(PDP gallery or A+). This image may go live. Prefer a miss over a silent ship.\n"
         f"{photo_line}\n"
-        "Read every shopper-facing word, badge, and label on the generated image.\n\n"
+        "Read every shopper-facing word, badge, and label on the generated image. "
+        "Split them: on-product print (woven, stamped, or lettered into the goods) vs "
+        "overlay chrome (badges, pills, captions, size tags, icon labels).\n\n"
         f"{slot_block}\n\n"
         "Score THREE axes (integers 0–100):\n"
         "- identity: same physical variant as the source photos and PRODUCT DATA "
-        "Color / pack / print / silhouette. Size printed on the artwork is a CLAIMS "
-        "issue, not identity. Lifestyle vs packshot is fine if it is the same product.\n"
-        "- claims: on-image text vs the FULL PRODUCT DATA JSON — every key and every "
+        "Color / pack / print / silhouette, including letters that are physically on "
+        "the product. If source photos show on-product type and the generated image "
+        "drops it, that is an identity miss. Overlay size tags are a CLAIMS issue, "
+        "not identity. Lifestyle vs packshot is fine if it is the same product.\n"
+        "- claims: overlay chrome vs the FULL PRODUCT DATA JSON — every key and every "
         "value, including long fields such as Description. Synonyms match "
-        '("King Size" vs "King"). Omission is allowed — empty text can score high. '
-        "Contradiction: on-image text fights a dedicated short field (Size, Color, Pack, "
+        '("King Size" vs "King", "anti-slip" vs "non-slip"). Omission is allowed — '
+        "empty overlay can score high. On-product lettering that matches the source "
+        "photos is identity, not a claim, and is never invented — even if that wording "
+        "is not a PRODUCT DATA key. "
+        "Contradiction: overlay text fights a dedicated short field (Size, Color, Pack, "
         "etc.); that dedicated field wins even if Description disagrees. "
-        "Invented: the claim (or a synonym) appears in NO key and NO value anywhere in "
+        "Invented: the overlay claim (or a synonym) appears in NO key and NO value anywhere in "
         "PRODUCT DATA. If it appears in Description or any other value, it is NOT invented. "
         "Do not treat Description as marketing noise — search it. It is also a fact. "
         "Point it out when there is a contradiction between Description and the dedicated field. "
-        "SKU, ASIN, UPC, EAN, or GTIN printed on the artwork is invented even if those "
+        "SKU, ASIN, UPC, EAN, or GTIN printed as overlay chrome is invented even if those "
         "ids exist in PRODUCT DATA.\n"
         "- quality: production fitness (crop, blur, unreadable type, junk props). "
         "Advisory only — do not let quality dominate identity or claims.\n\n"

@@ -87,7 +87,8 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
         "name": IMAGE_VERIFICATION_TOOL_NAME,
         "description": (
             "Submit marketplace image QA for one generated catalog slot. "
-            "Score identity vs source photos, claims vs PRODUCT DATA, and quality."
+            "Score identity vs source photos (including on-product print), "
+            "overlay claims vs PRODUCT DATA, and quality."
         ),
         "parameters": {
             "type": "object",
@@ -98,7 +99,7 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "maximum": 100,
                     "description": (
                         "0–100 same physical variant as source photos and catalog "
-                        "Color/pack/print/silhouette."
+                        "Color/pack/print/silhouette, including on-product lettering."
                     ),
                 },
                 "claims": {
@@ -106,9 +107,10 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "minimum": 0,
                     "maximum": 100,
                     "description": (
-                        "0–100 on-image text agrees with PRODUCT DATA (any key or value, "
-                        "including Description). Omission may be high. Invented only if "
-                        "the claim is nowhere in the JSON."
+                        "0–100 overlay chrome agrees with PRODUCT DATA (any key or value, "
+                        "including Description). On-product print matching source photos "
+                        "is identity, not invented. Omission may be high. Invented only if "
+                        "the overlay claim is nowhere in the JSON."
                     ),
                 },
                 "quality": {
@@ -126,7 +128,9 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                 "observed_text": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Shopper-facing words/badges read off the generated image.",
+                    "description": (
+                        "Shopper-facing words. Include on-product print and overlay chrome."
+                    ),
                 },
                 "mismatches": {
                     "type": "array",

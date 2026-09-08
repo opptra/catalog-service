@@ -468,8 +468,9 @@ def _slot_prompt(
         budget = len(assigned_facts)
         lines.append(
             f"On-image text budget: {budget} item(s). Paint each facts JSON value "
-            "once. Do not add another piece of type from Content, Pattern, Slot, "
-            "JSON DNA, or the reference photos."
+            "once as overlay chrome. Do not add another overlay from Content, Pattern, "
+            "Slot, JSON DNA, or source-photo badges and size tags. Letters printed on "
+            "the physical product are identity, not extra budget items."
         )
         lines.append(
             "This shot has required on-image facts as JSON below. Render every fact "
@@ -495,7 +496,8 @@ def _slot_prompt(
     else:
         lines.append(
             "This shot has no on-image facts. Paint no product specs, slogans, size "
-            "charts, icon strips, captions, or promotional copy."
+            "charts, icon strips, captions, or promotional copy. Keep letters that "
+            "are physically on the product."
         )
 
     lines.extend(
@@ -504,18 +506,19 @@ def _slot_prompt(
             "Content and Pattern are the shot: room, lighting, mood, cutaway, and how "
             "the product sits. Follow them even when that means leaving the reference "
             "room behind. They are not copy to typeset — never paint any word from "
-            "Slot, Content, Pattern, or JSON DNA onto the artwork.",
-            "The only letters or digits allowed on the artwork are the facts JSON "
+            "Slot, Content, Pattern, or JSON DNA onto the artwork as overlay chrome.",
+            "Overlay letters or digits may come only from the facts JSON "
             '"value" strings, optionally with a short source_field label. Empty facts '
-            "JSON means zero words. Diagrams may use mute visual marks (cut planes, "
-            "lines, arrows) with no captions beyond those values. Do not copy printed "
-            "text, badges, size tags, or overlays from the reference photos unless it "
-            "is part of the product's design or branding.",
-            "Only the facts JSON may determine the claims and information on the image.",
+            "JSON means no overlay chrome — not a blank product. Keep on-product "
+            "lettering, woven marks, and print from the reference photos. Diagrams may "
+            "use mute visual marks (cut planes, lines, arrows) with no captions beyond "
+            "those overlay values. Do not copy badges, size tags, or feature callouts "
+            "from the reference photos.",
+            "Only the facts JSON may determine overlay claims and information.",
             "Do not invent unsupported specifications, claims, or marketing copy.",
             "Keep the product's identity from the reference photos — colour, heading, fabric, "
-            "hardware. Do not keep the reference lighting or room if they fight Content and "
-            "Pattern.",
+            "hardware, and on-product print. Do not keep the reference lighting or room if they "
+            "fight Content and Pattern.",
             "Do not draw a logo. Do not mention canvas ratio or font names.",
         ]
     )
