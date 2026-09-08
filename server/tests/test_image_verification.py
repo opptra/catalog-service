@@ -301,6 +301,9 @@ def test_verify_image_attaches_generated_then_capped_sources(monkeypatch: Any) -
     assert "role=hero" in client.prompt
     assert "Amazon" not in client.prompt
     assert "If it appears in Description or any other value, it is NOT invented" in client.prompt
+    assert "on-product print" in client.prompt
+    assert "overlay chrome" in client.prompt
+    assert "never invented" in client.prompt
     assert "Never read, transcribe, cite, or score text" in client.prompt
     assert "text ON THE GENERATED IMAGE" in client.prompt
     assert "every key AND every value is a fact" in (client.cache_prefix or "")

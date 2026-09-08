@@ -334,11 +334,27 @@ def _select_slots(
 def _facts_for_claims(
     owned_claims: list[str],
     fact_board: FactBoard,
+    *,
+    limit: int | None = None,
 ) -> list[AssignedFact]:
+    """Expand owned claims into on-image facts, capped at ``limit`` values.
+
+    ``max_callouts`` is a paint budget (how many texts), not only a claim-count.
+    Combined claims can yield several values; later values are dropped once the
+    budget is full so the image brief cannot exceed the slot cap.
+    """
     out: list[AssignedFact] = []
     seen_values: set[str] = set()
     for claim in owned_claims:
         for item in fact_board.get(claim, []):
+            if limit is not None and len(out) >= limit:
+                logger.info(
+                    "facts cap claim=%r value=%r reason=max_callouts_%s",
+                    claim,
+                    item.value,
+                    limit,
+                )
+                return out
             norm = _normalize_value(item.value)
             if norm in seen_values:
                 continue
@@ -415,7 +431,7 @@ def _allocate_slots(
                 slot_def=slot_def,
                 concept=_slot_concept(slot_def),
                 owned_claims=owned,
-                assigned_facts=_facts_for_claims(owned, fact_board),
+                assigned_facts=_facts_for_claims(owned, fact_board, limit=_max_callouts(slot_def)),
             )
         )
     return allocated
@@ -455,15 +471,22 @@ def _slot_prompt(
         f"Slot: {slot_line}",
     ]
     if content:
-        lines.append(f"Content: {content}")
+        lines.append(f"Content (composition only — not on-image copy): {content}")
     if pattern:
-        lines.append(f"Pattern: {pattern}")
+        lines.append(f"Pattern (composition only — not on-image copy): {pattern}")
     dna_block = common_image.format_block(brand_look)
     if dna_block:
         lines.append(dna_block)
     lines.append("")
 
     if assigned_facts:
+        budget = len(assigned_facts)
+        lines.append(
+            f"On-image text budget: {budget} item(s). Paint each facts JSON value "
+            "once as overlay chrome. Do not add another overlay from Content, Pattern, "
+            "Slot, JSON DNA, or source-photo badges and size tags. Letters printed on "
+            "the physical product are identity, not extra budget items."
+        )
         lines.append(
             "This shot has required on-image facts as JSON below. Render every fact "
             "visibly and legibly in the finished image."
@@ -488,18 +511,29 @@ def _slot_prompt(
     else:
         lines.append(
             "This shot has no on-image facts. Paint no product specs, slogans, size "
-            "charts, icon strips, or promotional copy."
+            "charts, icon strips, captions, or promotional copy. Keep letters that "
+            "are physically on the product."
         )
 
     lines.extend(
         [
             "",
-            "Content and Pattern are the shot: room, lighting, mood, and how the product sits. "
-            "Follow them even when that means leaving the reference room behind.",
-            "Only the facts JSON may determine the claims and information on the image.",
+            "Content and Pattern are the shot: room, lighting, mood, cutaway, and how "
+            "the product sits. Follow them even when that means leaving the reference "
+            "room behind. They are not copy to typeset — never paint any word from "
+            "Slot, Content, Pattern, or JSON DNA onto the artwork as overlay chrome.",
+            "Overlay letters or digits may come only from the facts JSON "
+            '"value" strings, optionally with a short source_field label. Empty facts '
+            "JSON means no overlay chrome — not a blank product. Keep on-product "
+            "lettering, woven marks, and print from the reference photos. Diagrams may "
+            "use mute visual marks (cut planes, lines, arrows) with no captions beyond "
+            "those overlay values. Do not copy badges, size tags, or feature callouts "
+            "from the reference photos.",
+            "Only the facts JSON may determine overlay claims and information.",
             "Do not invent unsupported specifications, claims, or marketing copy.",
             "Keep the product's identity from the reference photos — colour, heading, fabric, "
-            "hardware. Do not keep the reference lighting or room if they fight Content and Pattern.",
+            "hardware, and on-product print. Do not keep the reference lighting or room if they "
+            "fight Content and Pattern.",
             "Do not draw a logo. Do not mention canvas ratio or font names.",
         ]
     )
