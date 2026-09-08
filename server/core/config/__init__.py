@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     openrouter_image_model: str
     # Vision model for post-render product-data verification (OCR vs sku attributes).
     openrouter_verify_model: str = "openai/gpt-4o"
+    # Vision model for inbound QC extract (CSV vs source photos). Independent of verify.
+    openrouter_inbound_qc_model: str = "openai/gpt-5.4-mini"
 
     # Google Cloud — credentials + project from ADC (not settings).
     # REGION is required from env / Secret Manager (same key everywhere).

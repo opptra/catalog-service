@@ -87,8 +87,9 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
         "name": IMAGE_VERIFICATION_TOOL_NAME,
         "description": (
             "Submit marketplace image QA for one generated catalog slot. "
-            "Score identity vs source photos (including on-product print), "
-            "overlay claims vs PRODUCT DATA, and quality."
+            "Score identity of the generated image vs source photos "
+            "(including on-product print), overlay claims vs PRODUCT DATA, "
+            "and quality of the generated image only. Never score source photos."
         ),
         "parameters": {
             "type": "object",
@@ -98,8 +99,9 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "minimum": 0,
                     "maximum": 100,
                     "description": (
-                        "0–100 same physical variant as source photos and catalog "
-                        "Color/pack/print/silhouette, including on-product lettering."
+                        "0–100 generated image is the same physical variant as source "
+                        "photos and catalog Color/pack/print/silhouette, including "
+                        "on-product lettering. Do not score the source photos themselves."
                     ),
                 },
                 "claims": {
@@ -107,10 +109,11 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "minimum": 0,
                     "maximum": 100,
                     "description": (
-                        "0–100 overlay chrome agrees with PRODUCT DATA (any key or value, "
-                        "including Description). On-product print matching source photos "
-                        "is identity, not invented. Omission may be high. Invented only if "
-                        "the overlay claim is nowhere in the JSON."
+                        "0–100 overlay chrome ON THE GENERATED IMAGE agrees with "
+                        "PRODUCT DATA (any key or value, including Description). "
+                        "On-product print matching source photos is identity, not invented. "
+                        "Never use overlay text from a source photo. Omission may be high. "
+                        "Invented only if the overlay claim is nowhere in the JSON."
                     ),
                 },
                 "quality": {
@@ -118,18 +121,22 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "minimum": 0,
                     "maximum": 100,
                     "description": (
-                        "0–100 production fitness (crop, blur, readable type). Advisory."
+                        "0–100 production fitness of the GENERATED IMAGE only "
+                        "(crop, blur, readable type). Advisory. Ignore source photos."
                     ),
                 },
                 "reasoning": {
                     "type": "string",
-                    "description": "Short explanation covering identity and claims.",
+                    "description": (
+                        "Short explanation covering identity and claims on the generated image."
+                    ),
                 },
                 "observed_text": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "Shopper-facing words. Include on-product print and overlay chrome."
+                        "Shopper-facing words on the GENERATED IMAGE only. Include "
+                        "on-product print and overlay chrome. Never from source photos."
                     ),
                 },
                 "mismatches": {
@@ -159,7 +166,10 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                             },
                             "observed": {
                                 "type": "string",
-                                "description": "Text or look read on the generated image.",
+                                "description": (
+                                    "Text or look read on the GENERATED IMAGE. "
+                                    "Never cite source-photo text."
+                                ),
                             },
                         },
                         "required": ["kind", "observed"],
@@ -225,15 +235,12 @@ TEXT_VERIFICATION_TOOL: dict[str, Any] = {
                             "source_field": {
                                 "type": "string",
                                 "description": (
-                                    "Exact PRODUCT DATA key when mapped. "
-                                    "Omit for invented."
+                                    "Exact PRODUCT DATA key when mapped. Omit for invented."
                                 ),
                             },
                             "catalog": {
                                 "type": "string",
-                                "description": (
-                                    "Catalog value when mapped. Omit for invented."
-                                ),
+                                "description": ("Catalog value when mapped. Omit for invented."),
                             },
                             "observed": {
                                 "type": "string",
