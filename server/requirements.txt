@@ -10,3 +10,4 @@ google-cloud-storage>=2.18.0
 google-cloud-workflows>=1.14.0
 openpyxl>=3.1.0
 pillow>=11.0.0
+xlrd>=2.0.1

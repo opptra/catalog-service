@@ -1,7 +1,8 @@
-"""Build listing_template_column configs from an Amazon marketplace .xlsm.
+"""Build listing_template_column configs from a marketplace listing workbook.
 
-Discovers dropdowns, requiredness, and dependency parents from Excel formulas
-(cell refs / VLOOKUP) — no category-specific column names hard-coded.
+Discovers dropdowns from Excel list-validation formulas (Amazon) and from
+``DropDownValuesForColumn*`` / Index allowed-value sheets / ``Boolean`` type
+hints (Flipkart). No category-specific column names hard-coded.
 
 Does not write to any database.
 """
@@ -11,10 +12,12 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.utils import column_index_from_string
 from openpyxl.utils.cell import range_boundaries
 from openpyxl.workbook.workbook import Workbook
@@ -29,6 +32,24 @@ _CASCADE_NAMED_RANGE_RE = re.compile(
     r'"([^"]+\.value\.)".*?VLOOKUP.*?&"\.([^"]+)"',
     re.IGNORECASE | re.DOTALL,
 )
+_DROPDOWN_VALUES_SHEET_RE = re.compile(r"^DropDownValuesForColumn(\d+)$")
+
+
+@dataclass(frozen=True)
+class WorkbookLayout:
+    """Offsets into the blank marketplace workbook (same as listing_template.metadata).
+
+    All values come from the CLI / caller — no marketplace-specific defaults.
+    Optional sheet names may be omitted when that workbook has no such sheet.
+    """
+
+    sheet_name: str
+    header_label_row: int
+    machine_key_row: int
+    data_start_row: int
+    valid_values_sheet: str | None = None
+    dropdown_lists_sheet: str | None = None
+    data_definitions_sheet: str | None = None
 
 
 def _sql_str(value: str) -> str:
@@ -43,6 +64,118 @@ def _requiredness(raw: str | None) -> str:
     if raw and str(raw).strip().casefold() == "required":
         return "ALWAYS"
     return "OPTIONAL"
+
+
+def _cell_text(value: object | None) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, int):
+        return str(value)
+    return ILLEGAL_CHARACTERS_RE.sub("", str(value)).strip()
+
+
+def _looks_like_url_column(label: str, type_hint: str) -> bool:
+    """Skip dropdown-sheet attach on URL/image-link columns (Flipkart type row)."""
+    hint = type_hint.casefold()
+    if hint == "url":
+        return True
+    return "url" in label.casefold()
+
+
+def _boolean_enum_from_type_hint(type_hint: str) -> list[str] | None:
+    """Flipkart type row ``Single - Boolean`` → Yes/No (template-documented values)."""
+    if "boolean" not in type_hint.casefold():
+        return None
+    return ["Yes", "No"]
+
+
+def _workbook_from_xls(path: Path) -> Workbook:
+    """Load Excel 97-2003 .xls into an openpyxl workbook (values only)."""
+    try:
+        import xlrd
+    except ImportError as exc:
+        raise ValueError(
+            f"Cannot read {path.name}: Flipkart .xls workbooks need xlrd. "
+            "Install it in the server venv (see server/requirements.txt)."
+        ) from exc
+
+    book = xlrd.open_workbook(str(path))
+    wb = Workbook()
+    default = wb.active
+    for sheet_index, name in enumerate(book.sheet_names()):
+        source = book.sheet_by_index(sheet_index)
+        if sheet_index == 0:
+            ws = default
+            ws.title = name
+        else:
+            ws = wb.create_sheet(title=name)
+        for row in range(source.nrows):
+            for col in range(source.ncols):
+                text = _cell_text(source.cell_value(row, col))
+                if text:
+                    ws.cell(row + 1, col + 1, text)
+    return wb
+
+
+def _open_listing_workbook(path: Path) -> Workbook:
+    suffix = path.suffix.lower()
+    if suffix in {".xlsx", ".xlsm"}:
+        return load_workbook(path, read_only=False, data_only=False, keep_vba=True)
+    if suffix == ".xls":
+        return _workbook_from_xls(path)
+    raise ValueError(
+        f"Unsupported listing workbook type {path.suffix!r}. Expected .xlsx, .xlsm, or .xls"
+    )
+
+
+def _dropdown_values_by_column_sheets(wb: Workbook) -> dict[int, list[str]]:
+    """Flipkart ``DropDownValuesForColumnN`` sheets; N is 0-based column index."""
+    out: dict[int, list[str]] = {}
+    for name in wb.sheetnames:
+        match = _DROPDOWN_VALUES_SHEET_RE.match(name)
+        if not match:
+            continue
+        excel_col = int(match.group(1)) + 1
+        ws = wb[name]
+        values: list[str] = []
+        for row in range(1, (ws.max_row or 0) + 1):
+            text = _cell_text(ws.cell(row, 1).value)
+            if text:
+                values.append(text)
+        if values:
+            out[excel_col] = values
+    return out
+
+
+def _index_sheet_allowed_values(wb: Workbook) -> dict[str, list[str]]:
+    """Flipkart Index sheet: row 2 = field names, row 3+ = allowed values.
+
+    Duplicate header names (parent vs listing copies) keep the first list.
+    """
+    if "Index" not in wb.sheetnames:
+        return {}
+    ws = wb["Index"]
+    max_col = ws.max_column or 0
+    row1 = [_cell_text(ws.cell(1, col).value).casefold() for col in range(1, max_col + 1)]
+    if "allowed values" not in row1:
+        return {}
+    out: dict[str, list[str]] = {}
+    for col in range(1, max_col + 1):
+        name = _cell_text(ws.cell(2, col).value)
+        if not name or name in out:
+            continue
+        values: list[str] = []
+        for row in range(3, (ws.max_row or 0) + 1):
+            text = _cell_text(ws.cell(row, col).value)
+            if text:
+                values.append(text)
+        if values:
+            out[name] = values
+    return out
 
 
 def _parse_static_list(formula: str) -> list[str] | None:
@@ -64,11 +197,15 @@ def _strip_sheet_refs(formula: str) -> str:
     return re.sub(r"[A-Za-z_][\w.]*![^,&\)]+", "", cleaned)
 
 
-def _load_valid_values_by_label(wb: Workbook) -> dict[str, list[str]]:
+def _load_valid_values_by_label(
+    wb: Workbook,
+    *,
+    sheet_name: str | None,
+) -> dict[str, list[str]]:
     """Map Template local label → allowed values (Valid Values sheet)."""
-    if "Valid Values" not in wb.sheetnames:
+    if not sheet_name or sheet_name not in wb.sheetnames:
         return {}
-    vv = wb["Valid Values"]
+    vv = wb[sheet_name]
     out: dict[str, list[str]] = {}
     for row in range(1, (vv.max_row or 0) + 1):
         header = vv.cell(row, 2).value
@@ -90,10 +227,14 @@ def _load_valid_values_by_label(wb: Workbook) -> dict[str, list[str]]:
     return out
 
 
-def _dropdown_display_to_token(wb: Workbook) -> dict[str, str]:
-    if "Dropdown Lists" not in wb.sheetnames:
+def _dropdown_display_to_token(
+    wb: Workbook,
+    *,
+    sheet_name: str | None,
+) -> dict[str, str]:
+    if not sheet_name or sheet_name not in wb.sheetnames:
         return {}
-    dl = wb["Dropdown Lists"]
+    dl = wb[sheet_name]
     mapping: dict[str, str] = {}
     for row in range(1, (dl.max_row or 0) + 1):
         display = dl.cell(row, 1).value
@@ -135,8 +276,14 @@ def _product_type_token(values_by_label: dict[str, list[str]]) -> str:
     return "PRODUCT"
 
 
-def _data_definition_requiredness(wb: Workbook) -> dict[str, str]:
-    dd = wb["Data Definitions"]
+def _data_definition_requiredness(
+    wb: Workbook,
+    *,
+    sheet_name: str | None,
+) -> dict[str, str]:
+    if not sheet_name or sheet_name not in wb.sheetnames:
+        return {}
+    dd = wb[sheet_name]
     out: dict[str, str] = {}
     for row in range(4, (dd.max_row or 0) + 1):
         field = dd.cell(row, 2).value
@@ -159,16 +306,6 @@ def _list_validations_by_column(ws: Worksheet) -> dict[int, str]:
             col = column_index_from_string(match.group(1))
             by_col[col] = formula
     return by_col
-
-
-def _infer_data_row(ws: Worksheet) -> int:
-    """Use the first data-validation row on Template (Amazon templates use row 7)."""
-    for dv in ws.data_validations.dataValidation:
-        for ref in str(dv.sqref).split():
-            match = re.match(r"[A-Z]+(\d+)", ref)
-            if match:
-                return int(match.group(1))
-    return 7
 
 
 def _immediate_parent_column(
@@ -209,6 +346,7 @@ def _cascaded_values_by_parent(
     formula: str,
     parent_values: list[str],
     product_tokens: list[str],
+    dropdown_lists_sheet: str | None,
 ) -> dict[str, list[str]] | None:
     """Build parent_value → child options from named ranges encoded in the formula."""
     match = _CASCADE_NAMED_RANGE_RE.search(formula)
@@ -216,7 +354,7 @@ def _cascaded_values_by_parent(
         return None
     mid_prefix = match.group(1)  # e.g. league_name.value.
     child_suffix = match.group(2)  # e.g. team_namemarketplace_id...
-    display_to_token = _dropdown_display_to_token(wb)
+    display_to_token = _dropdown_display_to_token(wb, sheet_name=dropdown_lists_sheet)
     out: dict[str, list[str]] = {}
     for parent_val in parent_values:
         token = display_to_token.get(parent_val)
@@ -232,17 +370,32 @@ def _cascaded_values_by_parent(
     return out
 
 
-def build_columns(xlsm_path: Path) -> list[dict[str, Any]]:
-    """Parse workbook → column dicts with resolve_stage + config."""
-    wb = load_workbook(xlsm_path, read_only=False, data_only=False, keep_vba=True)
-    if "Template" not in wb.sheetnames or "Data Definitions" not in wb.sheetnames:
-        raise ValueError("Workbook needs Template + Data Definitions sheets")
+def build_columns(
+    xlsm_path: Path,
+    *,
+    layout: WorkbookLayout,
+    include_requiredness: bool = True,
+) -> list[dict[str, Any]]:
+    """Parse workbook → column dicts with resolve_stage + config.
 
-    ws = wb["Template"]
-    req_by_key = _data_definition_requiredness(wb)
-    values_by_label = _load_valid_values_by_label(wb)
+    ``layout`` must be supplied by the caller (CLI flags / metadata) — no
+    marketplace defaults are applied here.
+    When ``include_requiredness`` is False, configs omit Data Definitions
+    required/optional (listing-mapping uses category attribute_spec instead).
+    """
+    wb = _open_listing_workbook(xlsm_path)
+    if layout.sheet_name not in wb.sheetnames:
+        raise ValueError(f"Workbook needs sheet {layout.sheet_name!r}")
+
+    ws = wb[layout.sheet_name]
+    req_by_key: dict[str, str] = {}
+    if include_requiredness:
+        req_by_key = _data_definition_requiredness(wb, sheet_name=layout.data_definitions_sheet)
+    values_by_label = _load_valid_values_by_label(wb, sheet_name=layout.valid_values_sheet)
     list_formulas = _list_validations_by_column(ws)
-    data_row = _infer_data_row(ws)
+    dropdown_by_col = _dropdown_values_by_column_sheets(wb)
+    dropdown_by_label = _index_sheet_allowed_values(wb)
+    data_row = layout.data_start_row
     product_values = _product_type_values(values_by_label)
     product_tokens = (
         [v.replace("-", "_").replace(" ", "") for v in product_values]
@@ -251,38 +404,63 @@ def build_columns(xlsm_path: Path) -> list[dict[str, Any]]:
     )
 
     max_col = ws.max_column or 0
-    machine_keys_by_index = {
-        c: str(ws.cell(5, c).value).strip() for c in range(1, max_col + 1) if ws.cell(5, c).value
-    }
     labels_by_index = {
-        c: str(ws.cell(4, c).value).strip() for c in range(1, max_col + 1) if ws.cell(4, c).value
+        c: str(ws.cell(layout.header_label_row, c).value).strip()
+        for c in range(1, max_col + 1)
+        if ws.cell(layout.header_label_row, c).value
     }
 
     columns: list[dict[str, Any]] = []
     for col_index in range(1, max_col + 1):
-        label = ws.cell(4, col_index).value
-        machine_key = ws.cell(5, col_index).value
+        label = ws.cell(layout.header_label_row, col_index).value
+        machine_key = ws.cell(layout.machine_key_row, col_index).value
         if label is None and machine_key is None:
             continue
         label_s = str(label).strip() if label else f"Column {col_index}"
         key_s = str(machine_key).strip() if machine_key else None
-        requiredness = req_by_key.get(key_s or "", "OPTIONAL")
 
         formula = list_formulas.get(col_index)
+        type_hint = key_s or ""
+        sheet_enum: list[str] | None = None
         if formula is None:
-            # Non-dropdown defaults to DIRECT_MAP. Product sets IMAGE / LLM_TEXT /
-            # CONSTANT / SKIP in DB (or a follow-up SQL) when known.
-            config: dict[str, Any] = {
-                "fill_type": "DIRECT_MAP",
-                "requiredness": requiredness,
+            if not _looks_like_url_column(label_s, type_hint):
+                sheet_enum = dropdown_by_col.get(col_index)
+            if not sheet_enum:
+                sheet_enum = dropdown_by_label.get(label_s)
+            if not sheet_enum:
+                sheet_enum = _boolean_enum_from_type_hint(type_hint)
+        if formula is None and sheet_enum:
+            config = {
+                "fill_type": "ENUM",
                 "label": label_s,
+                "valid_values": sheet_enum,
             }
-            if key_s:
-                config["machine_key"] = key_s
+            if include_requiredness:
+                config["requiredness"] = req_by_key.get(key_s or "", "OPTIONAL")
             columns.append(
                 {
                     "column_index": col_index,
                     "depends_on": None,
+                    "workbook_key": key_s,
+                    "config": config,
+                }
+            )
+            continue
+        if formula is None:
+            # Non-dropdown defaults to DIRECT_MAP. Product sets IMAGE / CONSTANT /
+            # SKIP / AI_TEXT in DB (or a follow-up SQL) when known.
+            config = {
+                "fill_type": "DIRECT_MAP",
+                "label": label_s,
+            }
+            if include_requiredness:
+                config["requiredness"] = req_by_key.get(key_s or "", "OPTIONAL")
+            columns.append(
+                {
+                    "column_index": col_index,
+                    "depends_on": None,
+                    # Parse-time only — used to match mapping CSV; not stored in config.
+                    "workbook_key": key_s,
                     "config": config,
                 }
             )
@@ -293,16 +471,16 @@ def build_columns(xlsm_path: Path) -> list[dict[str, Any]]:
             column_index=col_index,
             data_row=data_row,
         )
-        depends_on = machine_keys_by_index.get(parent_col) if parent_col is not None else None
+        # Parent pointer for fill is Excel column_index (stable for this template).
+        depends_on: int | None = parent_col
 
         config = {
             "fill_type": "ENUM",
-            "requiredness": requiredness,
             "label": label_s,
         }
-        if key_s:
-            config["machine_key"] = key_s
-        if depends_on:
+        if include_requiredness:
+            config["requiredness"] = req_by_key.get(key_s or "", "OPTIONAL")
+        if depends_on is not None:
             config["depends_on"] = depends_on
 
         parent_label = labels_by_index.get(parent_col or -1)
@@ -311,12 +489,13 @@ def build_columns(xlsm_path: Path) -> list[dict[str, Any]]:
         )
 
         cascaded = None
-        if depends_on and _VLOOKUP_CELL_RE.search(formula):
+        if depends_on is not None and _VLOOKUP_CELL_RE.search(formula):
             cascaded = _cascaded_values_by_parent(
                 wb,
                 formula=formula,
                 parent_values=parent_flat_values,
                 product_tokens=product_tokens,
+                dropdown_lists_sheet=layout.dropdown_lists_sheet,
             )
 
         if cascaded is not None:
@@ -327,11 +506,11 @@ def build_columns(xlsm_path: Path) -> list[dict[str, Any]]:
                 values = _parse_static_list(formula)
             if not values:
                 values = _resolve_defined_name(wb, formula.strip().strip('"'))
-            if depends_on and values and parent_flat_values:
+            if depends_on is not None and values and parent_flat_values:
                 config["valid_values_by_parent"] = {
                     parent_val: list(values) for parent_val in parent_flat_values
                 }
-            elif depends_on and values and product_values:
+            elif depends_on is not None and values and product_values:
                 config["valid_values_by_parent"] = {pt: list(values) for pt in product_values}
             elif values:
                 config["valid_values"] = values
@@ -342,6 +521,7 @@ def build_columns(xlsm_path: Path) -> list[dict[str, Any]]:
             {
                 "column_index": col_index,
                 "depends_on": depends_on,
+                "workbook_key": key_s,
                 "config": config,
             }
         )
@@ -351,20 +531,18 @@ def build_columns(xlsm_path: Path) -> list[dict[str, Any]]:
 
 
 def _assign_resolve_stages(columns: list[dict[str, Any]]) -> None:
-    key_to_col = {
-        c["config"].get("machine_key"): c for c in columns if c["config"].get("machine_key")
-    }
+    index_to_col = {c["column_index"]: c for c in columns}
     depth_cache: dict[int, int] = {}
 
     def depth_of(col: dict[str, Any]) -> int:
         idx = col["column_index"]
         if idx in depth_cache:
             return depth_cache[idx]
-        parent_key = col.get("depends_on")
-        if not parent_key:
+        parent_index = col.get("depends_on")
+        if parent_index is None:
             depth_cache[idx] = 0
             return 0
-        parent = key_to_col.get(parent_key)
+        parent = index_to_col.get(parent_index)
         if parent is None:
             depth_cache[idx] = 1
             return 1
@@ -387,16 +565,23 @@ def render_sql(columns: list[dict[str, Any]], *, xlsm_name: str) -> str:
     for col in columns:
         by_stage[col["resolve_stage"]] += 1
         by_fill[col["config"]["fill_type"]] += 1
-        by_req[col["config"]["requiredness"]] += 1
+        req = col["config"].get("requiredness")
+        if req:
+            by_req[req] += 1
 
     lines = [
         "-- Human-run only. Agent does not apply this against any database.",
-        f"-- Generated from {xlsm_name} by utils.generate_listing_columns",
+        f"-- Generated from {xlsm_name} by ops.listing_mapping.generate_columns",
         "--",
-        "-- Re-generate (from server/):",
-        "--   python -m utils.generate_listing_columns \\",
+        "-- Re-generate (from repo root, PYTHONPATH=ops:server):",
+        "--   python -m listing_mapping.generate_columns \\",
         f"--     --xlsm /path/to/{xlsm_name} \\",
-        "--     --out ../tmp/sql/002_<category>_listing_columns.sql",
+        "--     --marketplace <name> \\",
+        "--     --sheet-name <sheet> \\",
+        "--     --header-label-row <n> \\",
+        "--     --machine-key-row <n> \\",
+        "--     --data-start-row <n> \\",
+        "--     --out tmp/sql/002_<category>_listing_columns.sql",
         "--",
         "-- Before apply: set :cm_id (category_marketplace.id) and ensure",
         "-- listing_template exists for that junction.",
@@ -440,8 +625,13 @@ def render_sql(columns: list[dict[str, Any]], *, xlsm_name: str) -> str:
     return "\n".join(lines)
 
 
-def write_sql(xlsm_path: Path, out_path: Path) -> list[dict[str, Any]]:
-    columns = build_columns(xlsm_path)
+def write_sql(
+    xlsm_path: Path,
+    out_path: Path,
+    *,
+    layout: WorkbookLayout,
+) -> list[dict[str, Any]]:
+    columns = build_columns(xlsm_path, layout=layout)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         render_sql(columns, xlsm_name=xlsm_path.name),
