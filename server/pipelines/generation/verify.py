@@ -7,8 +7,9 @@ The vision model scores the generated image on three axes:
 - quality (advisory) — crop, blur, unreadable type; shown, never retries
 
 ``confidence`` persisted for the UI is ``min(identity, claims)``. Omission is
-allowed. Source photos are identity-only (capped). Retry is one-shot and can
-be turned off with ``VERIFY_RETRY_ENABLED``.
+allowed. Source photos are identity-only (capped) and must never be scored for
+claims or quality. Retry is one-shot and can be turned off with
+``VERIFY_RETRY_ENABLED``.
 """
 
 from __future__ import annotations
@@ -17,10 +18,20 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from core.clients.openrouter import OpenRouterClient
+from core.clients.openrouter import OpenRouterClient, ReferenceImage
 from core.config import settings
 from pipelines.generation import tools
 from utils.images import to_data_url, to_data_urls
+
+_GENERATED_IMAGE_LABEL = (
+    "GENERATED IMAGE — score this catalog slot only. Read shopper-facing text from this "
+    "image alone. Score claims and quality on this image alone."
+)
+_SOURCE_PHOTO_LABEL = (
+    "SOURCE PHOTO {index} of {total} — identity reference only. Use colour, pack, print, "
+    "and silhouette. Ignore every word, badge, label, and overlay on this photo. "
+    "Do not transcribe or score them."
+)
 
 # Change these constants to raise/lower the bar or skip auto re-render. Not env vars.
 MIN_CONFIDENCE_PERCENT = 80
@@ -228,13 +239,14 @@ def verify_image(
     model = settings.openrouter_verify_model
     refs = reference_image_urls(source_image_urls)
     facts = _product_facts(product)
+    images = _verification_images(generated_image_url, refs)
     prefix = (
         "=== PRODUCT DATA (authoritative — every key AND every value is a fact, "
         "including Description / title / bullets / care) ===\n"
         f"{json.dumps(facts, ensure_ascii=False, indent=2)}"
     )
     suffix = _verify_suffix(
-        refs=refs,
+        source_count=len(images) - 1,
         attribute_name=attribute_name,
         role=role,
         kind=kind,
@@ -243,7 +255,7 @@ def verify_image(
         suffix,
         model=model,
         tool=tools.IMAGE_VERIFICATION_TOOL,
-        image_urls=_chat_completion_image_urls(generated_image_url, refs),
+        image_references=images,
         cache_prefix=prefix,
         max_tokens=_VERIFY_MAX_TOKENS,
         session_id=session_id,
@@ -260,20 +272,19 @@ def verify_image(
 
 def _verify_suffix(
     *,
-    refs: list[str],
+    source_count: int,
     attribute_name: str | None,
     role: str | None,
     kind: str | None,
 ) -> str:
-    ref_n = len(refs)
-    if ref_n:
+    if source_count:
         photo_line = (
-            f"Image 1 is the GENERATED slot to score. Images 2–{ref_n + 1} are SOURCE "
-            "product photos for identity only. Do not copy their layout or overlays."
+            "The first attachment is the GENERATED IMAGE to score. The remaining "
+            f"{source_count} attachment(s) are SOURCE PHOTOS for identity only."
         )
     else:
         photo_line = (
-            "Image 1 is the GENERATED slot to score. No source photos are attached; "
+            "Only the GENERATED IMAGE is attached. No source photos; "
             "score identity from PRODUCT DATA Color/Pack/silhouette only."
         )
     slot_lines = ["SLOT CONTEXT (not a source of product facts):"]
@@ -286,15 +297,24 @@ def _verify_suffix(
     return (
         "You are marketplace image QA for one generated catalog slot "
         "(PDP gallery or A+). This image may go live. Prefer a miss over a silent ship.\n"
-        f"{photo_line}\n"
-        "Read every shopper-facing word, badge, and label on the generated image.\n\n"
+        "Each attached image is preceded by a role label. Obey the label.\n"
+        "- GENERATED IMAGE: the only image to QA. Read every shopper-facing word, badge, "
+        "and label from this image. claims, quality, observed_text, and claim/quality "
+        "mismatches come from this image alone.\n"
+        "- SOURCE PHOTO: look-only identity reference. Compare colour, pack, print, and "
+        "silhouette of the GENERATED IMAGE against these photos. Never read, transcribe, "
+        "cite, or score text, badges, size tags, or overlays printed on a SOURCE PHOTO. "
+        "Those words are not claims on the generated slot.\n"
+        f"{photo_line}\n\n"
         f"{slot_block}\n\n"
         "Score THREE axes (integers 0–100):\n"
-        "- identity: same physical variant as the source photos and PRODUCT DATA "
-        "Color / pack / print / silhouette. Size printed on the artwork is a CLAIMS "
-        "issue, not identity. Lifestyle vs packshot is fine if it is the same product.\n"
-        "- claims: on-image text vs the FULL PRODUCT DATA JSON — every key and every "
-        "value, including long fields such as Description. Synonyms match "
+        "- identity: does the GENERATED IMAGE show the same physical variant as the "
+        "source photos and PRODUCT DATA Color / pack / print / silhouette. Size printed "
+        "on the generated artwork is a CLAIMS issue, not identity. Lifestyle vs packshot "
+        "is fine if it is the same product.\n"
+        "- claims: text ON THE GENERATED IMAGE vs the FULL PRODUCT DATA JSON — every key "
+        "and every value, including long fields such as Description. Never use text from "
+        "a SOURCE PHOTO. Synonyms match "
         '("King Size" vs "King"). Omission is allowed — empty text can score high. '
         "Contradiction: on-image text fights a dedicated short field (Size, Color, Pack, "
         "etc.); that dedicated field wins even if Description disagrees. "
@@ -302,23 +322,34 @@ def _verify_suffix(
         "PRODUCT DATA. If it appears in Description or any other value, it is NOT invented. "
         "Do not treat Description as marketing noise — search it. It is also a fact. "
         "Point it out when there is a contradiction between Description and the dedicated field. "
-        "SKU, ASIN, UPC, EAN, or GTIN printed on the artwork is invented even if those "
+        "SKU, ASIN, UPC, EAN, or GTIN printed on the generated artwork is invented even if those "
         "ids exist in PRODUCT DATA.\n"
-        "- quality: production fitness (crop, blur, unreadable type, junk props). "
-        "Advisory only — do not let quality dominate identity or claims.\n\n"
+        "- quality: production fitness of the GENERATED IMAGE only (crop, blur, "
+        "unreadable type, junk props). Advisory only — do not let quality dominate "
+        "identity or claims.\n\n"
         "mismatch kind: contradiction | invented | identity | quality. "
-        "For identity, set source_field/catalog when the look fights a PRODUCT DATA key "
-        "(e.g. Color). For quality, observed only.\n\n"
+        "For identity, set source_field/catalog when the GENERATED look fights a PRODUCT "
+        "DATA key (e.g. Color). For quality, observed only — and only on the GENERATED IMAGE.\n\n"
         "Call the submit_image_verification tool. Do not write JSON in the message body."
     )
 
 
-def _chat_completion_image_urls(generated_image_url: str, refs: list[str]) -> list[str]:
-    """Inline images for ``/chat/completions`` so OpenAI does not GET GCS itself."""
+def _verification_images(generated_image_url: str, refs: list[str]) -> list[ReferenceImage]:
+    """Inline images and label generated vs source so the verifier can tell them apart."""
     generated = to_data_url(generated_image_url)
     if generated is None:
         raise ValueError("generated image could not be inlined for verification")
-    return [generated, *to_data_urls(refs)]
+    sources = to_data_urls(refs)
+    images = [ReferenceImage(url=generated, label=_GENERATED_IMAGE_LABEL)]
+    total = len(sources)
+    for index, url in enumerate(sources, start=1):
+        images.append(
+            ReferenceImage(
+                url=url,
+                label=_SOURCE_PHOTO_LABEL.format(index=index, total=total),
+            )
+        )
+    return images
 
 
 def _product_facts(product: dict[str, Any]) -> dict[str, Any]:

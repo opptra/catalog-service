@@ -10,3 +10,11 @@ local-data/
 *.dump
 catalog.dump
 user.dump
+
+# Laptop-local overlay (not for production)
+docker-compose.local.yml
+local-setup.md
+scripts/local-postgres-init.sh
+server/local/
+server/uv.lock
+sample_data/
