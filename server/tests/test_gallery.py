@@ -133,7 +133,8 @@ def test_select_slots_fills_quantity_when_hero_roles_repeat() -> None:
     assert selected[6]["order"] == 2
 
 
-def test_select_slots_prefers_fact_supported_before_filling_duplicates() -> None:
+def test_select_slots_skips_callout_slots_with_no_product_facts() -> None:
+    """max_callouts > 0 and zero matching facts → do not render an empty overlay."""
     candidates = [
         _slot(kind="hero", role="hero", order=1),
         _slot(kind="hero", role="hero", order=2),
@@ -154,8 +155,22 @@ def test_select_slots_prefers_fact_supported_before_filling_duplicates() -> None
 
     selected = _select_slots(candidates, quantity=3, fact_board=fact_board)
 
-    assert [slot["role"] for slot in selected] == ["hero", "size chart", "unsupported overlay"]
-    assert selected[0]["order"] == 1
+    assert [slot["role"] for slot in selected] == ["hero", "size chart", "hero"]
+    assert [slot["order"] for slot in selected] == [1, 3, 2]
+
+
+def test_select_slots_raises_when_only_empty_callout_slots_remain() -> None:
+    candidates = [
+        _slot(kind="hero", role="hero", order=1),
+        _slot(
+            kind="infographic",
+            role="unsupported overlay",
+            order=2,
+            feature_priority=["missing claim"],
+        ),
+    ]
+    with pytest.raises(GalleryPlanError, match="1/2"):
+        _select_slots(candidates, quantity=2, fact_board={})
 
 
 def test_select_slots_raises_when_candidates_cannot_cover_quantity() -> None:
