@@ -321,7 +321,10 @@ def _verify_suffix(
         "- claims: overlay chrome vs the FULL PRODUCT DATA JSON — every key and every "
         "value, including long fields such as Description. Score text ON THE GENERATED "
         "IMAGE only. Never use text from a SOURCE PHOTO for claims. Synonyms match "
-        '("King Size" vs "King", "anti-slip" vs "non-slip"). Omission is allowed — '
+        '("King Size" vs "King", "anti-slip" vs "non-slip"). Unit systems are not '
+        "synonyms: 7 feet is not 210 cm is not 84 in. Mixing unit systems for product "
+        "dimensions on one image (feet on one axis, cm on another, or a converted "
+        "equivalent in parentheses) is a claims miss. Omission is allowed — "
         "empty overlay can score high. On-product lettering that matches the source "
         "photos is identity, not a claim, and is never invented — even if that wording "
         "is not a PRODUCT DATA key. "

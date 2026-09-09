@@ -170,7 +170,13 @@ def _fact_board_prompt(product: dict[str, Any], claims: list[str]) -> str:
         "- Prefer a short structured field over a marketing paragraph. Shorten at source "
         '(e.g. water temperature → "Machine Wash Cold", not the whole wash-care sentence).\n'
         '- If the cell is already short ("210", "Microfiber"), leave it. Do not expand '
-        '"210" into "210 TC".\n'
+        '"210" into "210 TC". Do not convert units (never "7 feet" → "210 cm" / "84 in").\n'
+        "- If the cell already includes a unit, copy that unit with the number "
+        '("7 feet" stays "7 feet").\n'
+        "- Items for one claim must share one unit system. Do not pair a feet/inch Size "
+        "with a centimetre Length/Width (or kg with lb) on the same claim. If Size is in "
+        "one system and structured Length/Width share another, prefer the structured pair "
+        "that already shares a unit; omit Size rather than mixing systems.\n"
         "- If a claim names more than one independent spec that this SKU actually has "
         "(e.g. cover length and cover width), return ONE item per spec with the same claim "
         "string, different values, and the matching source_field for each.\n"
@@ -278,6 +284,17 @@ def _slot_has_any_fact(*, slot: dict[str, Any], fact_board: FactBoard) -> bool:
     return any(bool(fact_board.get(claim)) for claim in priorities)
 
 
+def _slot_usable(*, slot: dict[str, Any], fact_board: FactBoard) -> bool:
+    """Callout slots (max_callouts > 0) need at least one product fact; else skip.
+
+    Heroes with max_callouts 0 stay eligible. A slot that asked for four
+    callouts and matched none is not rendered as an empty overlay.
+    """
+    if _max_callouts(slot) <= 0:
+        return True
+    return _slot_has_any_fact(slot=slot, fact_board=fact_board)
+
+
 def _select_slots(
     candidate_slots: list[dict[str, Any]],
     *,
@@ -289,6 +306,7 @@ def _select_slots(
     Unique owns/role keys are taken first. When that palette is shorter than
     ``quantity`` (CI often repeats a hero role without ``owns``), leftover
     unused candidates fill the remaining slots so the job does not fail.
+    Overlay slots with max_callouts > 0 and no product facts are never selected.
     """
     selected: list[dict[str, Any]] = []
     used_keys: set[str] = set()
@@ -304,7 +322,7 @@ def _select_slots(
             break
         if _dup_key(slot) in used_keys:
             continue
-        if not _slot_has_any_fact(slot=slot, fact_board=fact_board):
+        if not _slot_usable(slot=slot, fact_board=fact_board):
             continue
         _add(index, slot)
 
@@ -314,6 +332,8 @@ def _select_slots(
                 break
             if index in used_indexes or _dup_key(slot) in used_keys:
                 continue
+            if not _slot_usable(slot=slot, fact_board=fact_board):
+                continue
             _add(index, slot)
 
     if len(selected) < quantity:
@@ -321,6 +341,8 @@ def _select_slots(
             if len(selected) >= quantity:
                 break
             if index in used_indexes:
+                continue
+            if not _slot_usable(slot=slot, fact_board=fact_board):
                 continue
             _add(index, slot)
 
@@ -493,14 +515,26 @@ def _slot_prompt(
         )
         lines.append(
             'Each object\'s "value" is immutable — paint those digits/words exactly '
-            "(120 stays 120, never 210 / 120.5)."
+            '(120 stays 120, never 210 / 120.5; "7 feet" stays "7 feet", never '
+            "84 in / 210 cm)."
         )
         lines.append(
-            '"source_field" is semantic context for the attribute. Combine field and '
+            "Units stay with the fact. If value already contains a unit, that is the "
+            "only unit for that fact — do not add a converted equivalent in another "
+            "system, in a table, on a dimension line, or in parentheses."
+        )
+        lines.append(
+            'If value is a bare number and source_field names a unit (e.g. "Width (cm)" '
+            '+ "110"), every on-image occurrence of that fact MUST show that same unit '
+            'beside the number ("110 cm" or "Width (cm): 110"). Never attach a different '
+            "unit. Use the same unit spelling on arrows and in any table."
+        )
+        lines.append(
+            '"source_field" is the attribute name and unit context. Combine field and '
             'value when that makes the fact clear (e.g. "Thread Count: 120" or '
-            '"120 Thread Count"). You may use a short natural label; do not invent a '
-            "different number, unit, or fact. You do not have to reproduce "
-            "source_field verbatim."
+            '"120 Thread Count"). You may shorten the name only if every unit named in '
+            "source_field stays on the artwork. Do not invent a different number, unit, "
+            "or fact. Do not add extra measurements that are not in this facts JSON."
         )
         lines.append('Do not paint "claim", JSON keys, braces, or quotes.')
         lines.append(_facts_block(assigned_facts))
@@ -523,12 +557,15 @@ def _slot_prompt(
             "room behind. They are not copy to typeset — never paint any word from "
             "Slot, Content, Pattern, or JSON DNA onto the artwork as overlay chrome.",
             "Overlay letters or digits may come only from the facts JSON "
-            '"value" strings, optionally with a short source_field label. Empty facts '
+            '"value" strings, optionally with a short source_field label (unit from '
+            "the field name included when the value is a bare number). Empty facts "
             "JSON means no overlay chrome — not a blank product. Keep on-product "
             "lettering, woven marks, and print from the reference photos. Diagrams may "
             "use mute visual marks (cut planes, lines, arrows) with no captions beyond "
-            "those overlay values. Do not copy badges, size tags, or feature callouts "
-            "from the reference photos.",
+            "those overlay values. Numerals and units on measurement lines count as "
+            "overlay chrome — no dual-unit charts, pack dimensions, or conversions "
+            "from the reference photos. Do not copy badges, size tags, or feature "
+            "callouts from the reference photos.",
             "Only the facts JSON may determine overlay claims and information.",
             "Do not invent unsupported specifications, claims, or marketing copy.",
             "Keep the product's identity from the reference photos — colour, heading, fabric, "

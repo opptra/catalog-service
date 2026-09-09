@@ -33,7 +33,9 @@ def gallery_fact_board_tool() -> dict[str, Any]:
                 "Return verified product snippets for the requested feature-priority claims. "
                 "Each claim may yield zero or more items. Never invent. Prefer short structured "
                 "fields. For combined claims that name independent specs, emit one item per "
-                "spec that actually exists on this SKU."
+                "spec that actually exists on this SKU. Items for one claim must share one "
+                "unit system — do not mix feet/inches with centimetres (or kg with lb). "
+                "Copy units that are already in the cell; never convert units."
             ),
             "parameters": {
                 "type": "object",
