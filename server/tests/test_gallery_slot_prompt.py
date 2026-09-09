@@ -1,4 +1,4 @@
-from pipelines.generation.gallery import AssignedFact, _slot_prompt
+from pipelines.generation.gallery import AssignedFact, _fact_board_prompt, _slot_prompt
 
 
 def test_slot_prompt_fact_rendering_contract() -> None:
@@ -24,9 +24,15 @@ def test_slot_prompt_fact_rendering_contract() -> None:
     assert "once as overlay chrome" in prompt
     assert "Letters printed on the physical product are identity" in prompt
     assert '"value" is immutable' in prompt
-    assert "source_field" in prompt and "semantic context" in prompt
+    assert "source_field" in prompt and "attribute name and unit context" in prompt
     assert "Thread Count: 120" in prompt or "120 Thread Count" in prompt
-    assert "do not have to reproduce source_field verbatim" in prompt
+    assert "every unit named in source_field stays on the artwork" in prompt
+    assert "do not have to reproduce source_field verbatim" not in prompt
+    assert "semantic context" not in prompt
+    assert '"7 feet" stays "7 feet"' in prompt
+    assert "do not add a converted equivalent" in prompt
+    assert '"Width (cm)"' in prompt and '"110 cm"' in prompt
+    assert "Do not add extra measurements that are not in this facts JSON" in prompt
     assert '"claim": "opacity"' in prompt
     assert '"source_field": "Opacity"' in prompt
     assert '"value": "Light-filtering (50-60%)"' in prompt
@@ -50,6 +56,8 @@ def test_slot_prompt_closer_separates_content_from_facts() -> None:
     assert "not copy to typeset" in prompt
     assert "never paint any word from Slot, Content, Pattern, or JSON DNA" in prompt
     assert "mute visual marks" in prompt
+    assert "Numerals and units on measurement lines count as" in prompt
+    assert "no dual-unit charts" in prompt
     assert "Do not copy badges, size tags, or feature callouts" in prompt
     assert "Only the facts JSON may determine overlay claims" in prompt
     assert "on-product print" in prompt
@@ -81,3 +89,15 @@ def test_slot_prompt_no_facts_branch_unchanged() -> None:
     assert "Empty facts JSON means zero words" not in prompt
     assert "Content and Pattern are the shot" in prompt
     assert "Content (composition only — not on-image copy):" in prompt
+
+
+def test_fact_board_prompt_keeps_one_unit_system_per_claim() -> None:
+    prompt = _fact_board_prompt(
+        {"Size": "7 feet", "Width (cm)": "110", "Length (CM)": "210"},
+        ["product dimensions"],
+    )
+    assert "Do not convert units" in prompt
+    assert '"7 feet" stays "7 feet"' in prompt
+    assert "must share one unit system" in prompt
+    assert "omit Size rather than mixing systems" in prompt
+    assert "Every value must be a verbatim substring" in prompt
