@@ -96,6 +96,7 @@ class ListingFillGapReason(StrEnum):
     ENUM_NO_VALUES_FOR_PARENT = "ENUM_NO_VALUES_FOR_PARENT"
     ENUM_MISSING_PARENT_MAP = "ENUM_MISSING_PARENT_MAP"
     ENUM_NOT_IN_VALID_VALUES = "ENUM_NOT_IN_VALID_VALUES"
+    ENUM_NO_VALID_VALUE = "ENUM_NO_VALID_VALUE"
     REQUIRED_EMPTY = "REQUIRED_EMPTY"
     IMAGE_UPLOAD_FAILED = "IMAGE_UPLOAD_FAILED"
     UNSUPPORTED_FILL_TYPE = "UNSUPPORTED_FILL_TYPE"
@@ -125,6 +126,9 @@ LISTING_FILL_GAP_MESSAGES: dict[ListingFillGapReason, str] = {
     ),
     ListingFillGapReason.ENUM_NOT_IN_VALID_VALUES: (
         "Fill model picked a value that is not in the template dropdown."
+    ),
+    ListingFillGapReason.ENUM_NO_VALID_VALUE: (
+        "Product evidence does not match any allowed dropdown value."
     ),
     ListingFillGapReason.REQUIRED_EMPTY: "Required listing cell was left empty.",
     ListingFillGapReason.IMAGE_UPLOAD_FAILED: (
