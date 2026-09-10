@@ -10,6 +10,7 @@ from entities.catalog.attribute_enums import (
     LISTING_FILL_GAP_MESSAGES,
     ListingFillGapReason,
 )
+from pipelines.listing.enum_select import EnumPickResult, _parse_enum_decisions
 from services.listing import _ENUM_AI_MAX_VALUES, _ParsedColumn, _resolve_stage
 
 
@@ -97,7 +98,7 @@ def test_dropdown_at_ai_cap_still_calls_model() -> None:
     col = _enum_col(1, "Color", values, source_key="Color")
     with patch(
         "services.listing.enum_select.pick_enums",
-        return_value={1: values[0]},
+        return_value=EnumPickResult(fills={1: values[0]}),
     ) as pick:
         results = _resolve_stage(
             [col],
@@ -113,3 +114,86 @@ def test_dropdown_at_ai_cap_still_calls_model() -> None:
         )
     pick.assert_called_once()
     assert results == [(1, values[0], None, "Color")]
+
+
+def _pending_enums() -> list[dict]:
+    return [{"column_index": 59, "label": "Color", "valid_values": ["Blue", "Green"]}]
+
+
+def test_explicit_no_valid_value_is_written_as_gap() -> None:
+    parsed = _parse_enum_decisions(
+        {"decisions": {"59": {"action": "no_valid_value"}}},
+        enums_to_pick=_pending_enums(),
+        sku_id="SKU-1",
+    )
+    assert parsed.fills == {}
+    assert parsed.no_valid_value == frozenset({59})
+
+
+def test_skip_is_not_no_valid_value() -> None:
+    parsed = _parse_enum_decisions(
+        {"decisions": {"59": {"action": "skip"}}},
+        enums_to_pick=_pending_enums(),
+        sku_id="SKU-1",
+    )
+    assert parsed.fills == {}
+    assert parsed.no_valid_value == frozenset()
+
+
+def test_missing_decision_is_not_no_valid_value() -> None:
+    parsed = _parse_enum_decisions(
+        {"decisions": {}},
+        enums_to_pick=_pending_enums(),
+        sku_id="SKU-1",
+    )
+    assert parsed.fills == {}
+    assert parsed.no_valid_value == frozenset()
+
+
+def test_resolve_stage_writes_no_valid_value_into_cell() -> None:
+    col = _enum_col(59, "Color", ["Blue", "Green"], source_key="Colour (as on label)")
+    with patch(
+        "services.listing.enum_select.pick_enums",
+        return_value=EnumPickResult(no_valid_value=frozenset({59})),
+    ):
+        results = _resolve_stage(
+            [col],
+            gcs=MagicMock(),
+            dropbox=MagicMock(),
+            openrouter=MagicMock(),
+            business_sku_id="SKU-1",
+            pim_values={"Colour (as on label)": "Light Cream"},
+            job_values={},
+            already_filled={},
+            already_filled_by_index={},
+            product_image_urls=[],
+        )
+    assert results == [
+        (
+            59,
+            ListingFillGapReason.ENUM_NO_VALID_VALUE.value,
+            ListingFillGapReason.ENUM_NO_VALID_VALUE,
+            "Color",
+        ),
+    ]
+
+
+def test_resolve_stage_skip_leaves_optional_enum_blank() -> None:
+    col = _enum_col(1, "League Name", ["NFL", "NBA"])
+    with patch(
+        "services.listing.enum_select.pick_enums",
+        return_value=EnumPickResult(),
+    ):
+        results = _resolve_stage(
+            [col],
+            gcs=MagicMock(),
+            dropbox=MagicMock(),
+            openrouter=MagicMock(),
+            business_sku_id="SKU-1",
+            pim_values={},
+            job_values={},
+            already_filled={},
+            already_filled_by_index={},
+            product_image_urls=[],
+        )
+    assert results == [(1, None, None, "League Name")]

@@ -4,28 +4,46 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 from core.clients.openrouter import OpenRouterClient
 from core.config import settings
 from core.exceptions import OpenRouterError
+from entities.catalog.attribute_enums import ListingFillGapReason
 
 logger = logging.getLogger(__name__)
 
 ENUM_PICKS_TOOL_NAME = "submit_listing_enum_picks"
 _ENUM_MAX_TOKENS = 4096
+_NO_VALID_VALUE_ACTIONS = frozenset(
+    {
+        "no_valid_value",
+        ListingFillGapReason.ENUM_NO_VALID_VALUE.value.casefold(),
+    }
+)
 
 _SYSTEM = (
-    "You decide Amazon listing dropdown values from product evidence only. "
+    "You decide listing dropdown values from product evidence only. "
     "Ground truth is product_attributes and product images — nothing else. "
-    "Rule of thumb: if the product does not clearly state or show the attribute, "
-    "you MUST skip that field. Leaving it blank is correct; guessing is wrong. "
-    "Examples that must be skipped when unsupported: League Name, Team Name, "
-    "sports affiliations, or any marketplace option not mentioned for this SKU. "
     "Never pick a 'closest' value, never invent, never use list defaults. "
-    "For every column in the tool schema you must return an explicit decision: "
-    "action=fill with a value from that column's allowed list, or action=skip."
+    "For every column return exactly one action: "
+    "fill (allowed list value the evidence supports), "
+    "skip (the attribute does not apply to this product — e.g. League Name "
+    "when the product has no league), or "
+    "no_valid_value (the product clearly has this attribute, but none of the "
+    "allowed values match that evidence). "
+    "Do not use skip when evidence exists but is not on the list. "
+    "Do not use no_valid_value when the attribute is simply absent."
 )
+
+
+@dataclass(frozen=True, slots=True)
+class EnumPickResult:
+    """Fill-time ENUM decisions. ``skip`` and omitted columns are not listed."""
+
+    fills: dict[int, str] = field(default_factory=dict)
+    no_valid_value: frozenset[int] = field(default_factory=frozenset)
 
 
 def match_exact(value: str | None, valid_values: list[str]) -> str | None:
@@ -42,7 +60,7 @@ def match_exact(value: str | None, valid_values: list[str]) -> str | None:
 
 
 def pick_enums_tool(enums_to_pick: list[dict[str, Any]]) -> dict[str, Any]:
-    """Forced tool: every pending column gets an explicit fill|skip decision."""
+    """Forced tool: every pending column gets fill, skip, or no_valid_value."""
     properties: dict[str, Any] = {}
     required_cols: list[str] = []
     for item in enums_to_pick:
@@ -57,10 +75,12 @@ def pick_enums_tool(enums_to_pick: list[dict[str, Any]]) -> dict[str, Any]:
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["fill", "skip"],
+                    "enum": ["fill", "skip", "no_valid_value"],
                     "description": (
-                        f"For '{label}': use fill only when product evidence clearly "
-                        "supports one allowed value; otherwise skip."
+                        f"For '{label}': fill when evidence matches one allowed "
+                        "value; skip when the attribute does not apply; "
+                        "no_valid_value when evidence exists but none of the "
+                        "allowed values match."
                     ),
                 },
                 "value": {
@@ -68,13 +88,13 @@ def pick_enums_tool(enums_to_pick: list[dict[str, Any]]) -> dict[str, Any]:
                     "enum": valid,
                     "description": (
                         f"Required when action=fill. Must be one of the allowed values "
-                        f"for '{label}'. Omit when action=skip."
+                        f"for '{label}'. Omit when action=skip or no_valid_value."
                     ),
                 },
             },
             "description": (
                 f"Decision for column {col} ({label}). "
-                "Prefer skip whenever evidence is missing, empty, unrelated, or weak."
+                "skip = not applicable. no_valid_value = evidence present, list misses it."
             ),
         }
     return {
@@ -82,10 +102,11 @@ def pick_enums_tool(enums_to_pick: list[dict[str, Any]]) -> dict[str, Any]:
         "function": {
             "name": ENUM_PICKS_TOOL_NAME,
             "description": (
-                "Submit an explicit fill-or-skip decision for every unresolved ENUM "
-                "column. action=skip leaves the Excel cell blank (correct when the "
-                "product has no supporting info). action=fill requires value from "
-                "that column's enum. Do not invent or approximate."
+                "Submit an explicit decision for every unresolved ENUM column. "
+                "action=fill requires a value from that column's allowed list. "
+                "action=skip leaves the cell blank (attribute does not apply). "
+                "action=no_valid_value means the product has this attribute but "
+                "no allowed value matches — do not guess a closest option."
             ),
             "parameters": {
                 "type": "object",
@@ -117,14 +138,15 @@ def pick_enums(
     enums_to_pick: list[dict[str, Any]],
     product_image_urls: list[str] | None = None,
     product_image_url: str | None = None,
-) -> dict[int, str]:
-    """Return column_index → chosen valid value for unresolved ENUM columns.
+) -> EnumPickResult:
+    """Return fill and no_valid_value decisions for unresolved ENUM columns.
 
     Batches pending ENUM fields in one call with PIM attributes and product images.
-    Columns the model marks action=skip (or rejects) are omitted from the result.
+    ``skip`` and rejected/undecided columns are omitted — they are not treated as
+    ``no_valid_value``.
     """
     if not enums_to_pick:
-        return {}
+        return EnumPickResult()
 
     payload = {
         "sku_id": sku_id,
@@ -136,25 +158,24 @@ def pick_enums(
                 "label": item.get("label"),
                 "valid_values": item["valid_values"],
                 "instruction": (
-                    "Return decisions[column_index]={action:'fill', value:<one of "
-                    "valid_values>} only if evidence clearly supports it; otherwise "
-                    "{action:'skip'} with no value."
+                    "Return fill + value from valid_values when evidence matches; "
+                    "skip when the attribute does not apply; no_valid_value when "
+                    "evidence exists but no valid_values entry matches."
                 ),
             }
             for item in enums_to_pick
         ],
         "rules": [
-            "No evidence → action=skip (leave blank).",
-            "Empty / missing / unrelated PIM attribute → action=skip.",
-            "Do not pick sports leagues, teams, or other options just because they "
-            "appear in valid_values.",
-            "Never guess or choose a default.",
+            "No evidence / attribute does not apply → action=skip (leave blank).",
+            "Evidence present but none of valid_values match → action=no_valid_value.",
+            "Do not treat skip as no_valid_value, and do not guess a closest value.",
+            "Never invent or choose a list default.",
         ],
     }
     prompt = (
-        "For each enums_to_pick column, decide fill or skip using product_attributes "
-        "and product images only. Call the tool with decisions for EVERY column_index. "
-        "If information is not present, action must be skip.\n\n"
+        "For each enums_to_pick column, decide fill, skip, or no_valid_value using "
+        "product_attributes and product images only. Call the tool with decisions "
+        "for EVERY column_index.\n\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
     urls = [url for url in (product_image_urls or []) if url]
@@ -196,7 +217,7 @@ def pick_enums(
             len(prompt),
             exc,
         )
-        return {}
+        return EnumPickResult()
 
     return _parse_enum_decisions(args, enums_to_pick=enums_to_pick, sku_id=sku_id)
 
@@ -206,8 +227,8 @@ def _parse_enum_decisions(
     *,
     enums_to_pick: list[dict[str, Any]],
     sku_id: str,
-) -> dict[int, str]:
-    """Interpret tool output; only action=fill with a valid value is kept."""
+) -> EnumPickResult:
+    """Interpret tool output. Blank or skip is not ENUM_NO_VALID_VALUE."""
     field_summary = _enum_batch_summary(enums_to_pick)
     raw = args.get("decisions") if isinstance(args, dict) else None
     # Backward-compatible: old schema used flat picks map of strings.
@@ -220,7 +241,7 @@ def _parse_enum_decisions(
             field_summary,
             sorted(args.keys()) if isinstance(args, dict) else type(args).__name__,
         )
-        return {}
+        return EnumPickResult()
 
     allowed_by_col = {
         int(item["column_index"]): set(item["valid_values"]) for item in enums_to_pick
@@ -229,9 +250,11 @@ def _parse_enum_decisions(
         int(item["column_index"]): str(item.get("label") or item["column_index"])
         for item in enums_to_pick
     }
-    result: dict[int, str] = {}
+    fills: dict[int, str] = {}
+    no_valid_value: set[int] = set()
     skipped_cols: set[int] = set()
     skipped_log: list[str] = []
+    no_match_log: list[str] = []
     rejected: list[str] = []
 
     for key, decision in raw.items():
@@ -251,6 +274,10 @@ def _parse_enum_decisions(
             skipped_cols.add(col)
             skipped_log.append(f"{col}:{label}")
             continue
+        if action == "no_valid_value":
+            no_valid_value.add(col)
+            no_match_log.append(f"{col}:{label}")
+            continue
         if action != "fill":
             rejected.append(f"{col}:{label}:bad_action={action!r}")
             continue
@@ -261,19 +288,21 @@ def _parse_enum_decisions(
         if text not in allowed:
             rejected.append(f"{col}:{label}:not_in_valid_values value={text!r}")
             continue
-        result[col] = text
+        fills[col] = text
 
     requested = {int(item["column_index"]) for item in enums_to_pick}
-    undecided = sorted(requested - set(result) - skipped_cols)
+    undecided = sorted(requested - set(fills) - skipped_cols - no_valid_value)
     logger.info(
-        "ENUM pick done sku_id=%s picked=%s skipped=%s undecided_cols=%s rejected=%s",
+        "ENUM pick done sku_id=%s picked=%s skipped=%s no_valid_value=%s "
+        "undecided_cols=%s rejected=%s",
         sku_id,
-        {str(k): v for k, v in sorted(result.items())},
+        {str(k): v for k, v in sorted(fills.items())},
         skipped_log,
+        no_match_log,
         undecided,
         rejected,
     )
-    return result
+    return EnumPickResult(fills=fills, no_valid_value=frozenset(no_valid_value))
 
 
 def _normalize_decision(decision: Any) -> tuple[str | None, str | None]:
@@ -282,6 +311,8 @@ def _normalize_decision(decision: Any) -> tuple[str | None, str | None]:
         text = decision.strip()
         if not text or _is_blank_or_na(text) or text.casefold() == "skip":
             return "skip", None
+        if text.casefold() in _NO_VALID_VALUE_ACTIONS:
+            return "no_valid_value", None
         return "fill", text
     if not isinstance(decision, dict):
         return None, None
@@ -291,6 +322,8 @@ def _normalize_decision(decision: Any) -> tuple[str | None, str | None]:
     value_str = value.strip() if isinstance(value, str) else None
     if action in {"skip", "omit", "blank"}:
         return "skip", None
+    if action in _NO_VALID_VALUE_ACTIONS:
+        return "no_valid_value", None
     if action in {"fill", "set", "use"}:
         return "fill", value_str
     # If model only sent value without action, treat as fill attempt.

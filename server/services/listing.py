@@ -504,13 +504,17 @@ def _resolve_stage(
             product_image_urls=product_image_urls,
         )
         for col, effective in enum_pending:
-            value = picks.get(col.column_index)
+            if col.column_index in picks.no_valid_value:
+                gap = ListingFillGapReason.ENUM_NO_VALID_VALUE
+                results[col.column_index] = (gap.value, gap, col.config.label)
+                continue
+            value = picks.fills.get(col.column_index)
             gap = None
             allowed = set(effective)
             if value is None:
                 if col.config.requiredness == ListingRequiredness.ALWAYS:
                     gap = ListingFillGapReason.REQUIRED_EMPTY
-                # OPTIONAL: intentional omit when evidence is weak — not a gap
+                # skip / undecided: leave blank — not ENUM_NO_VALID_VALUE
             elif value not in allowed:
                 gap = ListingFillGapReason.ENUM_NOT_IN_VALID_VALUES
                 value = None
