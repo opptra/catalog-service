@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
 
@@ -21,12 +22,60 @@ _CONTENT_BASE = "https://content.dropboxapi.com/2"
 _TOKEN_URL = "https://api.dropbox.com/oauth2/token"
 # Refresh a bit before Dropbox's expires_in so in-flight calls don't race expiry.
 _EXPIRY_SKEW_SECONDS = 60.0
+# Marketplace crawlers need image bytes, not the Dropbox preview HTML page.
+_DIRECT_CONTENT_HOST = "dl.dropboxusercontent.com"
+_SHARE_HOSTS = frozenset(
+    {
+        "www.dropbox.com",
+        "dropbox.com",
+        "dl.dropbox.com",
+        _DIRECT_CONTENT_HOST,
+    }
+)
 
 # Cap concurrent ensure/upload work across listing fill + content export.
 # Warm path is one list_shared_links; cold is upload + share.
 # 8 parallel uploads hit Dropbox ``too_many_write_operations`` (429) and leave
 # image cells empty in the content sheet; 4 stays under that write burst.
 MAX_CONCURRENT_OPS = 4
+
+
+def _as_direct_url(shared_url: str) -> str:
+    """Rewrite a Dropbox share URL so a GET returns file bytes, not preview HTML.
+
+    ``/scl/fi/`` links without ``rlkey`` are left on the original host with
+    ``raw=1``. Rewriting those to the content host 404s.
+    """
+    text = (shared_url or "").strip()
+    if not text:
+        return shared_url
+    parsed = urlparse(text)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in {"http", "https"} or host not in _SHARE_HOSTS:
+        return shared_url
+
+    path = parsed.path or ""
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    rlkey = (query.get("rlkey") or "").strip()
+    is_legacy_file = path.startswith("/s/")
+    is_scl_file = path.startswith("/scl/fi/")
+    if not is_legacy_file and not is_scl_file:
+        return shared_url
+
+    if is_scl_file and not rlkey:
+        kept = {key: value for key, value in query.items() if key not in {"dl", "st"}}
+        kept["raw"] = "1"
+        return urlunparse(parsed._replace(query=urlencode(kept), fragment=""))
+
+    new_query = urlencode({"rlkey": rlkey}) if rlkey else ""
+    return urlunparse(
+        parsed._replace(
+            scheme="https",
+            netloc=_DIRECT_CONTENT_HOST,
+            query=new_query,
+            fragment="",
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,8 +94,9 @@ class DropboxClient:
     only — never written back to env. Refresh happens lazily on first use and
     again when the cached token is near expiry or Dropbox returns 401.
 
-    Upload path is under ``root_path``; shared links are converted to direct
-    ``dl=1`` URLs suitable for Amazon flat-file image cells.
+    Upload path is under ``root_path``; shared links are converted to
+    ``dl.dropboxusercontent.com`` URLs so marketplace crawlers fetch image
+    bytes instead of the Dropbox preview page.
 
     ``ensure_shared_url`` is the product entry point: ``list_shared_links`` on the
     deterministic path → upload only on miss. Concurrent ensures are capped by
@@ -88,7 +138,7 @@ class DropboxClient:
         filename: str,
         load_bytes: Callable[[], bytes],
     ) -> str:
-        """Return a durable ``dl=1`` URL for ``{relative_dir}/{filename}``.
+        """Return a durable direct-content URL for ``{relative_dir}/{filename}``.
 
         Warm path (file+link already on Dropbox): one ``list_shared_links``.
         Cold path: upload bytes, then create (or reuse) a shared link.
@@ -116,7 +166,7 @@ class DropboxClient:
         data: bytes,
         relative_path: str,
     ) -> DropboxUploadedObject:
-        """Upload ``data`` and return a durable shared HTTPS URL (``dl=1``).
+        """Upload ``data`` and return a durable direct-content HTTPS URL.
 
         Prefer ``ensure_shared_url`` from product flows so existence is checked
         without re-uploading.
@@ -153,12 +203,17 @@ class DropboxClient:
 
     @staticmethod
     def _as_direct_url(shared_url: str) -> str:
-        """Prefer a direct-download form Amazon can fetch without a preview page."""
-        direct = shared_url.replace("?dl=0", "?dl=1")
-        if "dl=" not in direct:
-            sep = "&" if "?" in direct else "?"
-            direct = f"{direct}{sep}dl=1"
-        return direct
+        """Turn a Dropbox share URL into a fetchable image URL.
+
+        Marketplace crawlers GET the cell and need ``image/*`` bytes, not the
+        Dropbox preview HTML. ``dl=1`` is a browser download flag and often
+        leaves ``&dl=0`` share links unchanged.
+
+        ``/scl/fi/`` links 404 on the content host without ``rlkey`` ("file
+        isn't available"). Those stay on the original host with ``raw=1``.
+        ``st`` is dropped — it expires and then looks like the file is gone.
+        """
+        return _as_direct_url(shared_url)
 
     def _create_or_get_shared_link(self, path: str) -> str:
         """Create a public shared link, or return the existing one on conflict."""
