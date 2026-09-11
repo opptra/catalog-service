@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     dropbox_refresh_token: str | None = None
     dropbox_root_path: str = "/catalog-service/listing-images"
 
+    # SKU-level parallelism for listing fill (ENUM / AI_TEXT stages). Dropbox
+    # uploads stay capped separately by DropboxClient.MAX_CONCURRENT_OPS.
+    listing_fill_workers: int = 12
+
     @property
     def dropbox_configured(self) -> bool:
         return bool(self.dropbox_app_key and self.dropbox_app_secret and self.dropbox_refresh_token)

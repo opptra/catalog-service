@@ -2,8 +2,10 @@ import { useEffect, useId, useState } from 'react'
 import axios from 'axios'
 import {
   fillListing,
-  type FillListingResponse,
+  getJobGroupListingFiles,
+  type JobGroupListingFileItem,
   type ListingFillGap,
+  type StartListingFillResponse,
 } from '../../api/listing'
 
 export interface ListingExportMarketplace {
@@ -27,7 +29,7 @@ function formatFillError(error: unknown): string {
     if (error.message) return error.message
   }
   if (error instanceof Error && error.message) return error.message
-  return 'Could not fill the listing file. Please try again.'
+  return 'Could not start the listing fill. Please try again.'
 }
 
 function groupGapsBySku(gaps: ListingFillGap[]): Array<{ skuId: string; items: ListingFillGap[] }> {
@@ -40,6 +42,16 @@ function groupGapsBySku(gaps: ListingFillGap[]): Array<{ skuId: string; items: L
   return [...map.entries()].map(([skuId, items]) => ({ skuId, items }))
 }
 
+function formatGeneratedAt(value: string | null): string {
+  if (!value) return 'Not generated yet'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+}
+
 function CloseIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -48,6 +60,31 @@ function CloseIcon() {
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={
+        open
+          ? 'listing-export__file-chevron listing-export__file-chevron--open'
+          : 'listing-export__file-chevron'
+      }
+      width="18"
+      height="18"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M6 3.5 10.5 8 6 12.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   )
@@ -126,7 +163,8 @@ function MarketplacePickerModal({
           </button>
         </div>
         <p className="listing-export-picker__lede">
-          Download the filled listing workbook for one marketplace in this batch.
+          Start filling the listing workbook for one marketplace in this batch. Refresh the page
+          when it finishes to download the latest file.
         </p>
         <div className="listing-export-picker__list" role="radiogroup" aria-label="Marketplaces">
           {marketplaces.map((marketplace) => {
@@ -161,7 +199,7 @@ function MarketplacePickerModal({
             onClick={onConfirm}
             disabled={!selectedId || confirming}
           >
-            {confirming ? 'Filling listing…' : 'Download listing file'}
+            {confirming ? 'Starting…' : 'Start listing fill'}
           </button>
         </div>
       </div>
@@ -177,58 +215,76 @@ function ListingExportPanel({
 }: ListingExportPanelProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickedId, setPickedId] = useState('')
-  const [filling, setFilling] = useState(false)
+  const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<FillListingResponse | null>(null)
-  const [resultMarketplaceName, setResultMarketplaceName] = useState<string | null>(null)
-  const [gapsOpen, setGapsOpen] = useState(false)
+  const [ack, setAck] = useState<StartListingFillResponse | null>(null)
+  const [files, setFiles] = useState<JobGroupListingFileItem[]>([])
+  const [filesError, setFilesError] = useState<string | null>(null)
+  const [filesLoading, setFilesLoading] = useState(false)
+  const [filesSectionOpen, setFilesSectionOpen] = useState(false)
+  const [gapsOpenByMarketplace, setGapsOpenByMarketplace] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (!pickerOpen) return
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !filling) setPickerOpen(false)
+      if (event.key === 'Escape' && !starting) setPickerOpen(false)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [pickerOpen, filling])
+  }, [pickerOpen, starting])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadFiles() {
+      setFilesLoading(true)
+      try {
+        const next = await getJobGroupListingFiles(jobGroupId)
+        if (cancelled) return
+        setFiles(next.files)
+        setFilesError(null)
+      } catch (err) {
+        if (cancelled) return
+        setFilesError(formatFillError(err))
+      } finally {
+        if (!cancelled) setFilesLoading(false)
+      }
+    }
+    void loadFiles()
+    return () => {
+      cancelled = true
+    }
+  }, [jobGroupId])
 
   function openPicker() {
-    if (!enabled || filling || marketplaces.length === 0) return
+    if (!enabled || starting || marketplaces.length === 0) return
     setError(null)
     setPickedId(defaultMarketplaceId(marketplaces, preferredMarketplaceExternalId))
     setPickerOpen(true)
   }
 
   function closePicker() {
-    if (filling) return
+    if (starting) return
     setPickerOpen(false)
   }
 
   async function handleConfirm() {
     const marketplace = marketplaces.find((item) => item.marketplace_external_id === pickedId)
-    if (!marketplace || filling) return
-    setFilling(true)
+    if (!marketplace || starting) return
+    setStarting(true)
     setError(null)
     try {
       const next = await fillListing({
         job_group_id: jobGroupId,
         marketplace_external_id: marketplace.marketplace_external_id,
       })
-      setResult(next)
-      setResultMarketplaceName(marketplace.marketplace_name)
-      setGapsOpen(next.gaps.length > 0)
+      setAck(next)
       setPickerOpen(false)
-      if (next.filled_file_url) {
-        window.open(next.filled_file_url, '_blank', 'noopener,noreferrer')
-      }
     } catch (err) {
       setError(formatFillError(err))
     } finally {
-      setFilling(false)
+      setStarting(false)
     }
   }
-
-  const gapGroups = result ? groupGapsBySku(result.gaps) : []
 
   return (
     <section className="listing-export" aria-label="Listing file export">
@@ -238,96 +294,147 @@ function ListingExportPanel({
           <p className="listing-export__title">Download the filled listing workbook</p>
           <p className="listing-export__hint">
             {enabled
-              ? filling
-                ? 'Filling template columns from this job (images via Dropbox, enums, mapped fields)…'
-                : 'Choose a marketplace, then we fill that listing file from this job. Empty required cells are reported as gaps.'
+              ? 'Choose a marketplace to start filling. When it finishes, refresh this page to see the latest marketplace file below.'
               : 'Finish SKU generation first, then export a marketplace listing file.'}
           </p>
         </div>
         <button
           type="button"
           className="btn-primary batch-content__export"
-          disabled={!enabled || filling || marketplaces.length === 0}
+          disabled={!enabled || starting || marketplaces.length === 0}
           onClick={openPicker}
         >
           <DownloadIcon />
-          {filling ? 'Filling listing…' : result ? 'Download again' : 'Download listing file'}
+          {starting ? 'Starting…' : 'Download listing file'}
         </button>
       </div>
 
-      {filling ? (
+      {ack ? (
         <div className="listing-export__progress" role="status" aria-live="polite">
-          <div className="pipeline-progress__track">
-            <div className="pipeline-progress__fill pipeline-progress__fill--indeterminate" />
-          </div>
-          <p className="listing-export__progress-label">Fill in progress — this can take a minute</p>
+          <p className="listing-export__progress-label">{ack.message}</p>
         </div>
       ) : null}
 
       {error && !pickerOpen ? <p className="batch-content__error">{error}</p> : null}
 
-      {result && !filling ? (
-        <div className="listing-export__result">
-          <p className="listing-export__result-meta">
-            {result.gaps.length === 0
-              ? `${resultMarketplaceName ?? 'Listing'} file ready — no gaps reported.`
-              : `${result.gaps.length} gap${result.gaps.length === 1 ? '' : 's'} across ${gapGroups.length} SKU${gapGroups.length === 1 ? '' : 's'}${resultMarketplaceName ? ` (${resultMarketplaceName})` : ''}.`}
-            {result.filled_file_url ? (
-              <>
-                {' '}
-                <a
-                  className="listing-export__link"
-                  href={result.filled_file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Open file
-                </a>
-              </>
-            ) : null}
-          </p>
-          {result.gaps.length > 0 ? (
-            <div className="listing-export__gaps">
-              <button
-                type="button"
-                className="listing-export__gaps-toggle"
-                onClick={() => setGapsOpen((open) => !open)}
-                aria-expanded={gapsOpen}
-              >
-                {gapsOpen ? 'Hide gaps' : 'Show gaps'}
-              </button>
-              {gapsOpen ? (
-                <ul className="listing-export__gap-list">
-                  {gapGroups.map((group) => (
-                    <li key={group.skuId} className="listing-export__gap-sku">
-                      <p className="listing-export__gap-sku-id">{group.skuId}</p>
-                      <ul>
-                        {group.items.map((gap) => (
-                          <li key={`${gap.sku_id}-${gap.column_label}-${gap.reason}`}>
-                            <span className="listing-export__gap-col">{gap.column_label}</span>
-                            <span className="listing-export__gap-reason">
-                              {gap.message || gap.reason}
-                            </span>
-                            {gap.message ? (
-                              <span className="listing-export__gap-code">{gap.reason}</span>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    </li>
-                  ))}
-                </ul>
+      <div className="listing-export__files">
+        <button
+          type="button"
+          className="listing-export__files-toggle"
+          aria-expanded={filesSectionOpen}
+          onClick={() => setFilesSectionOpen((open) => !open)}
+        >
+          <span className="listing-export__files-title">Marketplace files</span>
+          <ChevronIcon open={filesSectionOpen} />
+        </button>
+        <div
+          className={
+            filesSectionOpen
+              ? 'listing-export__files-panel listing-export__files-panel--open'
+              : 'listing-export__files-panel'
+          }
+        >
+          <div className="listing-export__files-panel-inner">
+            <div className="listing-export__files-body">
+              {filesLoading ? (
+                <p className="listing-export__files-hint">Loading latest files…</p>
               ) : null}
+              {filesError ? <p className="batch-content__error">{filesError}</p> : null}
+              {!filesLoading && !filesError && files.length === 0 ? (
+                <p className="listing-export__files-hint">No marketplace files yet.</p>
+              ) : null}
+              <ul className="listing-export__file-list">
+                {files.map((file) => {
+                  const gapGroups = groupGapsBySku(file.gaps)
+                  const gapsOpen = gapsOpenByMarketplace[file.marketplace_external_id] === true
+                  return (
+                    <li key={file.job_external_id} className="listing-export__file-item">
+                      <div className="listing-export__file-head">
+                        <div className="listing-export__file-copy">
+                          <p className="listing-export__file-name">{file.marketplace_name}</p>
+                          {file.filled_file_url && file.generated_at ? (
+                            <p className="listing-export__file-generated">
+                              <span className="listing-export__file-generated-label">
+                                Latest generated
+                              </span>
+                              <span className="listing-export__file-generated-value">
+                                {formatGeneratedAt(file.generated_at)}
+                              </span>
+                            </p>
+                          ) : (
+                            <p className="listing-export__file-meta">No file generated yet</p>
+                          )}
+                        </div>
+                        {file.filled_file_url ? (
+                          <a
+                            className="listing-export__link listing-export__link--file"
+                            href={file.filled_file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Open file
+                          </a>
+                        ) : null}
+                      </div>
+                      {file.gaps.length > 0 ? (
+                        <div className="listing-export__gaps">
+                          <button
+                            type="button"
+                            className="listing-export__gaps-toggle"
+                            onClick={() =>
+                              setGapsOpenByMarketplace((prev) => ({
+                                ...prev,
+                                [file.marketplace_external_id]: !gapsOpen,
+                              }))
+                            }
+                            aria-expanded={gapsOpen}
+                          >
+                            {gapsOpen
+                              ? 'Hide gaps'
+                              : `Show ${file.gaps.length} gap${file.gaps.length === 1 ? '' : 's'}`}
+                          </button>
+                          {gapsOpen ? (
+                            <ul className="listing-export__gap-list">
+                              {gapGroups.map((group) => (
+                                <li key={group.skuId} className="listing-export__gap-sku">
+                                  <p className="listing-export__gap-sku-id">{group.skuId}</p>
+                                  <ul>
+                                    {group.items.map((gap) => (
+                                      <li key={`${gap.sku_id}-${gap.column_label}-${gap.reason}`}>
+                                        <span className="listing-export__gap-col">
+                                          {gap.column_label}
+                                        </span>
+                                        <span className="listing-export__gap-reason">
+                                          {gap.message || gap.reason}
+                                        </span>
+                                        {gap.message ? (
+                                          <span className="listing-export__gap-code">
+                                            {gap.reason}
+                                          </span>
+                                        ) : null}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
-          ) : null}
+          </div>
         </div>
-      ) : null}
+      </div>
 
       <MarketplacePickerModal
         open={pickerOpen}
         marketplaces={marketplaces}
         selectedId={pickedId}
-        confirming={filling}
+        confirming={starting}
         error={error}
         onSelect={setPickedId}
         onCancel={closePicker}
