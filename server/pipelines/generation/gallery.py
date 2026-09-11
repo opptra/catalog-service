@@ -542,9 +542,12 @@ def _slot_prompt(
         lines.append(
             "The visible label may use a concise, natural-language rendering of "
             "source_field + value when necessary to make the fact immediately "
-            "understandable. This rendering must preserve the exact factual meaning of "
-            "the supplied source data and must not introduce, infer, embellish, or "
-            "modify any claim, specification, number, or unit."
+            "understandable. Present all visible benefit labels as polished, concise "
+            "catalog copy rather than raw source-field values, using a consistent "
+            "label style and appropriate word capitalization and spacing for "
+            "professional visual presentation. This rendering must preserve the exact "
+            "factual meaning of the supplied source data and must not introduce, "
+            "infer, embellish, or modify any claim, specification, number, or unit."
         )
         lines.append(
             "Do not invent a different number, unit, or fact. Do not add extra "

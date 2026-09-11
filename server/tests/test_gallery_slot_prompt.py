@@ -29,6 +29,8 @@ def test_slot_prompt_fact_rendering_contract() -> None:
     assert "source_field" in prompt and "attribute name and unit context" in prompt
     assert "source_field may be omitted" in prompt
     assert "concise, natural-language rendering" in prompt
+    assert "polished, concise catalog copy" in prompt
+    assert "appropriate word capitalization and spacing" in prompt
     assert "must not introduce, infer, embellish" in prompt
     assert "do not add a converted equivalent" in prompt
     assert '"Width (cm)"' in prompt and '"110 cm"' in prompt
