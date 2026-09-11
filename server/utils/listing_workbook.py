@@ -89,6 +89,16 @@ def listing_output_object_key(job_external_id: Any, filename: str) -> str:
     return f"jobs/{job_external_id}/output/listing/{safe_name}"
 
 
+def listing_output_prefix(job_external_id: Any) -> str:
+    """GCS prefix for filled listing artifacts under a generation job."""
+    return f"jobs/{job_external_id}/output/listing/"
+
+
+def listing_gaps_object_key(job_external_id: Any) -> str:
+    """GCS key for the gaps sidecar JSON next to the filled workbook."""
+    return f"jobs/{job_external_id}/output/listing/gaps.json"
+
+
 def _zip_has_vba(data: bytes) -> bool:
     try:
         with ZipFile(io.BytesIO(data)) as archive:

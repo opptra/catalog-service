@@ -23,10 +23,12 @@ from core.exceptions import (
     UserServiceBrandNotFoundError,
 )
 from dto.response.job_status import JobGroupStatusResponse
+from dto.response.listing import JobGroupListingFilesResponse
 from dto.response.sku_image_export import SkuImageDownloadResponse
 from entities.user_service.user import User
 from services import authorization
 from services import job as job_service
+from services import listing as listing_service
 from services import sku_image_export as sku_image_export_service
 
 router = SecureAPIRouter(prefix="/job-groups", tags=["job-groups"])
@@ -86,6 +88,34 @@ def get_job_group_status(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return JobGroupStatusResponse.model_validate(payload)
+
+
+@router.get(
+    "/{job_group_id}/listing-files",
+    response_model=JobGroupListingFilesResponse,
+)
+def get_job_group_listing_files(
+    job_group_id: UUID,
+    user: CurrentUserDep,
+    catalog_session: CatalogSessionDep,
+    user_session: UserSessionDep,
+    gcs: GcsDep,
+) -> JobGroupListingFilesResponse:
+    """Latest filled marketplace listing workbooks from GCS (page load / refresh only)."""
+    _require_job_group_access(
+        user_session,
+        catalog_session,
+        actor=user,
+        job_group_id=job_group_id,
+    )
+    try:
+        return listing_service.list_listing_files_for_group(
+            catalog_session,
+            gcs,
+            job_group_id=job_group_id,
+        )
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get(

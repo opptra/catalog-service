@@ -3,7 +3,7 @@
 import json
 import time
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -27,6 +27,14 @@ class UploadedObject:
     object_name: str
     gs_uri: str
     public_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class GcsObjectInfo:
+    """Listed object with optional server-side update time."""
+
+    name: str
+    updated: datetime | None
 
 
 class GcsClient:
@@ -117,11 +125,19 @@ class GcsClient:
 
     def list_object_names(self, prefix: str) -> list[str]:
         """List object names under ``prefix`` (files only, not directory placeholders)."""
+        return [obj.name for obj in self.list_objects(prefix)]
+
+    def list_objects(self, prefix: str) -> list[GcsObjectInfo]:
+        """List objects under ``prefix`` with ``updated`` timestamps when available."""
         if not prefix:
             raise ValueError("prefix is required")
         try:
             blobs = self._client.list_blobs(self._bucket_name, prefix=prefix)
-            return [blob.name for blob in blobs if blob.name and not blob.name.endswith("/")]
+            return [
+                GcsObjectInfo(name=blob.name, updated=blob.updated)
+                for blob in blobs
+                if blob.name and not blob.name.endswith("/")
+            ]
         except GoogleCloudError as exc:
             raise GcsError(f"GCS list failed for prefix {prefix!r}: {exc}") from exc
 
