@@ -504,19 +504,23 @@ def _slot_prompt(
     if assigned_facts:
         budget = len(assigned_facts)
         lines.append(
-            f"On-image text budget: {budget} item(s). Paint each facts JSON value "
-            "once as overlay chrome. Do not add another overlay from Content, Pattern, "
-            "Slot, JSON DNA, or source-photo badges and size tags. Letters printed on "
-            "the physical product are identity, not extra budget items."
+            f"On-image text budget: {budget} item(s). Create exactly one overlay "
+            "callout for each facts JSON object. Do not add another overlay from "
+            "Content, Pattern, Slot, JSON DNA, or source-photo badges and size tags. "
+            "Letters printed on the physical product are identity, not extra budget "
+            "items."
         )
         lines.append(
             "This shot has required on-image facts as JSON below. Render every fact "
             "visibly and legibly in the finished image."
         )
         lines.append(
-            'Each object\'s "value" is immutable — paint those digits/words exactly '
-            '(120 stays 120, never 210 / 120.5; "7 feet" stays "7 feet", never '
-            "84 in / 210 cm)."
+            'Each object\'s "value" is the immutable source-of-truth value. Never '
+            "change, convert, calculate, or invent the underlying value. However, the "
+            "visible on-image text does not always need to reproduce the raw "
+            '"value" literally. Render each fact in the clearest, most concise '
+            'shopper-readable form using "source_field" + "value" when context is '
+            "required."
         )
         lines.append(
             "Units stay with the fact. If value already contains a unit, that is the "
@@ -530,11 +534,21 @@ def _slot_prompt(
             "unit. Use the same unit spelling on arrows and in any table."
         )
         lines.append(
-            '"source_field" is the attribute name and unit context. Combine field and '
-            'value when that makes the fact clear (e.g. "Thread Count: 120" or '
-            '"120 Thread Count"). You may shorten the name only if every unit named in '
-            "source_field stays on the artwork. Do not invent a different number, unit, "
-            "or fact. Do not add extra measurements that are not in this facts JSON."
+            '"source_field" is the attribute name and unit context. Include the '
+            "source_field context in the visible label whenever the value is ambiguous, "
+            "categorical, numeric, abbreviated, or otherwise not self-explanatory. For "
+            "self-explanatory values, the source_field may be omitted."
+        )
+        lines.append(
+            "The visible label may use a concise, natural-language rendering of "
+            "source_field + value when necessary to make the fact immediately "
+            "understandable. This rendering must preserve the exact factual meaning of "
+            "the supplied source data and must not introduce, infer, embellish, or "
+            "modify any claim, specification, number, or unit."
+        )
+        lines.append(
+            "Do not invent a different number, unit, or fact. Do not add extra "
+            "measurements that are not in this facts JSON."
         )
         lines.append('Do not paint "claim", JSON keys, braces, or quotes.')
         lines.append(_facts_block(assigned_facts))
@@ -556,16 +570,17 @@ def _slot_prompt(
             "the product sits. Follow them even when that means leaving the reference "
             "room behind. They are not copy to typeset — never paint any word from "
             "Slot, Content, Pattern, or JSON DNA onto the artwork as overlay chrome.",
-            "Overlay letters or digits may come only from the facts JSON "
-            '"value" strings, optionally with a short source_field label (unit from '
-            "the field name included when the value is a bare number). Empty facts "
-            "JSON means no overlay chrome — not a blank product. Keep on-product "
-            "lettering, woven marks, and print from the reference photos. Diagrams may "
-            "use mute visual marks (cut planes, lines, arrows) with no captions beyond "
-            "those overlay values. Numerals and units on measurement lines count as "
-            "overlay chrome — no dual-unit charts, pack dimensions, or conversions "
-            "from the reference photos. Do not copy badges, size tags, or feature "
-            "callouts from the reference photos.",
+            "Overlay information may come only from the facts JSON. Visible text may "
+            "use the supplied value directly or a concise, shopper-readable rendering "
+            "of source_field + value when context is required. Do not introduce any "
+            "information that is not supported by the facts JSON.",
+            "Empty facts JSON means no overlay chrome — not a blank product. Keep "
+            "on-product lettering, woven marks, and print from the reference photos. "
+            "Diagrams may use mute visual marks (cut planes, lines, arrows) with no "
+            "captions beyond those overlay values. Numerals and units on measurement "
+            "lines count as overlay chrome — no dual-unit charts, pack dimensions, or "
+            "conversions from the reference photos. Do not copy badges, size tags, or "
+            "feature callouts from the reference photos.",
             "Only the facts JSON may determine overlay claims and information.",
             "Do not invent unsupported specifications, claims, or marketing copy.",
             "Keep the product's identity from the reference photos — colour, heading, fabric, "

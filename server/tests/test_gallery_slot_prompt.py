@@ -21,21 +21,24 @@ def test_slot_prompt_fact_rendering_contract() -> None:
         brand_look="",
     )
     assert "On-image text budget: 1 item(s)" in prompt
-    assert "once as overlay chrome" in prompt
+    assert "Create exactly one overlay callout for each facts JSON object" in prompt
     assert "Letters printed on the physical product are identity" in prompt
-    assert '"value" is immutable' in prompt
+    assert "immutable source-of-truth value" in prompt
+    assert "does not always need to reproduce the raw" in prompt
+    assert "shopper-readable form" in prompt
     assert "source_field" in prompt and "attribute name and unit context" in prompt
-    assert "Thread Count: 120" in prompt or "120 Thread Count" in prompt
-    assert "every unit named in source_field stays on the artwork" in prompt
-    assert "do not have to reproduce source_field verbatim" not in prompt
-    assert "semantic context" not in prompt
-    assert '"7 feet" stays "7 feet"' in prompt
+    assert "source_field may be omitted" in prompt
+    assert "concise, natural-language rendering" in prompt
+    assert "must not introduce, infer, embellish" in prompt
     assert "do not add a converted equivalent" in prompt
     assert '"Width (cm)"' in prompt and '"110 cm"' in prompt
     assert "Do not add extra measurements that are not in this facts JSON" in prompt
     assert '"claim": "opacity"' in prompt
     assert '"source_field": "Opacity"' in prompt
     assert '"value": "Light-filtering (50-60%)"' in prompt
+    assert "once as overlay chrome" not in prompt
+    assert "paint those digits/words exactly" not in prompt
+    assert "Thread Count: 120" not in prompt
 
 
 def test_slot_prompt_closer_separates_content_from_facts() -> None:
@@ -60,6 +63,9 @@ def test_slot_prompt_closer_separates_content_from_facts() -> None:
     assert "no dual-unit charts" in prompt
     assert "Do not copy badges, size tags, or feature callouts" in prompt
     assert "Only the facts JSON may determine overlay claims" in prompt
+    assert "Overlay information may come only from the facts JSON" in prompt
+    assert "shopper-readable rendering" in prompt
+    assert "Overlay letters or digits may come only from the facts JSON" not in prompt
     assert "on-product print" in prompt
     assert "Empty facts JSON means no overlay chrome" in prompt
     assert "Do not invent unsupported specifications" in prompt
