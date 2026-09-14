@@ -1,6 +1,7 @@
 import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import jwt
@@ -263,20 +264,31 @@ def test_job_status_without_grant_is_403(client, monkeypatch):
 
 def test_listings_fill_without_grant_is_403(client, monkeypatch):
     from core.exceptions import BrandAccessDeniedError
+    from main import app
 
     user = _fake_user()
-    job_id = uuid4()
+    job_group_id = uuid4()
+    marketplace_id = uuid4()
     monkeypatch.setattr(
         "core.auth.authenticators.user_service.get_user_by_external_id",
         lambda _session, _external_id: user,
     )
     monkeypatch.setattr(
-        "services.authorization.assert_job_access",
+        "services.authorization.assert_job_group_access",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(BrandAccessDeniedError("denied")),
     )
+    app.state.gcs = MagicMock()
+    app.state.dropbox = MagicMock()
+    app.state.openrouter = MagicMock()
     token = session_jwt.encode(user_external_id=user.external_id)
     client.cookies.set(SESSION_COOKIE_NAME, token, path="/api")
-    response = client.post("/api/listings/fill", json={"job_external_id": str(job_id)})
+    response = client.post(
+        "/api/listings/fill",
+        json={
+            "job_group_id": str(job_group_id),
+            "marketplace_external_id": str(marketplace_id),
+        },
+    )
     assert response.status_code == 403
 
 

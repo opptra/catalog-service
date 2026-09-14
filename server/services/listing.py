@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import threading
 from collections import defaultdict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
@@ -12,9 +15,10 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from core.clients.dropbox import MAX_CONCURRENT_OPS, DropboxClient
+from core.clients.dropbox import DropboxClient
 from core.clients.gcs import GcsClient
 from core.clients.openrouter import OpenRouterClient
+from core.config import settings
 from core.exceptions import (
     CategoryNotFoundError,
     DropboxError,
@@ -24,9 +28,16 @@ from core.exceptions import (
     ListingTemplateNotFoundError,
 )
 from dto.listing_config import ListingColumnConfig, ListingTemplateMetadata
-from dto.response.listing import FillListingResponse, ListingFillGap
+from dto.response.listing import (
+    FillListingResponse,
+    JobGroupListingFileItem,
+    JobGroupListingFilesResponse,
+    ListingFillGap,
+    StartListingFillResponse,
+)
 from entities.catalog.attribute_enums import (
     AttributeName,
+    JobStatus,
     JobType,
     ListingFillGapReason,
     ListingFillType,
@@ -40,6 +51,7 @@ from repositories.catalog import category_marketplace as category_marketplace_re
 from repositories.catalog import job as job_repo
 from repositories.catalog import listing_template as listing_template_repo
 from repositories.catalog import listing_template_column as listing_template_column_repo
+from repositories.catalog import marketplace as marketplace_repo
 from repositories.catalog import sku_generation_job as sku_generation_job_repo
 from repositories.catalog import sku_marketplace_attribute_value as attribute_value_repo
 from repositories.catalog import sku_master as sku_master_repo
@@ -49,14 +61,155 @@ from utils import listing_workbook as workbook_utils
 
 logger = logging.getLogger(__name__)
 
-# SKU-level parallelism within a resolve stage (AI / enums / IMAGE). Dropbox
-# traffic is additionally hard-capped by DropboxClient.MAX_CONCURRENT_OPS.
-_LISTING_FILL_WORKERS = MAX_CONCURRENT_OPS
+# Dropbox stays capped inside DropboxClient; SKU ENUM/AI parallelism is independent.
+_DEFAULT_LISTING_FILL_WORKERS = 12
 _FILLED_FILE_SIGNED_URL_TTL_SECONDS = 3600
 _REFERENCE_IMAGE_URL_TTL_SECONDS = 3600
 _MAX_PRODUCT_IMAGE_URLS = 7
 # Dropdowns larger than this are not sent to the fill model (exact PIM match only).
 _ENUM_AI_MAX_VALUES = 150
+_ESTIMATE_SECONDS_PER_BATCH = 12.0
+_ESTIMATE_BUFFER = 1.3
+_WORKBOOK_SUFFIXES = (".xlsx", ".xlsm")
+
+# In-process guard so a second Download click does not start another fill.
+_running_fills_lock = threading.Lock()
+_running_fills: set[UUID] = set()
+
+
+@dataclass(frozen=True, slots=True)
+class _ListingFillStartPlan:
+    """Validated fill request ready to schedule (or already running)."""
+
+    job_external_id: UUID
+    sku_count: int
+    estimated_minutes: int
+
+
+def listing_fill_workers() -> int:
+    configured = settings.listing_fill_workers
+    if configured < 1:
+        return _DEFAULT_LISTING_FILL_WORKERS
+    return configured
+
+
+def estimate_fill_minutes(*, sku_count: int, llm_stage_count: int, workers: int) -> int:
+    """Rough wall-clock estimate for the fill ack message."""
+    if sku_count <= 0 or llm_stage_count <= 0:
+        return 1
+    batches = math.ceil(sku_count / max(1, workers))
+    seconds = llm_stage_count * batches * _ESTIMATE_SECONDS_PER_BATCH * _ESTIMATE_BUFFER
+    return max(1, math.ceil(seconds / 60))
+
+
+def try_begin_listing_fill(job_external_id: UUID) -> bool:
+    """Mark ``job_external_id`` as running. Returns False if already in progress."""
+    with _running_fills_lock:
+        if job_external_id in _running_fills:
+            return False
+        _running_fills.add(job_external_id)
+        return True
+
+
+def end_listing_fill(job_external_id: UUID) -> None:
+    with _running_fills_lock:
+        _running_fills.discard(job_external_id)
+
+
+def is_listing_fill_running(job_external_id: UUID) -> bool:
+    with _running_fills_lock:
+        return job_external_id in _running_fills
+
+
+def start_listing_fill_for_group(
+    session: Session,
+    *,
+    job_group_id: UUID,
+    marketplace_external_id: UUID,
+) -> tuple[StartListingFillResponse, bool]:
+    """Validate and acknowledge a fill; caller schedules the background worker when started."""
+    plan = _prepare_listing_fill(
+        session,
+        job_group_id=job_group_id,
+        marketplace_external_id=marketplace_external_id,
+    )
+    started = try_begin_listing_fill(plan.job_external_id)
+    message = (
+        f"Fill is running. This usually takes about {plan.estimated_minutes} minute"
+        f"{'' if plan.estimated_minutes == 1 else 's'} for {plan.sku_count} SKUs. "
+        "Kindly refresh this page to see the latest marketplace file."
+        if started
+        else (
+            f"Fill is already running for this marketplace. This usually takes about "
+            f"{plan.estimated_minutes} minute"
+            f"{'' if plan.estimated_minutes == 1 else 's'} for {plan.sku_count} SKUs. "
+            "Kindly refresh this page to see the latest marketplace file."
+        )
+    )
+    return (
+        StartListingFillResponse(
+            status="running",
+            job_external_id=plan.job_external_id,
+            sku_count=plan.sku_count,
+            estimated_minutes=plan.estimated_minutes,
+            message=message,
+        ),
+        started,
+    )
+
+
+def run_listing_fill_background(
+    session_factory: Callable[[], Session],
+    gcs: GcsClient,
+    dropbox: DropboxClient,
+    openrouter: OpenRouterClient,
+    job_external_id: UUID,
+) -> None:
+    """Background worker: open a fresh session, fill, always release the in-process lock."""
+    session = session_factory()
+    try:
+        fill_listing_for_job(session, gcs, dropbox, openrouter, job_external_id)
+    except Exception:
+        logger.exception("Listing fill failed for job %s", job_external_id)
+    finally:
+        session.close()
+        end_listing_fill(job_external_id)
+
+
+def list_listing_files_for_group(
+    session: Session,
+    gcs: GcsClient,
+    *,
+    job_group_id: UUID,
+) -> JobGroupListingFilesResponse:
+    """Latest filled workbook per marketplace from GCS (call on page load / refresh only)."""
+    members = list(job_repo.list_group_members(session, job_group_id))
+    if not members:
+        raise JobNotFoundError(f"job group not found: {job_group_id}")
+
+    marketplace_ids = [m.marketplace_id for m in members if m.marketplace_id is not None]
+    marketplaces = {row.id: row for row in marketplace_repo.list_by_ids(session, marketplace_ids)}
+    group_id = (
+        members[0].job_group_id if members[0].job_group_id is not None else members[0].external_id
+    )
+
+    files: list[JobGroupListingFileItem] = []
+    for member in members:
+        if member.marketplace_id is None:
+            continue
+        marketplace = marketplaces.get(member.marketplace_id)
+        if marketplace is None:
+            continue
+        files.append(
+            _latest_listing_file_for_job(
+                gcs,
+                job_external_id=member.external_id,
+                marketplace_external_id=marketplace.external_id,
+                marketplace_name=marketplace.name,
+            )
+        )
+
+    return JobGroupListingFilesResponse(job_group_id=group_id, files=files)
 
 
 def fill_listing_for_group(
@@ -139,103 +292,270 @@ def fill_listing_for_job(
     except CategoryNotFoundError as exc:
         raise ListingFillError(str(exc)) from exc
 
-    gaps: list[ListingFillGap] = []
-    sku_states: list[_SkuFillState] = []
+    # Prefetch blank template while we assemble per-SKU bags / product image URLs.
+    template_pool = ThreadPoolExecutor(max_workers=1)
+    template_future = template_pool.submit(gcs.download_bytes, template.gcs_object_key)
+    try:
+        gaps: list[ListingFillGap] = []
+        sku_states: list[_SkuFillState] = []
 
-    for sku_job in sku_jobs:
-        sku = sku_by_id.get(sku_job.sku_id)
-        business_sku_id = product_attributes_service.business_sku_id(
-            sku, fallback=str(sku_job.sku_id)
-        )
-        sku_states.append(
-            _SkuFillState(
-                business_sku_id=business_sku_id,
-                pim_values=pim_by_sku_id.get(sku.id, {}) if sku is not None else {},
-                job_values=_job_values_bag(
-                    session,
-                    sku_generation_job_id=sku_job.id,
-                    attribute_ids_by_name=attribute_ids_by_name,
-                ),
-                product_image_urls=_product_image_urls(gcs, business_sku_id),
+        business_ids: list[str] = []
+        for sku_job in sku_jobs:
+            sku = sku_by_id.get(sku_job.sku_id)
+            business_sku_id = product_attributes_service.business_sku_id(
+                sku, fallback=str(sku_job.sku_id)
             )
-        )
+            business_ids.append(business_sku_id)
 
-    # Stages are sequential (later stages need already_filled parents). Within a
-    # stage, columns have no mutual dependency — SKUs run concurrently (cap).
-    for _stage, stage_columns in stages:
-        workers = min(_LISTING_FILL_WORKERS, max(1, len(sku_states)))
+        product_urls_by_sku = _product_image_urls_for_skus(gcs, business_ids)
 
-        def _run_sku_stage(
-            state: _SkuFillState,
-            cols: list[_ParsedColumn],
-        ) -> list[ListingFillGap]:
-            stage_gaps: list[ListingFillGap] = []
-            stage_results = _resolve_stage(
-                cols,
-                gcs=gcs,
-                dropbox=dropbox,
-                openrouter=openrouter,
-                business_sku_id=state.business_sku_id,
-                pim_values=state.pim_values,
-                job_values=state.job_values,
-                already_filled=state.already_filled,
-                already_filled_by_index=state.already_filled_by_index,
-                product_image_urls=state.product_image_urls,
+        for sku_job, business_sku_id in zip(sku_jobs, business_ids, strict=True):
+            sku = sku_by_id.get(sku_job.sku_id)
+            sku_states.append(
+                _SkuFillState(
+                    business_sku_id=business_sku_id,
+                    pim_values=pim_by_sku_id.get(sku.id, {}) if sku is not None else {},
+                    job_values=_job_values_bag(
+                        session,
+                        sku_generation_job_id=sku_job.id,
+                        attribute_ids_by_name=attribute_ids_by_name,
+                    ),
+                    product_image_urls=product_urls_by_sku.get(business_sku_id, []),
+                )
             )
-            for column_index, value, gap_reason, label in stage_results:
-                state.row_values[column_index] = value
-                if value:
-                    state.already_filled[label] = value
-                    state.already_filled_by_index[column_index] = value
-                if gap_reason:
-                    stage_gaps.append(
-                        _listing_fill_gap(
-                            sku_id=state.business_sku_id,
-                            column_label=label,
-                            reason=gap_reason,
+
+        workers = min(listing_fill_workers(), max(1, len(sku_states)))
+
+        # Stages are sequential (later stages need already_filled parents). Within a
+        # stage, columns have no mutual dependency — SKUs run concurrently (cap).
+        for _stage, stage_columns in stages:
+
+            def _run_sku_stage(
+                state: _SkuFillState,
+                cols: list[_ParsedColumn],
+            ) -> list[ListingFillGap]:
+                stage_gaps: list[ListingFillGap] = []
+                stage_results = _resolve_stage(
+                    cols,
+                    gcs=gcs,
+                    dropbox=dropbox,
+                    openrouter=openrouter,
+                    business_sku_id=state.business_sku_id,
+                    pim_values=state.pim_values,
+                    job_values=state.job_values,
+                    already_filled=state.already_filled,
+                    already_filled_by_index=state.already_filled_by_index,
+                    product_image_urls=state.product_image_urls,
+                )
+                for column_index, value, gap_reason, label in stage_results:
+                    state.row_values[column_index] = value
+                    if value:
+                        state.already_filled[label] = value
+                        state.already_filled_by_index[column_index] = value
+                    if gap_reason:
+                        stage_gaps.append(
+                            _listing_fill_gap(
+                                sku_id=state.business_sku_id,
+                                column_label=label,
+                                reason=gap_reason,
+                            )
                         )
-                    )
-            return stage_gaps
+                return stage_gaps
 
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_run_sku_stage, state, stage_columns) for state in sku_states]
-            for future in as_completed(futures):
-                gaps.extend(future.result())
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [
+                    pool.submit(_run_sku_stage, state, stage_columns) for state in sku_states
+                ]
+                for future in as_completed(futures):
+                    gaps.extend(future.result())
 
-    filled_rows = [state.row_values for state in sku_states]
+        filled_rows = [state.row_values for state in sku_states]
 
+        try:
+            template_bytes = template_future.result()
+        except GcsError as exc:
+            raise ListingFillError(f"Failed to download listing template: {exc}") from exc
+
+        try:
+            filled = workbook_utils.fill_workbook(
+                template_bytes,
+                metadata=metadata,
+                rows=filled_rows,
+            )
+        except ValueError as exc:
+            raise ListingFillError(str(exc)) from exc
+
+        object_key = workbook_utils.listing_output_object_key(job_external_id, filled.filename)
+        gaps_key = workbook_utils.listing_gaps_object_key(job_external_id)
+        try:
+            gcs.upload_bytes(
+                filled.content,
+                object_key,
+                content_type=filled.content_type,
+            )
+            gcs.upload_json(
+                [gap.model_dump(mode="json") for gap in gaps],
+                gaps_key,
+            )
+            filled_url = gcs.signed_url(
+                object_key, expiration_seconds=_FILLED_FILE_SIGNED_URL_TTL_SECONDS
+            )
+        except GcsError as exc:
+            raise ListingFillError(f"Failed to upload filled listing: {exc}") from exc
+
+        return FillListingResponse(
+            job_external_id=job_external_id,
+            filled_file_url=filled_url,
+            gaps=gaps,
+        )
+    finally:
+        template_pool.shutdown(wait=False)
+
+
+def _prepare_listing_fill(
+    session: Session,
+    *,
+    job_group_id: UUID,
+    marketplace_external_id: UUID,
+) -> _ListingFillStartPlan:
+    job, _marketplace = sku_image_export_service.resolve_job_in_group(
+        session, job_group_id, marketplace_external_id
+    )
+    if job.status != JobStatus.COMPLETED.value:
+        raise ListingFillError(
+            f"Job {job.external_id} is not COMPLETED (status={job.status}); "
+            "finish generation before filling the listing file"
+        )
+
+    sku_jobs = list(sku_generation_job_repo.list_by_job_id(session, job.id))
+    if not sku_jobs:
+        raise ListingFillError(f"Job {job.external_id} has no SKU generation jobs")
+
+    sku_rows = list(sku_master_repo.list_by_ids(session, [sj.sku_id for sj in sku_jobs]))
+    category_id = job.category_id
+    if category_id is None:
+        category_ids = {sku.category_id for sku in sku_rows}
+        if len(category_ids) != 1:
+            raise ListingFillError(
+                f"Job {job.external_id} SKUs do not share a single category "
+                f"(found {sorted(category_ids) or 'none'})"
+            )
+        category_id = next(iter(category_ids))
+
+    if job.marketplace_id is None:
+        raise ListingFillError(f"Job {job.external_id} is missing marketplace_id")
+
+    junction = category_marketplace_repo.get_by_marketplace_and_category(
+        session, job.marketplace_id, category_id
+    )
+    if junction is None:
+        raise ListingTemplateNotFoundError(
+            f"No category_marketplace for marketplace_id={job.marketplace_id} "
+            f"category_id={category_id}"
+        )
+    template = listing_template_repo.get_by_category_marketplace_id(session, junction.id)
+    if template is None:
+        raise ListingTemplateNotFoundError(
+            f"No listing_template for category_marketplace id={junction.id}"
+        )
+    columns = list(listing_template_column_repo.list_by_listing_template_id(session, template.id))
+    if not columns:
+        raise ListingFillError(f"listing_template id={template.id} has no columns")
+
+    llm_stages = _llm_stage_count([_ParsedColumn.from_row(row) for row in columns])
+    sku_count = len(sku_jobs)
+    estimated = estimate_fill_minutes(
+        sku_count=sku_count,
+        llm_stage_count=llm_stages,
+        workers=listing_fill_workers(),
+    )
+    return _ListingFillStartPlan(
+        job_external_id=job.external_id,
+        sku_count=sku_count,
+        estimated_minutes=estimated,
+    )
+
+
+def _llm_stage_count(columns: list[_ParsedColumn]) -> int:
+    stages: set[int] = set()
+    for col in columns:
+        if col.config.fill_type in (ListingFillType.ENUM, ListingFillType.AI_TEXT):
+            stages.add(col.resolve_stage)
+    return len(stages)
+
+
+def _latest_listing_file_for_job(
+    gcs: GcsClient,
+    *,
+    job_external_id: UUID,
+    marketplace_external_id: UUID,
+    marketplace_name: str,
+) -> JobGroupListingFileItem:
+    prefix = workbook_utils.listing_output_prefix(job_external_id)
     try:
-        template_bytes = gcs.download_bytes(template.gcs_object_key)
+        objects = gcs.list_objects(prefix)
     except GcsError as exc:
-        raise ListingFillError(f"Failed to download listing template: {exc}") from exc
-
-    try:
-        filled = workbook_utils.fill_workbook(
-            template_bytes,
-            metadata=metadata,
-            rows=filled_rows,
+        logger.warning("Failed to list listing files for job %s: %s", job_external_id, exc)
+        return JobGroupListingFileItem(
+            marketplace_external_id=marketplace_external_id,
+            marketplace_name=marketplace_name,
+            job_external_id=job_external_id,
         )
-    except ValueError as exc:
-        raise ListingFillError(str(exc)) from exc
 
-    object_key = workbook_utils.listing_output_object_key(job_external_id, filled.filename)
-    try:
-        gcs.upload_bytes(
-            filled.content,
-            object_key,
-            content_type=filled.content_type,
+    workbooks = [obj for obj in objects if obj.name.lower().endswith(_WORKBOOK_SUFFIXES)]
+    if not workbooks:
+        return JobGroupListingFileItem(
+            marketplace_external_id=marketplace_external_id,
+            marketplace_name=marketplace_name,
+            job_external_id=job_external_id,
         )
+
+    newest = max(
+        workbooks,
+        key=lambda obj: obj.updated.timestamp() if obj.updated is not None else 0.0,
+    )
+    filename = newest.name.rsplit("/", 1)[-1]
+    try:
         filled_url = gcs.signed_url(
-            object_key, expiration_seconds=_FILLED_FILE_SIGNED_URL_TTL_SECONDS
+            newest.name, expiration_seconds=_FILLED_FILE_SIGNED_URL_TTL_SECONDS
         )
     except GcsError as exc:
-        raise ListingFillError(f"Failed to upload filled listing: {exc}") from exc
+        logger.warning("Failed to sign listing file %s: %s", newest.name, exc)
+        filled_url = None
 
-    return FillListingResponse(
+    gaps = _load_gaps_sidecar(gcs, job_external_id)
+
+    return JobGroupListingFileItem(
+        marketplace_external_id=marketplace_external_id,
+        marketplace_name=marketplace_name,
         job_external_id=job_external_id,
+        filename=filename,
         filled_file_url=filled_url,
+        generated_at=newest.updated,
         gaps=gaps,
     )
+
+
+def _load_gaps_sidecar(gcs: GcsClient, job_external_id: UUID) -> list[ListingFillGap]:
+    gaps_key = workbook_utils.listing_gaps_object_key(job_external_id)
+    try:
+        if not gcs.object_exists(gaps_key):
+            return []
+        raw = json.loads(gcs.download_bytes(gaps_key).decode("utf-8"))
+    except (GcsError, UnicodeDecodeError, json.JSONDecodeError, TypeError) as exc:
+        logger.warning("Failed to load gaps sidecar for job %s: %s", job_external_id, exc)
+        return []
+    if not isinstance(raw, list):
+        return []
+    gaps: list[ListingFillGap] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            gaps.append(ListingFillGap.model_validate(item))
+        except (TypeError, ValueError):
+            continue
+    return gaps
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,6 +662,29 @@ def _product_image_urls(gcs: GcsClient, business_sku_id: str) -> list[str]:
         except GcsError:
             continue
     return urls
+
+
+def _product_image_urls_for_skus(
+    gcs: GcsClient,
+    business_sku_ids: list[str],
+) -> dict[str, list[str]]:
+    """Sign product-image URLs for many SKUs in parallel."""
+    if not business_sku_ids:
+        return {}
+    workers = min(listing_fill_workers(), max(1, len(business_sku_ids)))
+    result: dict[str, list[str]] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_product_image_urls, gcs, sku_id): sku_id for sku_id in business_sku_ids
+        }
+        for future in as_completed(futures):
+            sku_id = futures[future]
+            try:
+                result[sku_id] = future.result()
+            except Exception:
+                logger.warning("Product image URL signing failed for sku_id=%s", sku_id)
+                result[sku_id] = []
+    return result
 
 
 def _values_for_parent(
