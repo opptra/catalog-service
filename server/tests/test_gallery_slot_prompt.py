@@ -60,8 +60,11 @@ def test_slot_prompt_closer_separates_content_from_facts() -> None:
     assert "leaving the reference room behind" in prompt
     assert "not copy to typeset" in prompt
     assert "never paint any word from Slot, Content, Pattern, or JSON DNA" in prompt
-    assert "mute visual marks" in prompt
-    assert "Numerals and units on measurement lines count as" in prompt
+    assert "Do not draw dimension arrows" in prompt
+    assert "Overlay values appear as labels" in prompt
+    assert "Numerals and units count as overlay chrome" in prompt
+    assert "mute visual marks" not in prompt
+    assert "Numerals and units on measurement lines count as" not in prompt
     assert "no dual-unit charts" in prompt
     assert "Do not copy badges, size tags, or feature callouts" in prompt
     assert "Only the facts JSON may determine overlay claims" in prompt

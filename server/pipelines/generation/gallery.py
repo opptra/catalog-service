@@ -525,13 +525,13 @@ def _slot_prompt(
         lines.append(
             "Units stay with the fact. If value already contains a unit, that is the "
             "only unit for that fact — do not add a converted equivalent in another "
-            "system, in a table, on a dimension line, or in parentheses."
+            "system, in a table, on a label, or in parentheses."
         )
         lines.append(
             'If value is a bare number and source_field names a unit (e.g. "Width (cm)" '
             '+ "110"), every on-image occurrence of that fact MUST show that same unit '
             'beside the number ("110 cm" or "Width (cm): 110"). Never attach a different '
-            "unit. Use the same unit spelling on arrows and in any table."
+            "unit. Use the same unit spelling on the label and in any table."
         )
         lines.append(
             '"source_field" is the attribute name and unit context. Include the '
@@ -579,9 +579,9 @@ def _slot_prompt(
             "information that is not supported by the facts JSON.",
             "Empty facts JSON means no overlay chrome — not a blank product. Keep "
             "on-product lettering, woven marks, and print from the reference photos. "
-            "Diagrams may use mute visual marks (cut planes, lines, arrows) with no "
-            "captions beyond those overlay values. Numerals and units on measurement "
-            "lines count as overlay chrome — no dual-unit charts, pack dimensions, or "
+            "Do not draw dimension arrows, tape-measure lines, or measurement rulers. "
+            "Overlay values appear as labels, not as diagrams on the product. Numerals "
+            "and units count as overlay chrome — no dual-unit charts, pack dimensions, or "
             "conversions from the reference photos. Do not copy badges, size tags, or "
             "feature callouts from the reference photos.",
             "Only the facts JSON may determine overlay claims and information.",
