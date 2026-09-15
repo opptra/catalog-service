@@ -5,6 +5,7 @@ import iconCsv from '../assets/icon-csv.svg'
 import iconLink from '../assets/icon-link.svg'
 import iconZip from '../assets/icon-zip.svg'
 import { useBatchUploadStore } from '../batch/batchUploadStore'
+import { useBrandHref } from '../brands/useBrandId'
 import BatchShell from '../components/BatchShell'
 import { getBatchSubcategory, setBatchFilesUploaded } from '../data/batchDraft'
 
@@ -29,6 +30,7 @@ function formatFileSize(bytes: number): string {
 
 function NewBatchUpload() {
   const navigate = useNavigate()
+  const href = useBrandHref()
   const subcategory = getBatchSubcategory()
   const productInputId = useId()
   const imagesInputId = useId()
@@ -55,7 +57,7 @@ function NewBatchUpload() {
   }, [bothReady])
 
   if (!subcategory) {
-    return <Navigate to="/workspace/new" replace />
+    return <Navigate to={href('/workspace/new')} replace />
   }
 
   function takeProductFile(file: File | undefined) {
@@ -85,7 +87,7 @@ function NewBatchUpload() {
   function startValidation() {
     if (!productFile || !imagesFile) return
     setFiles(productFile, imagesFile)
-    navigate('/workspace/new/validation')
+    navigate(href('/workspace/new/validation'))
   }
 
   return (
@@ -98,7 +100,7 @@ function NewBatchUpload() {
           <button
             type="button"
             className="btn-outline"
-            onClick={() => navigate('/workspace/new')}
+            onClick={() => navigate(href('/workspace/new'))}
           >
             Back
           </button>

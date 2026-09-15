@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
   getCategoryTemplate,
   listLeafCategories,
   type LeafCategory,
 } from '../api/categories'
 import { useBrands } from '../brands/useBrands'
+import { useBrandHref } from '../brands/useBrandId'
 import iconArrowRight from '../assets/icon-arrow-right.svg'
 import iconChevronDown from '../assets/icon-chevron-down.svg'
 import iconDownload from '../assets/icon-download.svg'
@@ -14,6 +15,7 @@ import BatchShell from '../components/BatchShell'
 import { useBatchUploadStore } from '../batch/batchUploadStore'
 import { clearBatchDraft, setBatchSubcategory } from '../data/batchDraft'
 import { downloadCategoryTemplate } from '../lib/downloadCategoryTemplate'
+import { brandsPickerPath } from '../lib/brandPath'
 
 function formatPathPrefix(path: LeafCategory['path']): string {
   if (path.length <= 1) return ''
@@ -25,6 +27,8 @@ function formatPathPrefix(path: LeafCategory['path']): string {
 
 function NewBatchSubcategory() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const href = useBrandHref()
   const selectId = useId()
   const { selectedBrand } = useBrands()
   const [selected, setSelected] = useState<LeafCategory | null>(null)
@@ -127,7 +131,7 @@ function NewBatchSubcategory() {
   }
 
   if (!selectedBrand) {
-    return <Navigate to="/brands" replace />
+    return <Navigate to={brandsPickerPath(`${location.pathname}${location.search}`)} replace />
   }
 
   return (
@@ -144,7 +148,7 @@ function NewBatchSubcategory() {
             onClick={() => {
               clearBatchDraft()
               useBatchUploadStore.getState().clear()
-              navigate('/workspace')
+              navigate(href('/workspace'))
             }}
           >
             Cancel
@@ -159,7 +163,7 @@ function NewBatchSubcategory() {
                 external_id: selected.external_id,
                 name: selected.name,
               })
-              navigate('/workspace/new/upload')
+              navigate(href('/workspace/new/upload'))
             }}
           >
             Continue

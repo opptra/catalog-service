@@ -1,13 +1,16 @@
 import { useEffect } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import opptraLogo from '../assets/opptra-logo.png'
 import GoogleSignInButton from '../components/GoogleSignInButton'
 import { useAuth } from '../auth/useAuth'
 import { useBrands } from '../brands/useBrands'
+import { brandPath, isSafeInternalPath, readNextParam } from '../lib/brandPath'
 
 function Login() {
   const { user, loading, loginError } = useAuth()
   const { selectedBrand } = useBrands()
+  const [searchParams] = useSearchParams()
+  const next = readNextParam(searchParams)
 
   useEffect(() => {
     document.title = 'Listing Studio · Sign in'
@@ -22,7 +25,13 @@ function Login() {
   }
 
   if (user) {
-    return <Navigate to={selectedBrand ? '/workspace' : '/brands'} replace />
+    if (next != null && isSafeInternalPath(next)) {
+      return <Navigate to={next} replace />
+    }
+    if (selectedBrand) {
+      return <Navigate to={brandPath(selectedBrand.id, '/workspace')} replace />
+    }
+    return <Navigate to="/brands" replace />
   }
 
   return (

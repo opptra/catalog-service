@@ -18,3 +18,4 @@ scripts/local-postgres-init.sh
 server/local/
 server/uv.lock
 sample_data/
+scripts/sync-local-db.sh
