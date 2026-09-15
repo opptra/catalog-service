@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import opptraLogo from '../assets/opptra-logo.png'
 import { useAuth } from '../auth/useAuth'
 import { useBrands } from '../brands/useBrands'
+import { brandPath } from '../lib/brandPath'
 
 interface AppHeaderProps {
   brandName?: string
@@ -61,7 +62,7 @@ function AppHeader({
   function handleSelect(brandId: string, brandNameValue: string) {
     selectBrand({ id: brandId, name: brandNameValue })
     setOpen(false)
-    navigate('/workspace')
+    navigate(brandPath(brandId, '/workspace'))
   }
 
   return (
@@ -132,7 +133,10 @@ function AppHeader({
               <button
                 type="button"
                 className="app-header__pill"
-                onClick={() => navigate('/workspace')}
+                onClick={() => {
+                  if (selectedBrand == null) return
+                  navigate(brandPath(selectedBrand.id, '/workspace'))
+                }}
               >
                 Execution history
               </button>
@@ -142,7 +146,10 @@ function AppHeader({
               <button
                 type="button"
                 className="app-header__pill"
-                onClick={() => navigate('/workspace/users')}
+                onClick={() => {
+                  if (selectedBrand == null) return
+                  navigate(brandPath(selectedBrand.id, '/workspace/users'))
+                }}
               >
                 User management
               </button>

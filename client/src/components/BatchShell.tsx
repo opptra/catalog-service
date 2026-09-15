@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useBrands } from '../brands/useBrands'
+import { brandsPickerPath } from '../lib/brandPath'
 import AppHeader from './AppHeader'
 import BatchStepper from './BatchStepper'
 
@@ -23,12 +24,14 @@ function BatchShell({
 }: BatchShellProps) {
   const { selectedBrand: brand, loading: brandsLoading } = useBrands()
   const navigate = useNavigate()
+  const location = useLocation()
+  const pickerPath = brandsPickerPath(`${location.pathname}${location.search}`)
 
   useEffect(() => {
     if (!brandsLoading && !brand) {
-      navigate('/brands', { replace: true })
+      navigate(pickerPath, { replace: true })
     }
-  }, [brandsLoading, brand, navigate])
+  }, [brandsLoading, brand, navigate, pickerPath])
 
   // Avoid a blank screen: <Navigate> renders null while redirecting.
   if (!brand) {
@@ -37,7 +40,7 @@ function BatchShell({
         <p>{brandsLoading ? 'Loading…' : 'Select a brand to continue.'}</p>
         {!brandsLoading ? (
           <p>
-            <Link to="/brands">Choose a brand</Link>
+            <Link to={pickerPath}>Choose a brand</Link>
           </p>
         ) : null}
       </div>
