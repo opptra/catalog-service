@@ -1,13 +1,10 @@
-import type { ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import { loginPath } from '../lib/brandPath'
 
-interface RequireAuthProps {
-  children: ReactNode
-}
-
-function RequireAuth({ children }: RequireAuthProps) {
+function RequireAuth() {
   const { user, loading } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -18,10 +15,10 @@ function RequireAuth({ children }: RequireAuthProps) {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />
+    return <Navigate to={loginPath(`${location.pathname}${location.search}`)} replace />
   }
 
-  return children
+  return <Outlet />
 }
 
 export default RequireAuth

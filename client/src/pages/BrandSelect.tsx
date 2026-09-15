@@ -1,13 +1,16 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import chevronRight from '../assets/chevron-right.svg'
 import { useBrands } from '../brands/useBrands'
 import AppHeader from '../components/AppHeader'
 import { formatLastBatchLabel } from '../data/brands'
+import { pathAfterBrandSelect, readNextParam } from '../lib/brandPath'
 
 function BrandSelect() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { brands, loading, loadFailed, selectBrand } = useBrands()
+  const next = readNextParam(searchParams)
 
   useEffect(() => {
     document.title = 'Listing Studio · Select a brand'
@@ -15,7 +18,7 @@ function BrandSelect() {
 
   function handleSelect(brandId: string, brandName: string) {
     selectBrand({ id: brandId, name: brandName })
-    navigate('/workspace')
+    navigate(pathAfterBrandSelect(brandId, next))
   }
 
   const hasNoAccess = !loading && !loadFailed && brands.length === 0

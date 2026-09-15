@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { listJobs, type JobListItem } from '../api/jobs'
+import { useBrandHref } from '../brands/useBrandId'
 import { useBrands } from '../brands/useBrands'
 import AppHeader from '../components/AppHeader'
+import { brandsPickerPath } from '../lib/brandPath'
 
 interface ExecutionSection {
   key: string
@@ -141,6 +143,8 @@ const EXECUTIONS_PAGE_SIZE = 50
 
 function Workspace() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const href = useBrandHref()
   const { selectedBrand: brand } = useBrands()
   const brandId = brand?.id
   const [items, setItems] = useState<JobListItem[]>([])
@@ -282,7 +286,7 @@ function Workspace() {
   }, [brandId, hasMore, nextOffset])
 
   if (!brand) {
-    return <Navigate to="/brands" replace />
+    return <Navigate to={brandsPickerPath(`${location.pathname}${location.search}`)} replace />
   }
 
   const filtered = debouncedQuery
@@ -326,7 +330,7 @@ function Workspace() {
             <button
               type="button"
               className="btn-primary"
-              onClick={() => navigate('/workspace/new')}
+              onClick={() => navigate(href('/workspace/new'))}
             >
               <PlusIcon />
               New batch
@@ -371,7 +375,7 @@ function Workspace() {
                 <button
                   type="button"
                   className="btn-primary executions-page__new"
-                  onClick={() => navigate('/workspace/new')}
+                  onClick={() => navigate(href('/workspace/new'))}
                 >
                   <PlusIcon />
                   New batch
@@ -424,7 +428,7 @@ function Workspace() {
                               <button
                                 type="button"
                                 className="btn-outline execution-card__open"
-                                onClick={() => navigate(`/batches/preview/${item.external_id}`)}
+                                onClick={() => navigate(href(`/batches/preview/${item.external_id}`))}
                               >
                                 Open
                               </button>

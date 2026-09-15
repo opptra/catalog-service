@@ -6,6 +6,7 @@ import iconCheck from '../assets/icon-check.svg'
 import iconCheckSm from '../assets/icon-check-sm.svg'
 import iconError from '../assets/icon-error.svg'
 import { useBatchUploadStore } from '../batch/batchUploadStore'
+import { useBrandHref } from '../brands/useBrandId'
 import BatchShell from '../components/BatchShell'
 import { getBatchSubcategory, getBatchSubcategorySelection } from '../data/batchDraft'
 import {
@@ -70,6 +71,7 @@ function StepList({ steps }: { steps: ValidationStep[] }) {
 
 function NewBatchValidation() {
   const navigate = useNavigate()
+  const href = useBrandHref()
   const subcategory = getBatchSubcategory()
   const selection = getBatchSubcategorySelection()
   const productFile = useBatchUploadStore((s) => s.productFile)
@@ -146,11 +148,11 @@ function NewBatchValidation() {
   ])
 
   if (!subcategory) {
-    return <Navigate to="/workspace/new" replace />
+    return <Navigate to={href('/workspace/new')} replace />
   }
 
   if (!productFile || !imagesFile) {
-    return <Navigate to="/workspace/new/upload" replace />
+    return <Navigate to={href('/workspace/new/upload')} replace />
   }
 
   const hasProblems = Boolean(result && !result.passed)
@@ -168,7 +170,7 @@ function NewBatchValidation() {
         className="btn-outline"
         onClick={() => {
           clearValidation()
-          navigate('/workspace/new/upload')
+          navigate(href('/workspace/new/upload'))
         }}
       >
         Re-upload files
@@ -180,7 +182,7 @@ function NewBatchValidation() {
         onClick={() => {
           if (!canUpload) return
           useBatchUploadStore.getState().resetUpload()
-          navigate('/workspace/new/uploading')
+          navigate(href('/workspace/new/uploading'))
         }}
       >
         Upload to system
@@ -206,7 +208,7 @@ function NewBatchValidation() {
           <button
             type="button"
             className="btn-primary"
-            onClick={() => navigate('/workspace/new/upload')}
+            onClick={() => navigate(href('/workspace/new/upload'))}
           >
             Back to upload
           </button>

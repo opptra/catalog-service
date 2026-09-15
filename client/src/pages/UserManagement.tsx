@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import { inviteBrandUser, listBrandUsers, type BrandUser } from '../api/access'
 import { useBrands } from '../brands/useBrands'
 import AppHeader from '../components/AppHeader'
+import { brandsPickerPath } from '../lib/brandPath'
 
 const OPPTRA_EMAIL_PATTERN = /^[^\s@]+@opptra\.com$/i
 
@@ -16,6 +17,7 @@ function formatGrantedAt(iso: string): string {
 }
 
 function UserManagement() {
+  const location = useLocation()
   const { selectedBrand: brand } = useBrands()
   const [users, setUsers] = useState<BrandUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -59,7 +61,7 @@ function UserManagement() {
   }, [brand])
 
   if (!brand) {
-    return <Navigate to="/brands" replace />
+    return <Navigate to={brandsPickerPath(`${location.pathname}${location.search}`)} replace />
   }
 
   const brandName = brand.name

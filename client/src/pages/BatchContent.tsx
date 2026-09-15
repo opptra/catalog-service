@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import {
   getJobGroupStatus,
@@ -14,6 +14,7 @@ import {
   type SkuGenerationJobContentResponse,
 } from '../api/jobs'
 import { useBrands } from '../brands/useBrands'
+import { useBrandHref } from '../brands/useBrandId'
 import ContentImageGrid from '../components/batch-content/ContentImageGrid'
 import AttributeRegenModal, {
   type AttributeRegenTarget,
@@ -26,6 +27,7 @@ import PipelineProgressBar from '../components/batch-content/PipelineProgressBar
 import AppHeader from '../components/AppHeader'
 import type { ContentImage } from '../components/batch-content/types'
 import { resolveSkuSelection } from '../lib/batchPreviewSku'
+import { brandsPickerPath } from '../lib/brandPath'
 import { downloadSkuImagesZip } from '../lib/downloadSkuImagesZip'
 
 const STATUS_POLL_MS = 4000
@@ -193,6 +195,8 @@ function isAttributePending(
 function BatchContent() {
   const { jobExternalId: jobGroupId = '' } = useParams<{ jobExternalId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const href = useBrandHref()
   const { selectedBrand: brand } = useBrands()
 
   const [groupStatus, setGroupStatus] = useState<JobGroupStatusResponse | null>(null)
@@ -269,16 +273,18 @@ function BatchContent() {
   }, [jobGroupId, activeMarketplaceExternalId, contentRefreshKey])
 
   const skuParam = searchParams.get('sku')
+  const nParam = searchParams.get('n')
   const skuJobs = status?.sku_generation_jobs ?? []
-  const safeSkuIndex = resolveSkuSelection(skuJobs, skuParam)
+  const safeSkuIndex = resolveSkuSelection(skuJobs, skuParam, nParam)
   const activeSkuJob = skuJobs[safeSkuIndex] ?? null
   const activeSkuJobId = activeSkuJob?.external_id ?? null
   const resolvedSkuId = activeSkuJob?.sku_id ?? null
 
   useEffect(() => {
-    if (resolvedSkuId == null || skuParam === resolvedSkuId) return
+    if (resolvedSkuId == null) return
+    if (skuParam === resolvedSkuId && nParam == null) return
     setSearchParams({ sku: resolvedSkuId }, { replace: true })
-  }, [resolvedSkuId, skuParam, setSearchParams])
+  }, [resolvedSkuId, skuParam, nParam, setSearchParams])
 
   useEffect(() => {
     setExpandedText({})
@@ -345,11 +351,11 @@ function BatchContent() {
   }, [activeSkuJobId, contentRefreshKey])
 
   if (!brand) {
-    return <Navigate to="/brands" replace />
+    return <Navigate to={brandsPickerPath(`${location.pathname}${location.search}`)} replace />
   }
 
   if (!jobGroupId) {
-    return <Navigate to="/workspace" replace />
+    return <Navigate to={href('/workspace')} replace />
   }
 
   const attributes = content?.attributes ?? []
@@ -904,7 +910,7 @@ function BatchContent() {
       />
 
       <span className="visually-hidden">
-        <Link to="/workspace">Back to workspace</Link>
+        <Link to={href('/workspace')}>Back to workspace</Link>
       </span>
     </div>
   )
