@@ -95,6 +95,14 @@ function NewBatchValidation() {
   }, [validating, result])
 
   useEffect(() => {
+    if (!result || result.passed) return
+    const hasUnknownColumns = result.issues.some(
+      (issue) => !issue.ok && issue.message.startsWith('unknown column'),
+    )
+    if (hasUnknownColumns) setDetailsOpen(true)
+  }, [result])
+
+  useEffect(() => {
     if (!productFile || !imagesFile || result) return
 
     let cancelled = false
@@ -108,7 +116,7 @@ function NewBatchValidation() {
         const images = imagesFile
         if (!product || !images) return
 
-        const mandatoryFields = selection?.external_id
+        const templateFields = selection?.external_id
           ? (await getCategoryTemplate(selection.external_id)).fields
           : []
 
@@ -117,7 +125,7 @@ function NewBatchValidation() {
         const next = await validateBatchFiles({
           productFile: product,
           imagesFile: images,
-          mandatoryFields,
+          templateFields,
           onProgress: (nextSteps) => {
             if (!cancelled) setSteps(nextSteps)
           },
@@ -160,8 +168,15 @@ function NewBatchValidation() {
   const failCount = result ? result.issues.filter((i) => !i.ok).length : 0
   const problemGroups = result ? groupIssues(result.issues.filter((issue) => !issue.ok)) : []
   const affectedCount = result?.problemSkus.length ?? 0
+  const unknownColumnIssues = result
+    ? result.issues.filter(
+        (issue) => !issue.ok && issue.message.startsWith('unknown column'),
+      )
+    : []
 
-  const canUpload = Boolean(result && (result.skuImages?.length ?? 0) > 0)
+  const canUpload = Boolean(
+    result?.passed && (result.skuImages?.length ?? 0) > 0,
+  )
 
   const footer = showProgress ? null : (
     <div className="batch-page__footer-actions">
@@ -234,6 +249,11 @@ function NewBatchValidation() {
                       status: 'pending',
                     },
                     {
+                      id: 'allowed_columns',
+                      label: 'Checking extra columns against the category allow list',
+                      status: 'pending',
+                    },
+                    {
                       id: 'read_images',
                       label: 'Reading images ZIP and SKU folders',
                       status: 'pending',
@@ -262,6 +282,12 @@ function NewBatchValidation() {
             problems. Every SKU has to be valid — a partial batch would leave silent gaps in your
             catalogue.
           </p>
+          {unknownColumnIssues.length > 0 ? (
+            <p className="batch-page__lede">
+              Extra columns are not accepted. Remove them or rename them to match the category
+              allow list exactly, including capitalization.
+            </p>
+          ) : null}
 
           <div className="validation-sku-summary">
             <p className="validation-sku-summary__label">
