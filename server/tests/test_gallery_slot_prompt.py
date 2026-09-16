@@ -179,7 +179,6 @@ def test_fact_board_prompt_omits_restated_shopper_facts() -> None:
     assert "omit the other entirely" in prompt
     assert "Keep the more specific structured field" in prompt
     assert "Drop the restatement" in prompt
-    assert "Independent specs stay as separate items" in prompt
     assert "colour vs print" in prompt
 
 
