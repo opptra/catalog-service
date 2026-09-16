@@ -43,13 +43,29 @@ def test_slot_prompt_fact_rendering_contract() -> None:
     assert "title case" not in prompt
     assert '"Breathable" paints as Breathable' not in prompt
     assert "hyphen" not in prompt.lower()
-    assert '"field" is reference for this brief, not overlay copy.' in prompt
-    assert "Otherwise the value is enough" in prompt
+    assert '"field" names what the value is.' in prompt
+    assert (
+        "A shopper reading the overlay must clearly understand what this fact is about."
+    ) in prompt
+    assert (
+        "You may use field and value in one overlay to make that context, not as "
+        "two separate labels."
+    ) in prompt
+    assert "Sheet length" not in prompt
+    assert 'value "20"' not in prompt
+    assert "one measurement" not in prompt
+    assert "If field would only repeat the value, do not use it." in prompt
+    assert "Paint field with the value" not in prompt
+    assert "complete shopper phrase" not in prompt
+    assert "width vs length" not in prompt
+    assert "two numbers" not in prompt
+    assert "Width 110 cm" not in prompt
+    assert "field is reference for this brief, not overlay copy." not in prompt
+    assert "Otherwise the value is enough" not in prompt
     assert "shopper heading" not in prompt
-    assert "Paint field and value." not in prompt
     assert "Do not paint claim" in prompt
     assert "do not add a converted equivalent" in prompt
-    assert '"Width (cm)"' in prompt and '"110 cm"' in prompt
+    assert "If value is a bare number and field names a unit" in prompt
     assert "Do not add extra measurements that are not in this facts JSON" in prompt
     assert '"claim": "opacity"' in prompt
     assert '"field": "Opacity"' in prompt
@@ -95,8 +111,11 @@ def test_slot_prompt_closer_separates_content_from_facts() -> None:
     assert "Do not copy badges, size tags, or feature callouts" in prompt
     assert "Only the facts JSON may determine overlay claims" in prompt
     assert "Overlay information may come only from the facts JSON" in prompt
-    assert "Visible overlay text is the value." in prompt
-    assert "field is reference only when the value needs context." in prompt
+    assert (
+        "Visible overlay text comes from the value, using field in the same overlay "
+        "when that makes the fact clear."
+    ) in prompt
+    assert "Do not paint field and value as two labels." in prompt
     assert "including letter case" not in prompt
     assert "Do not paint all-capital letters." not in prompt
     assert "Do not capitalize every remaining word." not in prompt
