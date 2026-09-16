@@ -1322,6 +1322,7 @@ def complete_flatfile_job(
             gcs.download_bytes(template_key),
             filename=str(manifest.get("template_filename") or "template.csv"),
         )
+        flatfile_utils.validate_allowed_headers(headers, allowed_names)
         flatfile_utils.validate_mandatory_fields(headers, rows, mandatory_names)
         sku_ids = _apply_flatfile_rows_to_sku_master(
             session,
@@ -1352,8 +1353,9 @@ def _apply_flatfile_rows_to_sku_master(
 ) -> list[str]:
     """Upsert by string attributes.SKU: update if found, else insert (one save_all).
 
-    Only category-allowed keys (plus ``SKU``) are written. Extra spreadsheet
-    columns and leftover keys from a previous ingest are dropped.
+    Only category-allowed keys (plus ``SKU``) are written. Unknown spreadsheet
+    columns are rejected before this runs; leftover keys from a previous ingest
+    are dropped.
     """
     to_save: list[SkuMaster] = []
     applied: list[str] = []

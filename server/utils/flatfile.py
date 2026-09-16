@@ -208,6 +208,24 @@ def validate_mandatory_fields(
         raise FlatfileValidationError(preview + suffix)
 
 
+def validate_allowed_headers(
+    headers: list[str],
+    allowed_names: frozenset[str],
+) -> None:
+    """Reject headers that are not an exact allow-list name (case-sensitive)."""
+    allowed = allowed_names | {"SKU"}
+    unknown: list[str] = []
+    seen: set[str] = set()
+    for name in headers:
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        if name not in allowed:
+            unknown.append(name)
+    if unknown:
+        raise FlatfileValidationError("Template has unknown column(s): " + ", ".join(unknown))
+
+
 def build_sku_attributes(
     row: dict[str, str],
     *,
