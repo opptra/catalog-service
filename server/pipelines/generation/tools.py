@@ -23,7 +23,8 @@ def gallery_fact_board_tool() -> dict[str, Any]:
     """Tool schema for binding CI claims to zero or more verified PRODUCT DATA snippets.
 
     Combined claims (e.g. cover and pillow dimensions) may emit one entry per independent
-    spec that exists on this SKU. Undeterminable claims emit nothing.
+    spec that exists on this SKU. Two claims must not repeat the same shopper fact;
+    keep the structured field and omit the restatement. Undeterminable claims emit nothing.
     """
     return {
         "type": "function",
@@ -39,6 +40,8 @@ def gallery_fact_board_tool() -> dict[str, Any]:
                 "actually exists on this SKU. Items for one claim must share one unit "
                 "system — do not mix feet/inches with centimetres (or kg with lb). Copy units "
                 "that are already in the cell; never convert units."
+                "Across all claims, do not return two items that tell the shopper the "
+                "same fact; keep the structured field and omit the restatement."
             ),
             "parameters": {
                 "type": "object",

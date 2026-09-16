@@ -1,4 +1,5 @@
 from pipelines.generation.gallery import AssignedFact, _fact_board_prompt, _slot_prompt
+from pipelines.generation.tools import gallery_fact_board_tool
 
 
 def test_slot_prompt_fact_rendering_contract() -> None:
@@ -167,3 +168,22 @@ def test_fact_board_prompt_keeps_one_unit_system_per_claim() -> None:
     assert "generic copy container" in prompt
     assert "field must not be empty" in prompt
     assert "It is not overlay copy." in prompt
+
+
+def test_fact_board_prompt_omits_restated_shopper_facts() -> None:
+    prompt = _fact_board_prompt(
+        {"Pack Count": "2", "Included Components": "2 Panels", "Colour": "Grey"},
+        ["pack count", "included components", "colour"],
+    )
+    assert "one shopper fact may appear only once" in prompt
+    assert "omit the other entirely" in prompt
+    assert "Keep the more specific structured field" in prompt
+    assert "Drop the restatement" in prompt
+    assert "Independent specs stay as separate items" in prompt
+    assert "colour vs print" in prompt
+
+
+def test_fact_board_tool_omits_restated_shopper_facts() -> None:
+    description = gallery_fact_board_tool()["function"]["description"]
+    assert "do not return two items that tell the shopper the same fact" in description
+    assert "keep the structured field and omit the restatement" in description
