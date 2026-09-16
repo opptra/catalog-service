@@ -1,14 +1,16 @@
 import { useEffect } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import iconArrowRight from '../assets/icon-arrow-right.svg'
 import iconCheck from '../assets/icon-check.svg'
 import {
   useBatchUploadStore,
   type UploadStatusStep,
 } from '../batch/batchUploadStore'
+import { useBrandHref } from '../brands/useBrandId'
 import { useBrands } from '../brands/useBrands'
 import BatchShell from '../components/BatchShell'
 import { getBatchSubcategory, getBatchSubcategorySelection } from '../data/batchDraft'
+import { brandsPickerPath } from '../lib/brandPath'
 
 function StatusList({ steps }: { steps: UploadStatusStep[] }) {
   return (
@@ -47,6 +49,8 @@ function StatusList({ steps }: { steps: UploadStatusStep[] }) {
 
 function NewBatchUploading() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const href = useBrandHref()
   const { selectedBrand } = useBrands()
   const subcategory = getBatchSubcategory()
   const selection = getBatchSubcategorySelection()
@@ -81,15 +85,15 @@ function NewBatchUploading() {
   ])
 
   if (!selectedBrand?.id) {
-    return <Navigate to="/brands" replace />
+    return <Navigate to={brandsPickerPath(`${location.pathname}${location.search}`)} replace />
   }
 
   if (!subcategory || !selection?.external_id) {
-    return <Navigate to="/workspace/new" replace />
+    return <Navigate to={href('/workspace/new')} replace />
   }
 
   if (!productFile || !imagesFile || !result || result.skuImages.length <= 0) {
-    return <Navigate to="/workspace/new/validation" replace />
+    return <Navigate to={href('/workspace/new/validation')} replace />
   }
 
   const isDone = uploadPhase === 'done'
@@ -100,14 +104,14 @@ function NewBatchUploading() {
       <button
         type="button"
         className="btn-outline"
-        onClick={() => navigate('/workspace/new/validation')}
+        onClick={() => navigate(href('/workspace/new/validation'))}
       >
         Back
       </button>
       <button
         type="button"
         className="btn-primary"
-        onClick={() => navigate('/workspace/new/marketplaces')}
+        onClick={() => navigate(href('/workspace/new/marketplaces'))}
       >
         Continue
         <img src={iconArrowRight} alt="" width={16} height={16} />
@@ -118,7 +122,7 @@ function NewBatchUploading() {
       <button
         type="button"
         className="btn-outline"
-        onClick={() => navigate('/workspace/new/validation')}
+        onClick={() => navigate(href('/workspace/new/validation'))}
       >
         Back
       </button>

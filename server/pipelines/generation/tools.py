@@ -32,10 +32,13 @@ def gallery_fact_board_tool() -> dict[str, Any]:
             "description": (
                 "Return verified product snippets for the requested feature-priority claims. "
                 "Each claim may yield zero or more items. Never invent. Prefer short structured "
-                "fields. For combined claims that name independent specs, emit one item per "
-                "spec that actually exists on this SKU. Items for one claim must share one "
-                "unit system — do not mix feet/inches with centimetres (or kg with lb). "
-                "Copy units that are already in the cell; never convert units."
+                "fields. field is context for an incomplete value, not overlay copy: use a "
+                "PRODUCT DATA spec name when that name already names the spec; otherwise name "
+                "the fact from the claim — never copy a generic copy-container key. For "
+                "combined claims that name independent specs, emit one item per spec that "
+                "actually exists on this SKU. Items for one claim must share one unit "
+                "system — do not mix feet/inches with centimetres (or kg with lb). Copy units "
+                "that are already in the cell; never convert units."
             ),
             "parameters": {
                 "type": "object",
@@ -58,19 +61,24 @@ def gallery_fact_board_tool() -> dict[str, Any]:
                                 "value": {
                                     "type": "string",
                                     "description": (
-                                        "Short verbatim snippet copied from the source field "
+                                        "Short verbatim snippet copied from PRODUCT DATA "
                                         "(not the whole marketing paragraph when a shorter "
                                         "supporting phrase exists)."
                                     ),
                                 },
-                                "source_field": {
+                                "field": {
                                     "type": "string",
                                     "description": (
-                                        "Exact PRODUCT DATA key the value was copied from."
+                                        "Short name for this fact so an incomplete value can "
+                                        "be understood. Not overlay copy. Use a PRODUCT DATA "
+                                        "spec name when that name already names the spec. If "
+                                        "the only hit is a generic copy container, name the "
+                                        "fact from the claim instead — never copy that "
+                                        "container key."
                                     ),
                                 },
                             },
-                            "required": ["claim", "value", "source_field"],
+                            "required": ["claim", "value", "field"],
                             "additionalProperties": False,
                         },
                         "minItems": 0,

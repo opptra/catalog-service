@@ -2,8 +2,10 @@ import pytest
 
 from core.exceptions import GalleryPlanError
 from pipelines.generation.gallery import (
+    AssignedFact,
     FactValue,
     _allocate_slots,
+    _facts_block,
     _facts_for_claims,
     _select_slots,
 )
@@ -19,10 +21,61 @@ def test_facts_for_claims_caps_values_at_max_callouts() -> None:
         "fill": [FactValue("Microfiber", "Fill")],
     }
     facts = _facts_for_claims(["dimensions", "fill"], board, limit=2)
-    assert [(item.source_field, item.value) for item in facts] == [
+    assert [(item.field, item.value) for item in facts] == [
         ("Length", '90"'),
         ("Drop", '20"'),
     ]
+
+
+def test_facts_for_claims_keeps_shopper_field_separate_from_provenance() -> None:
+    board = {
+        "breathable / lightweight / all-season": [
+            FactValue("All", "Seasons"),
+        ],
+    }
+    facts = _facts_for_claims(
+        ["breathable / lightweight / all-season"],
+        board,
+    )
+    assert facts[0].field == "Seasons"
+    assert facts[0].value == "All"
+
+
+def test_facts_block_starts_value_with_uppercase() -> None:
+    text = _facts_block(
+        [
+            AssignedFact(claim="softness", field="softness", value="breathable"),
+            AssignedFact(
+                claim="easy-care",
+                field="easy-care",
+                value="machine washable",
+            ),
+            AssignedFact(claim="thread count", field="Thread Count", value="210"),
+            AssignedFact(claim="softness", field="softness", value="Super soft"),
+        ]
+    )
+    assert '"value": "Breathable"' in text
+    assert '"value": "Machine washable"' in text
+    assert '"value": "210"' in text
+    assert '"value": "Super soft"' in text
+    assert '"value": "breathable"' not in text
+    assert '"value": "machine washable"' not in text
+
+
+def test_facts_block_emits_field_not_source_field() -> None:
+    text = _facts_block(
+        [
+            AssignedFact(
+                claim="breathable / lightweight / all-season",
+                field="Seasons",
+                value="All",
+            )
+        ]
+    )
+    assert '"field": "Seasons"' in text
+    assert '"value": "All"' in text
+    assert "source_field" not in text
+    assert "Product Description" not in text
 
 
 def test_allocate_slots_paint_budget_is_max_callouts() -> None:
@@ -41,7 +94,7 @@ def test_allocate_slots_paint_budget_is_max_callouts() -> None:
     }
     allocated = _allocate_slots(chosen_slots=[slot], fact_board=board)
     assert allocated[0].owned_claims == ["fill", "fabric"]
-    assert [(item.source_field, item.value) for item in allocated[0].assigned_facts] == [
+    assert [(item.field, item.value) for item in allocated[0].assigned_facts] == [
         ("Fill", "Microfiber"),
         ("Fill Weight", "8 oz"),
     ]

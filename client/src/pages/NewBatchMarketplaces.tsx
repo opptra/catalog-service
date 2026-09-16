@@ -6,6 +6,7 @@ import iconInfo from '../assets/icon-info.svg'
 import iconLock from '../assets/icon-lock.svg'
 import { useBatchUploadStore } from '../batch/batchUploadStore'
 import { useMarketplaceSelectionStore } from '../batch/marketplaceSelectionStore'
+import { useBrandHref } from '../brands/useBrandId'
 import { useBrands } from '../brands/useBrands'
 import BatchShell from '../components/BatchShell'
 import { getBatchSubcategory } from '../data/batchDraft'
@@ -20,6 +21,7 @@ const EMPTY_SKU_IMAGES: { sku_id: string }[] = []
 
 function NewBatchMarketplaces() {
   const navigate = useNavigate()
+  const href = useBrandHref()
   const subcategory = getBatchSubcategory()
   const { selectedBrand } = useBrands()
   const skuImages = useBatchUploadStore((state) => state.result?.skuImages ?? EMPTY_SKU_IMAGES)
@@ -42,9 +44,9 @@ function NewBatchMarketplaces() {
   const draftMissing = !subcategory || skuCount === 0
   useEffect(() => {
     if (draftMissing) {
-      navigate('/workspace/new', { replace: true })
+      navigate(href('/workspace/new'), { replace: true })
     }
-  }, [draftMissing, navigate])
+  }, [draftMissing, navigate, href])
 
   useEffect(() => {
     if (draftMissing) return
@@ -158,7 +160,7 @@ function NewBatchMarketplaces() {
         marketplaces: marketplacesPayload,
       })
 
-      navigate(`/batches/preview/${response.job_group_id}`)
+      navigate(href(`/batches/preview/${response.job_group_id}`))
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Could not start generation.')
     } finally {
@@ -176,7 +178,7 @@ function NewBatchMarketplaces() {
           <button
             type="button"
             className="btn-outline"
-            onClick={() => navigate('/workspace/new/validation')}
+            onClick={() => navigate(href('/workspace/new/validation'))}
             disabled={submitting}
           >
             Back

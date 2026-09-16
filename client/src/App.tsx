@@ -1,7 +1,9 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import RequireAuth from './components/RequireAuth'
+import RequireBrand from './components/RequireBrand'
 import { useAuth } from './auth/useAuth'
 import { useBrands } from './brands/useBrands'
+import { brandPath, loginPath } from './lib/brandPath'
 import BrandSelect from './pages/BrandSelect'
 import Login from './pages/Login'
 import BatchContent from './pages/BatchContent'
@@ -16,6 +18,7 @@ import UserManagement from './pages/UserManagement'
 function RootRedirect() {
   const { user, loading } = useAuth()
   const { selectedBrand } = useBrands()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -26,88 +29,34 @@ function RootRedirect() {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />
+    const next = `${location.pathname}${location.search}`
+    return <Navigate to={loginPath(next)} replace />
   }
 
-  return <Navigate to={selectedBrand ? '/workspace' : '/brands'} replace />
+  if (selectedBrand) {
+    return <Navigate to={brandPath(selectedBrand.id, '/workspace')} replace />
+  }
+
+  return <Navigate to="/brands" replace />
 }
 
 function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route
-        path="/brands"
-        element={
-          <RequireAuth>
-            <BrandSelect />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace"
-        element={
-          <RequireAuth>
-            <Workspace />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/users"
-        element={
-          <RequireAuth>
-            <UserManagement />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new"
-        element={
-          <RequireAuth>
-            <NewBatchSubcategory />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new/upload"
-        element={
-          <RequireAuth>
-            <NewBatchUpload />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new/validation"
-        element={
-          <RequireAuth>
-            <NewBatchValidation />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new/uploading"
-        element={
-          <RequireAuth>
-            <NewBatchUploading />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/workspace/new/marketplaces"
-        element={
-          <RequireAuth>
-            <NewBatchMarketplaces />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/batches/preview/:jobExternalId"
-        element={
-          <RequireAuth>
-            <BatchContent />
-          </RequireAuth>
-        }
-      />
+      <Route element={<RequireAuth />}>
+        <Route path="/brands" element={<BrandSelect />} />
+        <Route path="/b/:brandId" element={<RequireBrand />}>
+          <Route path="workspace" element={<Workspace />} />
+          <Route path="workspace/users" element={<UserManagement />} />
+          <Route path="workspace/new" element={<NewBatchSubcategory />} />
+          <Route path="workspace/new/upload" element={<NewBatchUpload />} />
+          <Route path="workspace/new/validation" element={<NewBatchValidation />} />
+          <Route path="workspace/new/uploading" element={<NewBatchUploading />} />
+          <Route path="workspace/new/marketplaces" element={<NewBatchMarketplaces />} />
+          <Route path="batches/preview/:jobExternalId" element={<BatchContent />} />
+        </Route>
+      </Route>
       <Route path="*" element={<RootRedirect />} />
     </Routes>
   )

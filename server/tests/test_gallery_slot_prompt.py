@@ -14,46 +14,69 @@ def test_slot_prompt_fact_rendering_contract() -> None:
         assigned_facts=[
             AssignedFact(
                 claim="opacity",
-                source_field="Opacity",
+                field="Opacity",
                 value="Light-filtering (50-60%)",
-            )
+            ),
+            AssignedFact(
+                claim="breathable / lightweight / all-season",
+                field="breathable",
+                value="breathable",
+            ),
         ],
         brand_look="",
     )
-    assert "On-image text budget: 1 item(s)" in prompt
+    assert "On-image text budget: 2 item(s)" in prompt
     assert "Create exactly one overlay callout for each facts JSON object" in prompt
     assert "Letters printed on the physical product are identity" in prompt
-    assert "immutable source-of-truth value" in prompt
-    assert "does not always need to reproduce the raw" in prompt
-    assert "shopper-readable form" in prompt
-    assert "source_field" in prompt
-    assert '"source_field" names what the value is.' in prompt
+    assert 'Each object\'s "value" is the on-image callout.' in prompt
+    assert "including letter case" not in prompt
+    assert "Paint the value as written." not in prompt
+    assert "The first letter of the label is already uppercase." not in prompt
+    assert "Do not paint all-capital letters." not in prompt
+    assert "Do not capitalize every remaining word." not in prompt
+    assert "Paint those JSON values now" not in prompt
+    assert "Required overlay typesetting:" not in prompt
+    assert "first letter of every word" not in prompt
+    assert "immutable" not in prompt
+    assert "source-of-truth" not in prompt
+    assert "Never change" not in prompt
+    assert "title case" not in prompt
+    assert '"Breathable" paints as Breathable' not in prompt
+    assert "hyphen" not in prompt.lower()
+    assert '"field" names what the value is.' in prompt
     assert (
         "A shopper reading the overlay must clearly understand what this fact is about."
     ) in prompt
     assert (
-        "You may use source_field and value in one overlay to make that context, not as "
+        "You may use field and value in one overlay to make that context, not as "
         "two separate labels."
     ) in prompt
-    assert "If source_field would only repeat the value, do not use it." in prompt
+    assert "If field would only repeat the value, do not use it." in prompt
     assert "Sheet length" not in prompt
-    assert "source_field may be omitted" not in prompt
-    assert "attribute name and unit context" not in prompt
-    assert '"110 cm"' not in prompt
+    assert "Paint field with the value" not in prompt
+    assert "complete shopper phrase" not in prompt
+    assert "width vs length" not in prompt
+    assert "two numbers" not in prompt
     assert "Width 110 cm" not in prompt
-    assert "concise, natural-language rendering" in prompt
-    assert "polished, concise catalog copy" in prompt
-    assert "appropriate word capitalization and spacing" in prompt
-    assert "must not introduce, infer, embellish" in prompt
+    assert "field is reference for this brief, not overlay copy." not in prompt
+    assert "Otherwise the value is enough" not in prompt
+    assert "shopper heading" not in prompt
+    assert "Do not paint claim" in prompt
     assert "do not add a converted equivalent" in prompt
-    assert "If value is a bare number and source_field names a unit" in prompt
+    assert "If value is a bare number and field names a unit" in prompt
     assert "Do not add extra measurements that are not in this facts JSON" in prompt
     assert '"claim": "opacity"' in prompt
-    assert '"source_field": "Opacity"' in prompt
+    assert '"field": "Opacity"' in prompt
     assert '"value": "Light-filtering (50-60%)"' in prompt
+    assert '"value": "Breathable"' in prompt
+    assert '"value": "breathable"' not in prompt
+    assert "source_field" not in prompt
+    assert "Product Description" not in prompt
     assert "once as overlay chrome" not in prompt
     assert "paint those digits/words exactly" not in prompt
     assert "Thread Count: 120" not in prompt
+    assert "source_field + value" not in prompt
+    assert "attribute name and unit context" not in prompt
 
 
 def test_slot_prompt_closer_separates_content_from_facts() -> None:
@@ -65,7 +88,11 @@ def test_slot_prompt_closer_separates_content_from_facts() -> None:
             "pattern": "Macro of the cloth.",
         },
         assigned_facts=[
-            AssignedFact(claim="fabric name", source_field="Fabric", value="Microfiber")
+            AssignedFact(
+                claim="fabric name",
+                field="Fabric",
+                value="Microfiber",
+            )
         ],
         brand_look="",
     )
@@ -83,11 +110,15 @@ def test_slot_prompt_closer_separates_content_from_facts() -> None:
     assert "Only the facts JSON may determine overlay claims" in prompt
     assert "Overlay information may come only from the facts JSON" in prompt
     assert (
-        "Visible overlay text comes from the value, using source_field in the same "
-        "overlay when that makes the fact clear."
+        "Visible overlay text comes from the value, using field in the same overlay "
+        "when that makes the fact clear."
     ) in prompt
-    assert "Do not paint source_field and value as two labels." in prompt
+    assert "Do not paint field and value as two labels." in prompt
+    assert "including letter case" not in prompt
+    assert "Do not paint all-capital letters." not in prompt
+    assert "Do not capitalize every remaining word." not in prompt
     assert "shopper-readable rendering" not in prompt
+    assert "source_field + value" not in prompt
     assert "Overlay letters or digits may come only from the facts JSON" not in prompt
     assert "on-product print" in prompt
     assert "Empty facts JSON means no overlay chrome" in prompt
@@ -130,3 +161,9 @@ def test_fact_board_prompt_keeps_one_unit_system_per_claim() -> None:
     assert "must share one unit system" in prompt
     assert "omit Size rather than mixing systems" in prompt
     assert "Every value must be a verbatim substring" in prompt
+    assert "of PRODUCT DATA" in prompt
+    assert "source_field" not in prompt
+    assert "provenance only" not in prompt
+    assert "generic copy container" in prompt
+    assert "field must not be empty" in prompt
+    assert "It is not overlay copy." in prompt
