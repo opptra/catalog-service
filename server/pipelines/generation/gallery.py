@@ -528,16 +528,15 @@ def _slot_prompt(
             "system, in a table, on a label, or in parentheses."
         )
         lines.append(
-            'If value is a bare number and source_field names a unit (e.g. "Width (cm)" '
-            '+ "110"), every on-image occurrence of that fact MUST show that same unit '
-            'beside the number ("110 cm" or "Width (cm): 110"). Never attach a different '
-            "unit. Use the same unit spelling on the label and in any table."
+            "If value is a bare number and source_field names a unit, show that same "
+            "unit beside the number. Never attach a different unit. Use the same unit "
+            "spelling on the label and in any table."
         )
         lines.append(
-            '"source_field" is the attribute name and unit context. Include the '
-            "source_field context in the visible label whenever the value is ambiguous, "
-            "categorical, numeric, abbreviated, or otherwise not self-explanatory. For "
-            "self-explanatory values, the source_field may be omitted."
+            '"source_field" names what the value is. A shopper reading the overlay '
+            "must clearly understand what this fact is about. You may use source_field "
+            "and value in one overlay to make that context, not as two separate "
+            "labels. If source_field would only repeat the value, do not use it."
         )
         lines.append(
             "The visible label may use a concise, natural-language rendering of "
@@ -573,10 +572,11 @@ def _slot_prompt(
             "the product sits. Follow them even when that means leaving the reference "
             "room behind. They are not copy to typeset — never paint any word from "
             "Slot, Content, Pattern, or JSON DNA onto the artwork as overlay chrome.",
-            "Overlay information may come only from the facts JSON. Visible text may "
-            "use the supplied value directly or a concise, shopper-readable rendering "
-            "of source_field + value when context is required. Do not introduce any "
-            "information that is not supported by the facts JSON.",
+            "Overlay information may come only from the facts JSON. Visible overlay "
+            "text comes from the value, using source_field in the same overlay when "
+            "that makes the fact clear. Do not paint source_field and value as two "
+            "labels. Do not introduce any information that is not supported by the "
+            "facts JSON.",
             "Empty facts JSON means no overlay chrome — not a blank product. Keep "
             "on-product lettering, woven marks, and print from the reference photos. "
             "Do not draw dimension arrows, tape-measure lines, or measurement rulers. "

@@ -26,14 +26,27 @@ def test_slot_prompt_fact_rendering_contract() -> None:
     assert "immutable source-of-truth value" in prompt
     assert "does not always need to reproduce the raw" in prompt
     assert "shopper-readable form" in prompt
-    assert "source_field" in prompt and "attribute name and unit context" in prompt
-    assert "source_field may be omitted" in prompt
+    assert "source_field" in prompt
+    assert '"source_field" names what the value is.' in prompt
+    assert (
+        "A shopper reading the overlay must clearly understand what this fact is about."
+    ) in prompt
+    assert (
+        "You may use source_field and value in one overlay to make that context, not as "
+        "two separate labels."
+    ) in prompt
+    assert "If source_field would only repeat the value, do not use it." in prompt
+    assert "Sheet length" not in prompt
+    assert "source_field may be omitted" not in prompt
+    assert "attribute name and unit context" not in prompt
+    assert '"110 cm"' not in prompt
+    assert "Width 110 cm" not in prompt
     assert "concise, natural-language rendering" in prompt
     assert "polished, concise catalog copy" in prompt
     assert "appropriate word capitalization and spacing" in prompt
     assert "must not introduce, infer, embellish" in prompt
     assert "do not add a converted equivalent" in prompt
-    assert '"Width (cm)"' in prompt and '"110 cm"' in prompt
+    assert "If value is a bare number and source_field names a unit" in prompt
     assert "Do not add extra measurements that are not in this facts JSON" in prompt
     assert '"claim": "opacity"' in prompt
     assert '"source_field": "Opacity"' in prompt
@@ -69,7 +82,12 @@ def test_slot_prompt_closer_separates_content_from_facts() -> None:
     assert "Do not copy badges, size tags, or feature callouts" in prompt
     assert "Only the facts JSON may determine overlay claims" in prompt
     assert "Overlay information may come only from the facts JSON" in prompt
-    assert "shopper-readable rendering" in prompt
+    assert (
+        "Visible overlay text comes from the value, using source_field in the same "
+        "overlay when that makes the fact clear."
+    ) in prompt
+    assert "Do not paint source_field and value as two labels." in prompt
+    assert "shopper-readable rendering" not in prompt
     assert "Overlay letters or digits may come only from the facts JSON" not in prompt
     assert "on-product print" in prompt
     assert "Empty facts JSON means no overlay chrome" in prompt
