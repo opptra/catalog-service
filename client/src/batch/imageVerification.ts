@@ -17,6 +17,8 @@ export function verificationShipScore(
   return typeof verification.confidence === 'number' ? verification.confidence : null
 }
 
+const UNSUPPORTED_CLAIM_KINDS = new Set(['invented', 'contradiction'])
+
 export function isVerificationBelowThreshold(
   verification: ImageVerificationSnapshot | null | undefined,
 ): boolean {
@@ -25,6 +27,23 @@ export function isVerificationBelowThreshold(
   const threshold = verification.threshold
   if (score == null || threshold == null) return false
   return score < threshold
+}
+
+export function hasUnsupportedClaimMismatch(
+  verification: ImageVerificationSnapshot | null | undefined,
+): boolean {
+  if (verification == null || verification.status !== 'ok') return false
+  return (verification.mismatches ?? []).some((item) =>
+    UNSUPPORTED_CLAIM_KINDS.has(item.kind.trim().toLowerCase()),
+  )
+}
+
+export function needsVerificationReview(
+  verification: ImageVerificationSnapshot | null | undefined,
+): boolean {
+  return (
+    isVerificationBelowThreshold(verification) || hasUnsupportedClaimMismatch(verification)
+  )
 }
 
 export function isTextVerification(
@@ -41,7 +60,7 @@ export function verificationStatusLabel(
     return isTextVerification(verification) ? 'Claims check unavailable' : 'Unavailable'
   }
   const passed =
-    verification.status === 'ok' && !isVerificationBelowThreshold(verification)
+    verification.status === 'ok' && !needsVerificationReview(verification)
   if (isTextVerification(verification)) {
     return passed ? 'Claims verified' : 'Claims need review'
   }
@@ -129,7 +148,7 @@ export function verificationCardTitle(
       ? 'Claims check unavailable'
       : 'Verification unavailable'
   }
-  if (isVerificationBelowThreshold(verification)) {
+  if (needsVerificationReview(verification)) {
     return isTextVerification(verification) ? 'Claims need review' : 'Needs review'
   }
   if (verification.status === 'ok') {
