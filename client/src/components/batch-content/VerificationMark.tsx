@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import type { ImageVerification, ImageVerificationSnapshot } from '../../api/jobs'
 import {
   isTextVerification,
-  isVerificationBelowThreshold,
+  needsVerificationReview,
   verificationAxisLines,
   verificationBadgeLabel,
   verificationCardTitle,
@@ -277,7 +277,7 @@ export function VerificationMark({
   if (verification.status === 'skipped') return null
 
   const passed =
-    verification.status === 'ok' && !isVerificationBelowThreshold(verification)
+    verification.status === 'ok' && !needsVerificationReview(verification)
   const tone = passed ? 'pass' : verification.status === 'error' ? 'error' : 'fail'
   const textOnly = isTextVerification(verification)
   const displayVariant = variant ?? (textOnly ? 'inline' : 'overlay')
