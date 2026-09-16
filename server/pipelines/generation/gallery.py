@@ -42,17 +42,22 @@ class SlotPlan:
 
 @dataclass(frozen=True, slots=True)
 class FactValue:
-    """One verified PRODUCT DATA snippet bound to a CI claim."""
+    """One verified PRODUCT DATA snippet bound to a CI claim.
+
+    ``field`` is context for an incomplete value. It is not overlay copy.
+    """
 
     value: str
-    source_field: str
+    field: str
 
 
 @dataclass(frozen=True, slots=True)
 class AssignedFact:
+    """One overlay fact. ``value`` is the callout; ``field`` is context; ``claim`` is CI-only."""
+
     claim: str
     value: str
-    source_field: str
+    field: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +68,7 @@ class AllocatedSlot:
     assigned_facts: list[AssignedFact]
 
 
-# Fact board: CI claim → verified values (same claim may have many source fields).
+# Fact board: CI claim → verified overlay snippets.
 FactBoard = dict[str, list[FactValue]]
 
 
@@ -179,13 +184,18 @@ def _fact_board_prompt(product: dict[str, Any], claims: list[str]) -> str:
         "that already shares a unit; omit Size rather than mixing systems.\n"
         "- If a claim names more than one independent spec that this SKU actually has "
         "(e.g. cover length and cover width), return ONE item per spec with the same claim "
-        "string, different values, and the matching source_field for each.\n"
+        "string and different values.\n"
         "- If only one of those specs exists, return only that one. If none can be "
         "determined, return nothing for that claim.\n"
-        "- If the claim cannot be determined — no field, several conflicting fields, or "
-        "the only hit is not shopper-facing — return no items for it. Never invent.\n"
-        "- Every value must be a verbatim substring of its source_field value.\n"
-        "- source_field must be an exact PRODUCT DATA key.\n"
+        "- If the claim cannot be determined — no PRODUCT DATA, several conflicting "
+        "cells, or the only hit is not shopper-facing — return no items for it. Never "
+        "invent.\n"
+        "- Every value must be a verbatim substring of PRODUCT DATA.\n"
+        "- field is a short name for this fact so an incomplete value can be understood. "
+        "It is not overlay copy. When the PRODUCT DATA key already names this spec, copy "
+        "that key as field. When the key is a generic copy container that does not name "
+        "this spec, do not copy that key; give field a short name for this fact from the "
+        "claim (one name, not the whole slash-list). field must not be empty.\n"
         "- Copy each CLAIM string exactly (same spelling and punctuation).\n"
         "- Do not return empty-value rows; omit the claim instead.\n"
         "\n"
@@ -200,13 +210,13 @@ def _verify_fact_item(
     *,
     claim: str,
     value: str,
-    source_field: str,
+    field: str,
 ) -> str | None:
     """Return a drop reason, or None when the item is kept.
 
-    Only empty claim/value/source_field rows are dropped — no other filtering.
+    Only empty claim/value/field rows are dropped — no other filtering.
     """
-    if not claim.strip() or not value.strip() or not source_field.strip():
+    if not claim.strip() or not value.strip() or not field.strip():
         return "empty"
     return None
 
@@ -243,24 +253,24 @@ def _build_fact_board(
             continue
         claim = entry.get("claim")
         value = entry.get("value")
-        source_field = entry.get("source_field")
+        overlay_field = entry.get("field")
         if not isinstance(claim, str) or claim not in allowed:
             continue
-        if not isinstance(value, str) or not isinstance(source_field, str):
+        if not isinstance(value, str) or not isinstance(overlay_field, str):
             continue
         cleaned = value.strip()
-        field = source_field.strip()
+        heading = overlay_field.strip()
         reason = _verify_fact_item(
             claim=claim,
             value=cleaned,
-            source_field=field,
+            field=heading,
         )
         if reason is not None:
             logger.info(
                 "fact board drop claim=%r value=%r field=%r reason=%s",
                 claim,
                 cleaned,
-                field,
+                heading,
                 reason,
             )
             continue
@@ -268,7 +278,7 @@ def _build_fact_board(
         if norm in seen_per_claim[claim]:
             continue
         seen_per_claim[claim].add(norm)
-        out[claim].append(FactValue(value=cleaned, source_field=field))
+        out[claim].append(FactValue(value=cleaned, field=heading))
 
     for claim, values in out.items():
         if not values:
@@ -385,7 +395,7 @@ def _facts_for_claims(
                 AssignedFact(
                     claim=claim,
                     value=item.value,
-                    source_field=item.source_field,
+                    field=item.field.strip(),
                 )
             )
     return out
@@ -459,6 +469,16 @@ def _allocate_slots(
     return allocated
 
 
+def _overlay_value(value: str) -> str:
+    """Painted label: first letter uppercase, remaining characters unchanged."""
+    for i, ch in enumerate(value):
+        if ch.isalpha():
+            if ch.islower():
+                return f"{value[:i]}{ch.upper()}{value[i + 1 :]}"
+            return value
+    return value
+
+
 def _facts_block(assigned_facts: list[AssignedFact]) -> str:
     """JSON list of assigned facts for the image-model brief."""
     if not assigned_facts:
@@ -466,8 +486,8 @@ def _facts_block(assigned_facts: list[AssignedFact]) -> str:
     payload = [
         {
             "claim": fact.claim,
-            "source_field": fact.source_field,
-            "value": fact.value,
+            "field": fact.field,
+            "value": _overlay_value(fact.value),
         }
         for fact in assigned_facts
     ]
@@ -514,13 +534,11 @@ def _slot_prompt(
             "This shot has required on-image facts as JSON below. Render every fact "
             "visibly and legibly in the finished image."
         )
+        lines.append('Each object\'s "value" is the on-image callout.')
         lines.append(
-            'Each object\'s "value" is the immutable source-of-truth value. Never '
-            "change, convert, calculate, or invent the underlying value. However, the "
-            "visible on-image text does not always need to reproduce the raw "
-            '"value" literally. Render each fact in the clearest, most concise '
-            'shopper-readable form using "source_field" + "value" when context is '
-            "required."
+            '"field" is reference for this brief, not overlay copy. Use it only when '
+            "the value has no shopper meaning without that context. Otherwise the "
+            "value is enough — do not paint field. Do not paint claim."
         )
         lines.append(
             "Units stay with the fact. If value already contains a unit, that is the "
@@ -528,26 +546,9 @@ def _slot_prompt(
             "system, in a table, on a label, or in parentheses."
         )
         lines.append(
-            'If value is a bare number and source_field names a unit (e.g. "Width (cm)" '
-            '+ "110"), every on-image occurrence of that fact MUST show that same unit '
-            'beside the number ("110 cm" or "Width (cm): 110"). Never attach a different '
-            "unit. Use the same unit spelling on the label and in any table."
-        )
-        lines.append(
-            '"source_field" is the attribute name and unit context. Include the '
-            "source_field context in the visible label whenever the value is ambiguous, "
-            "categorical, numeric, abbreviated, or otherwise not self-explanatory. For "
-            "self-explanatory values, the source_field may be omitted."
-        )
-        lines.append(
-            "The visible label may use a concise, natural-language rendering of "
-            "source_field + value when necessary to make the fact immediately "
-            "understandable. Present all visible benefit labels as polished, concise "
-            "catalog copy rather than raw source-field values, using a consistent "
-            "label style and appropriate word capitalization and spacing for "
-            "professional visual presentation. This rendering must preserve the exact "
-            "factual meaning of the supplied source data and must not introduce, "
-            "infer, embellish, or modify any claim, specification, number, or unit."
+            'If value is a bare number and field names a unit (e.g. "Width (cm)" '
+            '+ "110"), show that same unit beside the number ("110 cm"). Never attach a '
+            "different unit."
         )
         lines.append(
             "Do not invent a different number, unit, or fact. Do not add extra "
@@ -573,10 +574,10 @@ def _slot_prompt(
             "the product sits. Follow them even when that means leaving the reference "
             "room behind. They are not copy to typeset — never paint any word from "
             "Slot, Content, Pattern, or JSON DNA onto the artwork as overlay chrome.",
-            "Overlay information may come only from the facts JSON. Visible text may "
-            "use the supplied value directly or a concise, shopper-readable rendering "
-            "of source_field + value when context is required. Do not introduce any "
-            "information that is not supported by the facts JSON.",
+            "Overlay information may come only from the facts JSON. Visible overlay "
+            "text is the value. field is reference only when the value needs context. "
+            "Do not paint claim. Do not introduce any information that is not "
+            "supported by the facts JSON.",
             "Empty facts JSON means no overlay chrome — not a blank product. Keep "
             "on-product lettering, woven marks, and print from the reference photos. "
             "Do not draw dimension arrows, tape-measure lines, or measurement rulers. "
