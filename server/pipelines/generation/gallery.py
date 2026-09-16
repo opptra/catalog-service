@@ -536,9 +536,10 @@ def _slot_prompt(
         )
         lines.append('Each object\'s "value" is the on-image callout.')
         lines.append(
-            '"field" is reference for this brief, not overlay copy. Use it only when '
-            "the value has no shopper meaning without that context. Otherwise the "
-            "value is enough — do not paint field. Do not paint claim."
+            '"field" names what the value is. A shopper reading the overlay must '
+            "clearly understand what this fact is about. You may use field and value "
+            "in one overlay to make that context, not as two separate labels. If "
+            "field would only repeat the value, do not use it. Do not paint claim."
         )
         lines.append(
             "Units stay with the fact. If value already contains a unit, that is the "
@@ -546,9 +547,8 @@ def _slot_prompt(
             "system, in a table, on a label, or in parentheses."
         )
         lines.append(
-            'If value is a bare number and field names a unit (e.g. "Width (cm)" '
-            '+ "110"), show that same unit beside the number ("110 cm"). Never attach a '
-            "different unit."
+            "If value is a bare number and field names a unit, show that same unit "
+            "beside the number. Never attach a different unit."
         )
         lines.append(
             "Do not invent a different number, unit, or fact. Do not add extra "
@@ -575,9 +575,10 @@ def _slot_prompt(
             "room behind. They are not copy to typeset — never paint any word from "
             "Slot, Content, Pattern, or JSON DNA onto the artwork as overlay chrome.",
             "Overlay information may come only from the facts JSON. Visible overlay "
-            "text is the value. field is reference only when the value needs context. "
-            "Do not paint claim. Do not introduce any information that is not "
-            "supported by the facts JSON.",
+            "text comes from the value, using field in the same overlay when that "
+            "makes the fact clear. Do not paint field and value as two labels. Do not "
+            "paint claim. Do not introduce any information that is not supported by "
+            "the facts JSON.",
             "Empty facts JSON means no overlay chrome — not a blank product. Keep "
             "on-product lettering, woven marks, and print from the reference photos. "
             "Do not draw dimension arrows, tape-measure lines, or measurement rulers. "
