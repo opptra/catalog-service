@@ -194,7 +194,6 @@ def _fact_board_prompt(product: dict[str, Any], claims: list[str]) -> str:
         "- Keep the more specific structured field. Drop the restatement "
         "(e.g. a dedicated count field and a description cell that only restates "
         "that count).\n"
-        "- Independent specs stay as separate items (colour vs print, length vs width).\n"
         "- If the claim cannot be determined — no PRODUCT DATA, several conflicting "
         "cells, or the only hit is not shopper-facing — return no items for it. Never "
         "invent.\n"
