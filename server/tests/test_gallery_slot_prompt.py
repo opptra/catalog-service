@@ -175,14 +175,29 @@ def test_fact_board_prompt_omits_restated_shopper_facts() -> None:
         {"Pack Count": "2", "Included Components": "2 Panels", "Colour": "Grey"},
         ["pack count", "included components", "colour"],
     )
-    assert "one shopper fact may appear only once" in prompt
+    once_idx = prompt.index("one shopper fact may appear only once")
+    fill_idx = prompt.index("Return items only for claims that add a shopper fact")
+    prefer_idx = prompt.index("Prefer a short structured field")
+    assert once_idx < fill_idx < prefer_idx
     assert "omit the other entirely" in prompt
     assert "Keep the more specific structured field" in prompt
     assert "Drop the restatement" in prompt
+    assert "Independent specs stay as separate items" in prompt
     assert "colour vs print" in prompt
+    assert "If a claim is only a restatement of a fact already covered" in prompt
+    assert "name, style, or title cell that only concatenates specs already returned" in prompt
+    assert "That bundle is not an extra independent spec" in prompt
+    assert "For each CLAIM, return zero or more items that directly support it." not in prompt
 
 
 def test_fact_board_tool_omits_restated_shopper_facts() -> None:
     description = gallery_fact_board_tool()["function"]["description"]
-    assert "do not return two items that tell the shopper the same fact" in description
+    once_idx = description.index("One shopper fact may appear only once across all claims")
+    fill_idx = description.index("Return items only when they add a new shopper fact")
+    assert once_idx < fill_idx
     assert "keep the structured field and omit the restatement" in description
+    assert "Omit a name, style, or title that only concatenates specs already returned" in (
+        description
+    )
+    assert "Each claim may yield zero or more items" not in description
+    assert "never convert units.Across" not in description
