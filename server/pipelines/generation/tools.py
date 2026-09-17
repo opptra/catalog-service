@@ -11,7 +11,8 @@ from typing import Any
 
 from entities.catalog.attribute_enums import AttributeName
 
-GALLERY_FACT_BOARD_TOOL_NAME = "submit_fact_board"
+GALLERY_PRODUCT_CARD_TOOL_NAME = "submit_product_card"
+GALLERY_ASSIGN_SLOT_FACTS_TOOL_NAME = "assign_slot_facts"
 TEXT_ATTRIBUTES_TOOL_NAME = "submit_text_attributes"
 FILTER_BACKEND_KEYWORDS_TOOL_NAME = "filter_backend_keywords"
 COMPRESSED_BRAND_DNA_TOOL_NAME = "submit_compressed_brand_dna"
@@ -19,38 +20,67 @@ IMAGE_VERIFICATION_TOOL_NAME = "submit_image_verification"
 TEXT_VERIFICATION_TOOL_NAME = "submit_text_verification"
 
 
-def gallery_fact_board_tool() -> dict[str, Any]:
-    """Tool schema for binding CI claims to zero or more verified PRODUCT DATA snippets.
+def gallery_product_card_tool() -> dict[str, Any]:
+    """Tool schema for a SKU product card: composition identity + unique overlay facts.
 
-    Combined claims (e.g. cover and pillow dimensions) may emit one entry per independent
-    spec that exists on this SKU. Two claims must not repeat the same shopper fact;
-    keep the structured field and omit the restatement. Undeterminable claims emit nothing.
+    Identity is hang/size/pack/color geometry. Facts are overlay-eligible snippets.
+    One shopper fact may appear only once across facts; keep the structured field
+    and omit the restatement. Optional claim links a fact to a CI feature_priority
+    string. Combined independent specs may emit one fact each.
     """
     return {
         "type": "function",
         "function": {
-            "name": GALLERY_FACT_BOARD_TOOL_NAME,
+            "name": GALLERY_PRODUCT_CARD_TOOL_NAME,
             "description": (
-                "Return verified product snippets for the requested feature-priority claims. "
-                "Each claim may yield zero or more items. Never invent. Prefer short structured "
-                "fields. field is context for an incomplete value, not overlay copy: use a "
-                "PRODUCT DATA spec name when that name already names the spec; otherwise name "
-                "the fact from the claim — never copy a generic copy-container key. For "
-                "combined claims that name independent specs, emit one item per spec that "
-                "actually exists on this SKU. Items for one claim must share one unit "
-                "system — do not mix feet/inches with centimetres (or kg with lb). Copy units "
-                "that are already in the cell; never convert units."
-                "Across all claims, do not return two items that tell the shopper the "
-                "same fact; keep the structured field and omit the restatement."
+                "Return this SKU's product card. identity is composition geometry "
+                "(how it hangs, how large it is, pack look, color, print) copied from "
+                "PRODUCT DATA. facts are unique shopper facts for overlays. One shopper "
+                "fact may appear only once across facts; keep the structured field and "
+                "omit the restatement. Never invent. Prefer short structured fields. "
+                "field is context for an incomplete value, not overlay copy: use a "
+                "PRODUCT DATA spec name when that name already names the spec; otherwise "
+                "name the fact from the claim — never copy a generic copy-container key. "
+                "Items that share a claim must share one unit system — do not mix "
+                "feet/inches with centimetres (or kg with lb). Copy units that are "
+                "already in the cell; never convert units. claim is optional: copy a "
+                "CLAIMS string exactly when the fact supports that claim, otherwise omit "
+                "claim or leave it empty."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "identity": {
+                        "type": "array",
+                        "description": (
+                            "Composition constraints copied from PRODUCT DATA. Not overlay "
+                            "copy unless the same value is also in facts."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field": {
+                                    "type": "string",
+                                    "description": "Short name for this identity fact.",
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": (
+                                        "Verbatim PRODUCT DATA snippet (size, pack, color, "
+                                        "print, opening, or hang)."
+                                    ),
+                                },
+                            },
+                            "required": ["field", "value"],
+                            "additionalProperties": False,
+                        },
+                        "minItems": 0,
+                    },
                     "facts": {
                         "type": "array",
                         "description": (
-                            "Zero or more snippets. Same claim may appear more than once when "
-                            "it names independent specs (e.g. cover size and pillow size)."
+                            "Unique overlay-eligible snippets. Same claim may appear more "
+                            "than once when it names independent specs."
                         ),
                         "items": {
                             "type": "object",
@@ -58,7 +88,8 @@ def gallery_fact_board_tool() -> dict[str, Any]:
                                 "claim": {
                                     "type": "string",
                                     "description": (
-                                        "The feature-priority claim string, copied exactly."
+                                        "CI feature-priority claim string, copied exactly, "
+                                        "or empty when unlinked."
                                     ),
                                 },
                                 "value": {
@@ -81,13 +112,58 @@ def gallery_fact_board_tool() -> dict[str, Any]:
                                     ),
                                 },
                             },
-                            "required": ["claim", "value", "field"],
+                            "required": ["field", "value"],
+                            "additionalProperties": False,
+                        },
+                        "minItems": 0,
+                    },
+                },
+                "required": ["identity", "facts"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def gallery_assign_slot_facts_tool() -> dict[str, Any]:
+    """Assign leftover unique fact ids onto overlay slots that still have budget."""
+    return {
+        "type": "function",
+        "function": {
+            "name": GALLERY_ASSIGN_SLOT_FACTS_TOOL_NAME,
+            "description": (
+                "Assign unused unique overlay facts to catalog slots that still have "
+                "callout budget. Prefer facts that fit the slot's role, content, and "
+                "pattern (e.g. size facts on a size chart). Each fact_id at most once. "
+                "Do not exceed remaining_budget for a slot. Skip a fact rather than "
+                "force a poor fit."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "assignments": {
+                        "type": "array",
+                        "description": "Zero or more fact-to-slot assignments.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "fact_id": {
+                                    "type": "string",
+                                    "description": "id from the unused facts list.",
+                                },
+                                "slot_index": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "description": "1-based index of the hungry overlay slot.",
+                                },
+                            },
+                            "required": ["fact_id", "slot_index"],
                             "additionalProperties": False,
                         },
                         "minItems": 0,
                     }
                 },
-                "required": ["facts"],
+                "required": ["assignments"],
                 "additionalProperties": False,
             },
         },
@@ -100,9 +176,11 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
         "name": IMAGE_VERIFICATION_TOOL_NAME,
         "description": (
             "Submit marketplace image QA for one generated catalog slot. "
-            "Score identity of the generated image vs source photos "
-            "(including on-product print), overlay claims vs PRODUCT DATA, "
-            "and quality of the generated image only. Never score source photos."
+            "Score identity of the generated image vs source photos and the "
+            "PRODUCT CARD identity list (hang, size, pack, color, print, "
+            "on-product lettering). Score overlay claims vs PRODUCT CARD unique "
+            "facts (duplicates of the same shopper fact fail). Never score "
+            "source photos."
         ),
         "parameters": {
             "type": "object",
@@ -112,9 +190,10 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "minimum": 0,
                     "maximum": 100,
                     "description": (
-                        "0–100 generated image is the same physical variant as source "
-                        "photos and catalog Color/pack/print/silhouette, including "
-                        "on-product lettering. Do not score the source photos themselves."
+                        "0–100 generated image matches source-photo hang/geometry and "
+                        "PRODUCT CARD identity (size, opening, pack, color, print), "
+                        "including on-product lettering. Do not score the source photos "
+                        "themselves."
                     ),
                 },
                 "claims": {
@@ -123,10 +202,12 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                     "maximum": 100,
                     "description": (
                         "0–100 overlay chrome ON THE GENERATED IMAGE agrees with "
-                        "PRODUCT DATA (any key or value, including Description). "
+                        "PRODUCT CARD unique_facts. Two overlays that restate the same "
+                        "shopper fact fail even if both wordings exist in raw PRODUCT DATA. "
                         "On-product print matching source photos is identity, not invented. "
                         "Never use overlay text from a source photo. Omission may be high. "
-                        "Invented only if the overlay claim is nowhere in the JSON."
+                        "Invented if the overlay claim is in no unique_facts value and no "
+                        "PRODUCT DATA key or value."
                     ),
                 },
                 "quality": {
@@ -155,15 +236,21 @@ IMAGE_VERIFICATION_TOOL: dict[str, Any] = {
                 "mismatches": {
                     "type": "array",
                     "description": (
-                        "Failures only: contradiction, invented, identity, or quality. "
-                        "Empty if none."
+                        "Failures only: contradiction, invented, identity, quality, "
+                        "or duplicate. Empty if none."
                     ),
                     "items": {
                         "type": "object",
                         "properties": {
                             "kind": {
                                 "type": "string",
-                                "enum": ["contradiction", "invented", "identity", "quality"],
+                                "enum": [
+                                    "contradiction",
+                                    "invented",
+                                    "identity",
+                                    "quality",
+                                    "duplicate",
+                                ],
                             },
                             "source_field": {
                                 "type": "string",

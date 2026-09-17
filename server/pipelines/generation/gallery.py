@@ -1,9 +1,9 @@
 """Stage 1: plan a coherent, non-duplicated image set for one attribute type per call.
 
-IMAGE (PDP gallery) and A_PLUS are planned separately. Per track: gather claim keys →
-fact board values → deterministic claim ownership (max_callouts upstream) → assemble
-a per-slot image brief (CI content/pattern, owned facts, JSON DNA fonts/colors).
-That brief is sent straight to the image model — no Scene rewrite step.
+IMAGE (PDP gallery) and A_PLUS are planned separately. Per job: build a SKU product
+card (identity + unique facts) → select slots → assign unique fact ids → assemble a
+sectioned per-slot brief (CI scene, identity, overlay JSON, JSON DNA). That brief is
+sent straight to the image model — no Scene rewrite step.
 """
 
 from __future__ import annotations
@@ -22,14 +22,33 @@ from pipelines.generation.context import GenerationContext
 
 logger = logging.getLogger(__name__)
 
+SECTION_TASK = "TASK"
+SECTION_PRIORITY = "PRIORITY"
+SECTION_SLOT = "SLOT"
+SECTION_SCENE = "SCENE"
+SECTION_IDENTITY = "IDENTITY"
+SECTION_OVERLAY_FACTS = "OVERLAY FACTS"
+SECTION_JSON_DNA = "JSON DNA"
+SECTION_FORBIDDEN = "FORBIDDEN"
+SECTION_ORDER = (
+    SECTION_TASK,
+    SECTION_PRIORITY,
+    SECTION_SLOT,
+    SECTION_SCENE,
+    SECTION_IDENTITY,
+    SECTION_OVERLAY_FACTS,
+    SECTION_JSON_DNA,
+    SECTION_FORBIDDEN,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class SlotPlan:
     """One slot, ready for the image model.
 
     ``prompt`` is the assembled slot brief sent to the image model (CI recipe,
-    owned facts, and JSON DNA). ``role`` / ``kind`` are CI slot fields passed to
-    the verifier as context only. No separate Scene rewrite.
+    identity, owned facts, and JSON DNA). ``role`` / ``kind`` are CI slot fields
+    passed to the verifier as context only. No separate Scene rewrite.
     """
 
     name: AttributeName
@@ -41,14 +60,29 @@ class SlotPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class FactValue:
-    """One verified PRODUCT DATA snippet bound to a CI claim.
+class IdentityItem:
+    """Composition constraint. Not overlay copy unless the same value is also a fact."""
 
-    ``field`` is context for an incomplete value. It is not overlay copy.
-    """
+    field: str
+    value: str
 
+
+@dataclass(frozen=True, slots=True)
+class CardFact:
+    """One unique overlay-eligible fact. ``fact_id`` is assigned in code."""
+
+    fact_id: str
+    claim: str
     value: str
     field: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProductCard:
+    """Canonical SKU truth for image planning, briefs, and QA."""
+
+    identity: tuple[IdentityItem, ...]
+    facts: tuple[CardFact, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,12 +102,8 @@ class AllocatedSlot:
     assigned_facts: list[AssignedFact]
 
 
-# Fact board: CI claim → verified overlay snippets.
-FactBoard = dict[str, list[FactValue]]
-
-
 def _plan_model() -> str:
-    """Model for structured planning/extraction (fact board, writers)."""
+    """Model for structured planning/extraction (product card, leftover assignment)."""
     return settings.openrouter_text_model
 
 
@@ -164,166 +194,207 @@ def _normalize_value(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
-def _fact_board_prompt(product: dict[str, Any], claims: list[str]) -> str:
-    facts = {key: value for key, value in product.items() if key != "source_assets"}
+def _product_data_dump(product: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in product.items() if key != "source_assets"}
+
+
+def collect_feature_priority_claims(
+    ctx: GenerationContext, names: list[AttributeName]
+) -> list[str]:
+    """Unique CI feature_priority strings across the requested image tracks."""
+    claims: list[str] = []
+    for name in names:
+        try:
+            for slot in _candidate_ci_slots(ctx, name):
+                claims.extend(_feature_priority(slot))
+        except GalleryPlanError:
+            logger.info("skip claims for %s: image_plan track missing", name.value)
+    return sorted(set(claims))
+
+
+def _product_card_prompt(product: dict[str, Any], claims: list[str]) -> str:
+    facts = _product_data_dump(product)
     return (
-        "You bind category feature-priority claims to this SKU's PRODUCT DATA.\n"
+        "You build a product card for catalog image generation from this SKU's "
+        "PRODUCT DATA.\n"
         "\n"
-        "RULES:\n"
+        "IDENTITY (composition, not overlay copy):\n"
+        "- Return the facts a photographer needs to hang and size the product correctly: "
+        "how large it is, how it hangs or sits, pack count, color, print, and any "
+        "opening or mount named in PRODUCT DATA.\n"
+        "- Copy verbatim substrings. Never invent. Do not convert units.\n"
+        "- field names the spec. value is the snippet.\n"
+        "\n"
+        "FACTS (unique overlay-eligible snippets):\n"
         "- PRODUCT DATA is the only source of facts.\n"
-        "- For each CLAIM, return zero or more items that directly support it.\n"
+        "- Across the whole facts list, one shopper fact may appear only once. If two "
+        "items would paint the same information (same count, size, material, or "
+        "inclusion restated in other words), keep the more specific structured field "
+        "and omit the restatement entirely.\n"
+        "- Independent specs stay as separate items (colour vs print, length vs width).\n"
         "- Prefer a short structured field over a marketing paragraph. Shorten at source "
         '(e.g. water temperature → "Machine Wash Cold", not the whole wash-care sentence).\n'
         '- If the cell is already short ("210", "Microfiber"), leave it. Do not expand '
         '"210" into "210 TC". Do not convert units (never "7 feet" → "210 cm" / "84 in").\n'
         "- If the cell already includes a unit, copy that unit with the number "
         '("7 feet" stays "7 feet").\n'
-        "- Items for one claim must share one unit system. Do not pair a feet/inch Size "
-        "with a centimetre Length/Width (or kg with lb) on the same claim. If Size is in "
-        "one system and structured Length/Width share another, prefer the structured pair "
-        "that already shares a unit; omit Size rather than mixing systems.\n"
+        "- Items that share a claim must share one unit system. Do not pair a feet/inch "
+        "Size with a centimetre Length/Width (or kg with lb) on the same claim. If Size "
+        "is in one system and structured Length/Width share another, prefer the "
+        "structured pair that already shares a unit; omit Size rather than mixing "
+        "systems.\n"
         "- If a claim names more than one independent spec that this SKU actually has "
-        "(e.g. cover length and cover width), return ONE item per spec with the same claim "
-        "string and different values.\n"
-        "- If only one of those specs exists, return only that one. If none can be "
-        "determined, return nothing for that claim.\n"
-        "- Across the whole CLAIMS list, one shopper fact may appear only once. If two "
-        "claims would paint the same information (same count, size, material, or "
-        "inclusion restated in other words), return items for only one claim and omit "
-        "the other entirely.\n"
-        "- Keep the more specific structured field. Drop the restatement "
-        "(e.g. a dedicated count field and a description cell that only restates "
-        "that count).\n"
-        "- If the claim cannot be determined — no PRODUCT DATA, several conflicting "
-        "cells, or the only hit is not shopper-facing — return no items for it. Never "
-        "invent.\n"
+        "(e.g. cover length and cover width), return ONE fact per spec with the same "
+        "claim string and different values.\n"
         "- Every value must be a verbatim substring of PRODUCT DATA.\n"
         "- field is a short name for this fact so an incomplete value can be understood. "
         "It is not overlay copy. When the PRODUCT DATA key already names this spec, copy "
         "that key as field. When the key is a generic copy container that does not name "
         "this spec, do not copy that key; give field a short name for this fact from the "
         "claim (one name, not the whole slash-list). field must not be empty.\n"
-        "- Copy each CLAIM string exactly (same spelling and punctuation).\n"
-        "- Do not return empty-value rows; omit the claim instead.\n"
+        "- claim is optional. When the fact supports a CLAIMS string, copy that string "
+        "exactly (same spelling and punctuation). Otherwise omit claim or leave it empty.\n"
+        "- Do not return empty-value rows.\n"
         "\n"
         "PRODUCT DATA (opaque strings/columns):\n"
         f"{json.dumps(facts, ensure_ascii=False, indent=2)}\n"
         "\n"
-        f"CLAIMS (feature_priority strings): {json.dumps(claims, ensure_ascii=False)}\n"
+        "CLAIMS (feature_priority strings, optional links): "
+        f"{json.dumps(claims, ensure_ascii=False)}\n"
     )
 
 
-def _verify_fact_item(
-    *,
-    claim: str,
-    value: str,
-    field: str,
-) -> str | None:
-    """Return a drop reason, or None when the item is kept.
+def _parse_identity_items(raw: Any) -> list[IdentityItem]:
+    if not isinstance(raw, list):
+        return []
+    out: list[IdentityItem] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        field = entry.get("field")
+        value = entry.get("value")
+        if not isinstance(field, str) or not isinstance(value, str):
+            continue
+        heading = field.strip()
+        cleaned = value.strip()
+        if not heading or not cleaned:
+            continue
+        norm = _normalize_value(cleaned)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        out.append(IdentityItem(field=heading, value=cleaned))
+    return out
 
-    Only empty claim/value/field rows are dropped — no other filtering.
-    """
-    if not claim.strip() or not value.strip() or not field.strip():
-        return "empty"
-    return None
+
+def _parse_card_facts(raw: Any, *, allowed_claims: set[str]) -> list[CardFact]:
+    if not isinstance(raw, list):
+        return []
+    out: list[CardFact] = []
+    seen: set[str] = set()
+    next_id = 1
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        field = entry.get("field")
+        value = entry.get("value")
+        if not isinstance(field, str) or not isinstance(value, str):
+            continue
+        heading = field.strip()
+        cleaned = value.strip()
+        if not heading or not cleaned:
+            continue
+        norm = _normalize_value(cleaned)
+        if norm in seen:
+            logger.info(
+                "product card drop fact field=%r value=%r reason=duplicate_shopper_fact",
+                heading,
+                cleaned,
+            )
+            continue
+        seen.add(norm)
+        raw_claim = entry.get("claim")
+        claim = raw_claim.strip() if isinstance(raw_claim, str) else ""
+        if claim and claim not in allowed_claims:
+            logger.info("product card unlink claim=%r reason=not_in_ci_list", claim)
+            claim = ""
+        out.append(
+            CardFact(
+                fact_id=f"f{next_id}",
+                claim=claim,
+                value=cleaned,
+                field=heading,
+            )
+        )
+        next_id += 1
+    return out
 
 
-def _build_fact_board(
+def build_product_card(
     client: OpenRouterClient,
     ctx: GenerationContext,
     *,
     claims: list[str],
     session_id: str | None,
-) -> FactBoard:
-    """Return {claim: [FactValue, ...]} — omitted claims are absent or empty."""
-    if not claims:
-        return {}
-
-    llm_prompt = _fact_board_prompt(ctx.product, claims)
+) -> ProductCard:
+    """One SKU card: identity for geometry, unique facts for overlays."""
     parsed = client.call_tool(
-        llm_prompt,
+        _product_card_prompt(ctx.product, claims),
         model=_plan_model(),
-        tool=tools.gallery_fact_board_tool(),
+        tool=tools.gallery_product_card_tool(),
         max_tokens=4096,
         session_id=session_id,
     )
-    raw_facts = parsed.get("facts") if isinstance(parsed, dict) else None
-    if not isinstance(raw_facts, list):
-        raise GalleryPlanError("fact board missing facts array")
-
-    allowed = set(claims)
-    out: FactBoard = {claim: [] for claim in claims}
-    seen_per_claim: dict[str, set[str]] = {claim: set() for claim in claims}
-
-    for entry in raw_facts:
-        if not isinstance(entry, dict):
-            continue
-        claim = entry.get("claim")
-        value = entry.get("value")
-        overlay_field = entry.get("field")
-        if not isinstance(claim, str) or claim not in allowed:
-            continue
-        if not isinstance(value, str) or not isinstance(overlay_field, str):
-            continue
-        cleaned = value.strip()
-        heading = overlay_field.strip()
-        reason = _verify_fact_item(
-            claim=claim,
-            value=cleaned,
-            field=heading,
-        )
-        if reason is not None:
-            logger.info(
-                "fact board drop claim=%r value=%r field=%r reason=%s",
-                claim,
-                cleaned,
-                heading,
-                reason,
-            )
-            continue
-        norm = _normalize_value(cleaned)
-        if norm in seen_per_claim[claim]:
-            continue
-        seen_per_claim[claim].add(norm)
-        out[claim].append(FactValue(value=cleaned, field=heading))
-
-    for claim, values in out.items():
-        if not values:
-            logger.info("fact board omit claim=%r reason=unmatched_or_filtered", claim)
-
-    return out
+    if not isinstance(parsed, dict):
+        raise GalleryPlanError("product card missing object payload")
+    identity = _parse_identity_items(parsed.get("identity"))
+    facts = _parse_card_facts(parsed.get("facts"), allowed_claims=set(claims))
+    if not identity:
+        logger.info("product card identity empty")
+    if not facts:
+        logger.info("product card facts empty")
+    return ProductCard(identity=tuple(identity), facts=tuple(facts))
 
 
-def _slot_has_any_fact(*, slot: dict[str, Any], fact_board: FactBoard) -> bool:
-    priorities = _feature_priority(slot)
-    if not priorities:
-        return True
-    return any(bool(fact_board.get(claim)) for claim in priorities)
+def product_card_payload(card: ProductCard | None) -> dict[str, Any]:
+    """JSON for QA: identity + unique facts (no CI claim strings)."""
+    if card is None:
+        return {"identity": [], "unique_facts": []}
+    return {
+        "identity": [{"field": item.field, "value": item.value} for item in card.identity],
+        "unique_facts": [{"field": fact.field, "value": fact.value} for fact in card.facts],
+    }
 
 
-def _slot_usable(*, slot: dict[str, Any], fact_board: FactBoard) -> bool:
-    """Callout slots (max_callouts > 0) need at least one product fact; else skip.
+def empty_product_card() -> ProductCard:
+    return ProductCard(identity=(), facts=())
 
-    Heroes with max_callouts 0 stay eligible. A slot that asked for four
-    callouts and matched none is not rendered as an empty overlay.
+
+def _slot_usable(*, slot: dict[str, Any], has_overlay_facts: bool) -> bool:
+    """Callout slots need at least one unique card fact on the SKU; else skip.
+
+    Heroes with max_callouts 0 stay eligible. Overlay slots stay eligible when
+    the product card has unique facts, even if a CI claim string did not match.
     """
     if _max_callouts(slot) <= 0:
         return True
-    return _slot_has_any_fact(slot=slot, fact_board=fact_board)
+    return has_overlay_facts
 
 
 def _select_slots(
     candidate_slots: list[dict[str, Any]],
     *,
     quantity: int,
-    fact_board: FactBoard,
+    has_overlay_facts: bool,
 ) -> list[dict[str, Any]]:
-    """Select exactly ``quantity`` slots (dedupe by owns; prefer fact-supported overlays).
+    """Select exactly ``quantity`` slots (dedupe by owns; keep overlays when facts exist).
 
     Unique owns/role keys are taken first. When that palette is shorter than
     ``quantity`` (CI often repeats a hero role without ``owns``), leftover
     unused candidates fill the remaining slots so the job does not fail.
-    Overlay slots with max_callouts > 0 and no product facts are never selected.
+    Overlay slots with max_callouts > 0 are skipped only when the SKU has no
+    unique overlay facts. Duplicate heroes fill last, after unused overlay slots.
     """
     selected: list[dict[str, Any]] = []
     used_keys: set[str] = set()
@@ -339,7 +410,7 @@ def _select_slots(
             break
         if _dup_key(slot) in used_keys:
             continue
-        if not _slot_usable(slot=slot, fact_board=fact_board):
+        if not _slot_usable(slot=slot, has_overlay_facts=has_overlay_facts):
             continue
         _add(index, slot)
 
@@ -349,7 +420,7 @@ def _select_slots(
                 break
             if index in used_indexes or _dup_key(slot) in used_keys:
                 continue
-            if not _slot_usable(slot=slot, fact_board=fact_board):
+            if not _slot_usable(slot=slot, has_overlay_facts=has_overlay_facts):
                 continue
             _add(index, slot)
 
@@ -359,7 +430,7 @@ def _select_slots(
                 break
             if index in used_indexes:
                 continue
-            if not _slot_usable(slot=slot, fact_board=fact_board):
+            if not _slot_usable(slot=slot, has_overlay_facts=has_overlay_facts):
                 continue
             _add(index, slot)
 
@@ -370,98 +441,235 @@ def _select_slots(
     return selected
 
 
-def _facts_for_claims(
-    owned_claims: list[str],
-    fact_board: FactBoard,
+def _facts_for_owned(
+    owned: list[CardFact],
     *,
     limit: int | None = None,
 ) -> list[AssignedFact]:
-    """Expand owned claims into on-image facts, capped at ``limit`` values.
-
-    ``max_callouts`` is a paint budget (how many texts), not only a claim-count.
-    Combined claims can yield several values; later values are dropped once the
-    budget is full so the image brief cannot exceed the slot cap.
-    """
+    """Convert owned card facts into overlay items, capped at ``limit`` values."""
     out: list[AssignedFact] = []
     seen_values: set[str] = set()
-    for claim in owned_claims:
-        for item in fact_board.get(claim, []):
-            if limit is not None and len(out) >= limit:
-                logger.info(
-                    "facts cap claim=%r value=%r reason=max_callouts_%s",
-                    claim,
-                    item.value,
-                    limit,
-                )
-                return out
-            norm = _normalize_value(item.value)
-            if norm in seen_values:
-                continue
-            seen_values.add(norm)
-            out.append(
-                AssignedFact(
-                    claim=claim,
-                    value=item.value,
-                    field=item.field.strip(),
-                )
+    for item in owned:
+        if limit is not None and len(out) >= limit:
+            logger.info(
+                "facts cap fact_id=%r value=%r reason=max_callouts_%s",
+                item.fact_id,
+                item.value,
+                limit,
             )
+            return out
+        norm = _normalize_value(item.value)
+        if norm in seen_values:
+            continue
+        seen_values.add(norm)
+        out.append(AssignedFact(claim=item.claim, value=item.value, field=item.field.strip()))
     return out
 
 
-def _own_claims_for_slots(
+def _own_card_facts_for_slots(
     *,
     chosen_slots: list[dict[str, Any]],
-    fact_board: FactBoard,
-) -> list[list[str]]:
-    """Deterministic ownership: CI feature_priority ∩ fact board, capped by max_callouts.
+    card: ProductCard,
+) -> list[list[CardFact]]:
+    """First pass: CI feature_priority ∩ card facts linked to that claim.
 
-    Earlier slots win when the same claim appears in more than one slot's priority list.
+    ``max_callouts`` is a paint budget (number of values). Earlier slots win
+    unique fact_ids.
     """
-    owned_by_slot: list[list[str]] = []
-    claim_owner: dict[str, int] = {}
+    owned_by_slot: list[list[CardFact]] = []
+    used_ids: set[str] = set()
+    by_claim: dict[str, list[CardFact]] = {}
+    for fact in card.facts:
+        if fact.claim:
+            by_claim.setdefault(fact.claim, []).append(fact)
+
     for slot_index, slot_def in enumerate(chosen_slots):
-        priorities = _feature_priority(slot_def)
         cap = _max_callouts(slot_def)
-        kept: list[str] = []
-        used_values: set[str] = set()
-        for claim in priorities:
+        kept: list[CardFact] = []
+        for claim in _feature_priority(slot_def):
             if cap >= 0 and len(kept) >= cap:
                 break
-            values = fact_board.get(claim) or []
-            if not values:
-                continue
-            if claim in claim_owner:
-                logger.info(
-                    "ownership skip claim=%r slot=%s reason=owned_by_slot_%s",
-                    claim,
-                    slot_index + 1,
-                    claim_owner[claim] + 1,
-                )
-                continue
-            norms = {_normalize_value(item.value) for item in values}
-            if norms & used_values:
-                logger.info(
-                    "ownership skip claim=%r slot=%s reason=duplicate_value_in_slot",
-                    claim,
-                    slot_index + 1,
-                )
-                continue
-            used_values |= norms
-            claim_owner[claim] = slot_index
-            kept.append(claim)
+            for fact in by_claim.get(claim, []):
+                if cap >= 0 and len(kept) >= cap:
+                    break
+                if fact.fact_id in used_ids:
+                    logger.info(
+                        "ownership skip fact_id=%r claim=%r slot=%s reason=already_owned",
+                        fact.fact_id,
+                        claim,
+                        slot_index + 1,
+                    )
+                    continue
+                used_ids.add(fact.fact_id)
+                kept.append(fact)
         owned_by_slot.append(kept)
     return owned_by_slot
+
+
+def _hungry_overlay_indexes(
+    chosen_slots: list[dict[str, Any]], owned_by_slot: list[list[CardFact]]
+) -> list[int]:
+    hungry: list[int] = []
+    for index, (slot_def, owned) in enumerate(zip(chosen_slots, owned_by_slot, strict=True)):
+        cap = _max_callouts(slot_def)
+        if cap > 0 and len(owned) < cap:
+            hungry.append(index)
+    return hungry
+
+
+def _unused_facts(card: ProductCard, owned_by_slot: list[list[CardFact]]) -> list[CardFact]:
+    used = {fact.fact_id for owned in owned_by_slot for fact in owned}
+    return [fact for fact in card.facts if fact.fact_id not in used]
+
+
+def _fill_leftover_fifo(
+    chosen_slots: list[dict[str, Any]],
+    owned_by_slot: list[list[CardFact]],
+    unused: list[CardFact],
+) -> list[list[CardFact]]:
+    """Give leftover unique facts to overlay slots that still have budget, in order."""
+    remaining = list(unused)
+    filled = [list(owned) for owned in owned_by_slot]
+    for index, slot_def in enumerate(chosen_slots):
+        cap = _max_callouts(slot_def)
+        if cap <= 0:
+            continue
+        while remaining and len(filled[index]) < cap:
+            filled[index].append(remaining.pop(0))
+    return filled
+
+
+def _assign_leftover_prompt(
+    *,
+    chosen_slots: list[dict[str, Any]],
+    hungry: list[int],
+    unused: list[CardFact],
+    owned_by_slot: list[list[CardFact]],
+) -> str:
+    slots_payload = []
+    for index in hungry:
+        slot = chosen_slots[index]
+        cap = _max_callouts(slot)
+        slots_payload.append(
+            {
+                "slot_index": index + 1,
+                "role": _slot_text_field(slot, "role"),
+                "kind": _slot_text_field(slot, "kind"),
+                "content": _slot_text_field(slot, "content"),
+                "pattern": _slot_text_field(slot, "pattern"),
+                "remaining_budget": max(0, cap - len(owned_by_slot[index])),
+            }
+        )
+    facts_payload = [
+        {
+            "fact_id": fact.fact_id,
+            "field": fact.field,
+            "value": fact.value,
+            "claim": fact.claim,
+        }
+        for fact in unused
+    ]
+    return (
+        "Assign unused unique overlay facts to overlay slots that still have budget.\n"
+        "Prefer facts that fit the slot role, content, and pattern. Each fact_id at "
+        "most once. Do not exceed remaining_budget. Skip a fact rather than force a "
+        "poor fit.\n\n"
+        f"SLOTS:\n{json.dumps(slots_payload, ensure_ascii=False, indent=2)}\n\n"
+        f"UNUSED FACTS:\n{json.dumps(facts_payload, ensure_ascii=False, indent=2)}\n"
+    )
+
+
+def _apply_tool_assignments(
+    *,
+    chosen_slots: list[dict[str, Any]],
+    owned_by_slot: list[list[CardFact]],
+    unused: list[CardFact],
+    parsed: dict[str, Any],
+) -> list[list[CardFact]]:
+    unused_by_id = {fact.fact_id: fact for fact in unused}
+    filled = [list(owned) for owned in owned_by_slot]
+    raw = parsed.get("assignments") if isinstance(parsed, dict) else None
+    if not isinstance(raw, list):
+        return filled
+    taken: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        fact_id = entry.get("fact_id")
+        slot_index = entry.get("slot_index")
+        if not isinstance(fact_id, str) or not isinstance(slot_index, int):
+            continue
+        fact = unused_by_id.get(fact_id)
+        if fact is None or fact_id in taken:
+            continue
+        position = slot_index - 1
+        if position < 0 or position >= len(chosen_slots):
+            continue
+        cap = _max_callouts(chosen_slots[position])
+        if cap <= 0 or len(filled[position]) >= cap:
+            continue
+        taken.add(fact_id)
+        filled[position].append(fact)
+    return filled
+
+
+def _fill_leftover_facts(
+    *,
+    chosen_slots: list[dict[str, Any]],
+    owned_by_slot: list[list[CardFact]],
+    card: ProductCard,
+    client: Any = None,
+    session_id: str | None = None,
+) -> list[list[CardFact]]:
+    unused = _unused_facts(card, owned_by_slot)
+    hungry = _hungry_overlay_indexes(chosen_slots, owned_by_slot)
+    if not unused or not hungry:
+        return owned_by_slot
+
+    filled = owned_by_slot
+    if client is not None:
+        try:
+            parsed = client.call_tool(
+                _assign_leftover_prompt(
+                    chosen_slots=chosen_slots,
+                    hungry=hungry,
+                    unused=unused,
+                    owned_by_slot=owned_by_slot,
+                ),
+                model=_plan_model(),
+                tool=tools.gallery_assign_slot_facts_tool(),
+                max_tokens=2048,
+                session_id=session_id,
+            )
+            filled = _apply_tool_assignments(
+                chosen_slots=chosen_slots,
+                owned_by_slot=owned_by_slot,
+                unused=unused,
+                parsed=parsed if isinstance(parsed, dict) else {},
+            )
+        except Exception:  # noqa: BLE001 — FIFO keeps overlay slots from going empty
+            logger.exception("leftover fact assignment failed; filling in slot order")
+            filled = owned_by_slot
+
+    leftover = _unused_facts(card, filled)
+    return _fill_leftover_fifo(chosen_slots, filled, leftover)
 
 
 def _allocate_slots(
     *,
     chosen_slots: list[dict[str, Any]],
-    fact_board: FactBoard,
+    card: ProductCard,
+    client: Any = None,
+    session_id: str | None = None,
 ) -> list[AllocatedSlot]:
-    """Map chosen CI slots to owned claims and verified facts (no LLM)."""
-    owned_by_slot = _own_claims_for_slots(
+    """Map chosen CI slots to unique card facts (claim pass, then leftover fill)."""
+    owned_by_slot = _own_card_facts_for_slots(chosen_slots=chosen_slots, card=card)
+    owned_by_slot = _fill_leftover_facts(
         chosen_slots=chosen_slots,
-        fact_board=fact_board,
+        owned_by_slot=owned_by_slot,
+        card=card,
+        client=client,
+        session_id=session_id,
     )
     allocated: list[AllocatedSlot] = []
     for slot_def, owned in zip(chosen_slots, owned_by_slot, strict=True):
@@ -469,8 +677,8 @@ def _allocate_slots(
             AllocatedSlot(
                 slot_def=slot_def,
                 concept=_slot_concept(slot_def),
-                owned_claims=owned,
-                assigned_facts=_facts_for_claims(owned, fact_board, limit=_max_callouts(slot_def)),
+                owned_claims=list(dict.fromkeys(fact.claim for fact in owned if fact.claim)),
+                assigned_facts=_facts_for_owned(owned, limit=_max_callouts(slot_def)),
             )
         )
     return allocated
@@ -501,121 +709,127 @@ def _facts_block(assigned_facts: list[AssignedFact]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+def _identity_block(identity: list[IdentityItem]) -> str:
+    if not identity:
+        return "[]"
+    payload = [{"field": item.field, "value": item.value} for item in identity]
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _overlay_rules_when_facts(assigned_facts: list[AssignedFact]) -> list[str]:
+    budget = len(assigned_facts)
+    return [
+        f"On-image text budget: {budget} item(s). Create exactly one overlay "
+        "callout for each facts JSON object. Do not add another overlay from "
+        "Content, Pattern, Slot, JSON DNA, or source-photo badges and size tags. "
+        "Letters printed on the physical product are identity, not extra budget "
+        "items.",
+        "This shot has required on-image facts as JSON below. Render every fact "
+        "visibly and legibly in the finished image. Do not paint two overlays that "
+        "restate the same shopper fact.",
+        'Each object\'s "value" is the on-image callout.',
+        '"field" names what the value is. A shopper reading the overlay must '
+        "clearly understand what this fact is about. You may use field and value "
+        "in one overlay to make that context, not as two separate labels. If "
+        "field would only repeat the value, do not use it. Do not paint claim.",
+        "Units stay with the fact. If value already contains a unit, that is the "
+        "only unit for that fact — do not add a converted equivalent in another "
+        "system, in a table, on a label, or in parentheses.",
+        "If value is a bare number and field names a unit, show that same unit "
+        "beside the number. Never attach a different unit.",
+        "Do not invent a different number, unit, or fact. Do not add extra "
+        "measurements that are not in this facts JSON.",
+        'Do not paint "claim", JSON keys, braces, or quotes.',
+        "Overlay information may come only from the facts JSON. Visible overlay "
+        "text comes from the value, using field in the same overlay when that "
+        "makes the fact clear. Do not paint field and value as two labels. Do not "
+        "paint claim. Do not introduce any information that is not supported by "
+        "the facts JSON.",
+        "Only the facts JSON may determine overlay claims and information.",
+        "Do not invent unsupported specifications, claims, or marketing copy.",
+        "Do not draw dimension arrows, tape-measure lines, or measurement rulers. "
+        "Overlay values appear as labels, not as diagrams on the product. Numerals "
+        "and units count as overlay chrome.",
+        "Integrate the text as a restrained catalog-style overlay in a readable "
+        "area without materially changing the requested photography.",
+        _facts_block(assigned_facts),
+    ]
+
+
+def _overlay_rules_when_empty() -> list[str]:
+    return [
+        "[]",
+        "This shot has no on-image facts. Paint no product specs, slogans, size "
+        "charts, icon strips, captions, or promotional copy. Keep letters that "
+        "are physically on the product.",
+        "Empty facts JSON means no overlay chrome — not a blank product. Keep "
+        "on-product lettering, woven marks, and print from the reference photos.",
+    ]
+
+
 def _slot_prompt(
     *,
     slot: dict[str, Any],
     assigned_facts: list[AssignedFact],
     brand_look: str,
+    identity: list[IdentityItem] | None = None,
 ) -> str:
-    """Assemble the image-model brief for one slot (no Scene rewrite)."""
+    """Assemble the sectioned image-model brief for one slot (no Scene rewrite)."""
     role = _slot_text_field(slot, "role")
     kind = _slot_text_field(slot, "kind")
     content = _slot_text_field(slot, "content")
     pattern = _slot_text_field(slot, "pattern")
     slot_line = " — ".join(part for part in (role, kind) if part) or "catalog shot"
+    identity_items = identity or []
 
     lines = [
+        SECTION_TASK,
         "Create this image from the product reference photos attached to this call.",
         "",
-        f"Slot: {slot_line}",
+        SECTION_PRIORITY,
+        "Geometry: attached photos + the IDENTITY list.",
+        "On-image text: the OVERLAY FACTS list only.",
+        "Scene: Content / Pattern, without changing geometry or adding text.",
+        "Styling: JSON DNA for overlay chrome only.",
+        "",
+        SECTION_SLOT,
+        slot_line,
+        "",
+        SECTION_SCENE,
+        "Content and Pattern describe the shot: room, lighting, mood, cutaway, and "
+        "how the product sits. They are not copy to typeset — never paint any word "
+        "from Slot, Content, Pattern, or JSON DNA onto the artwork as overlay chrome.",
+        f"Content (composition only — not on-image copy): {content or '(none)'}",
+        f"Pattern (composition only — not on-image copy): {pattern or '(none)'}",
+        "",
+        SECTION_IDENTITY,
+        "Use for how the product hangs and how large it is, and for pack look, "
+        "colour, and print. Do not paint unless the same value is also in OVERLAY FACTS.",
+        "Keep product geometry from the IDENTITY list and the attached source photos. "
+        "Content and Pattern may restyle room and lighting; they must not change drop, "
+        "opening, pack, colour, or print.",
+        _identity_block(identity_items),
+        "",
+        SECTION_OVERLAY_FACTS,
     ]
-    if content:
-        lines.append(f"Content (composition only — not on-image copy): {content}")
-    if pattern:
-        lines.append(f"Pattern (composition only — not on-image copy): {pattern}")
-    dna_block = common_image.format_block(brand_look)
-    if dna_block:
-        lines.append(dna_block)
-    lines.append("")
-
     if assigned_facts:
-        budget = len(assigned_facts)
-        lines.append(
-            f"On-image text budget: {budget} item(s). Create exactly one overlay "
-            "callout for each facts JSON object. Do not add another overlay from "
-            "Content, Pattern, Slot, JSON DNA, or source-photo badges and size tags. "
-            "Letters printed on the physical product are identity, not extra budget "
-            "items."
-        )
-        lines.append(
-            "This shot has required on-image facts as JSON below. Render every fact "
-            "visibly and legibly in the finished image."
-        )
-        lines.append('Each object\'s "value" is the on-image callout.')
-        lines.append(
-            '"field" names what the value is. A shopper reading the overlay must '
-            "clearly understand what this fact is about. You may use field and value "
-            "in one overlay to make that context, not as two separate labels. If "
-            "field would only repeat the value, do not use it. Do not paint claim."
-        )
-        lines.append(
-            "Units stay with the fact. If value already contains a unit, that is the "
-            "only unit for that fact — do not add a converted equivalent in another "
-            "system, in a table, on a label, or in parentheses."
-        )
-        lines.append(
-            "If value is a bare number and field names a unit, show that same unit "
-            "beside the number. Never attach a different unit."
-        )
-        lines.append(
-            "Do not invent a different number, unit, or fact. Do not add extra "
-            "measurements that are not in this facts JSON."
-        )
-        lines.append('Do not paint "claim", JSON keys, braces, or quotes.')
-        lines.append(_facts_block(assigned_facts))
-        lines.append(
-            "Integrate the text as a restrained catalog-style overlay in a readable "
-            "area without materially changing the requested photography."
-        )
+        lines.extend(_overlay_rules_when_facts(assigned_facts))
     else:
-        lines.append(
-            "This shot has no on-image facts. Paint no product specs, slogans, size "
-            "charts, icon strips, captions, or promotional copy. Keep letters that "
-            "are physically on the product."
-        )
+        lines.extend(_overlay_rules_when_empty())
 
+    lines.extend(["", SECTION_JSON_DNA])
+    dna_block = common_image.format_block(brand_look)
+    lines.append(dna_block if dna_block else "{}")
     lines.extend(
         [
             "",
-            "Content and Pattern are the shot: room, lighting, mood, cutaway, and how "
-            "the product sits. Follow them even when that means leaving the reference "
-            "room behind. They are not copy to typeset — never paint any word from "
-            "Slot, Content, Pattern, or JSON DNA onto the artwork as overlay chrome.",
-            "Overlay information may come only from the facts JSON. Visible overlay "
-            "text comes from the value, using field in the same overlay when that "
-            "makes the fact clear. Do not paint field and value as two labels. Do not "
-            "paint claim. Do not introduce any information that is not supported by "
-            "the facts JSON.",
-            "Empty facts JSON means no overlay chrome — not a blank product. Keep "
-            "on-product lettering, woven marks, and print from the reference photos. "
-            "Do not draw dimension arrows, tape-measure lines, or measurement rulers. "
-            "Overlay values appear as labels, not as diagrams on the product. Numerals "
-            "and units count as overlay chrome — no dual-unit charts, pack dimensions, or "
-            "conversions from the reference photos. Do not copy badges, size tags, or "
-            "feature callouts from the reference photos.",
-            "Only the facts JSON may determine overlay claims and information.",
-            "Do not invent unsupported specifications, claims, or marketing copy.",
-            "Keep the product's identity from the reference photos — colour, heading, fabric, "
-            "hardware, and on-product print. Do not keep the reference lighting or room if they "
-            "fight Content and Pattern.",
+            SECTION_FORBIDDEN,
             "Do not draw a logo. Do not mention canvas ratio or font names.",
+            "Do not copy badges, size tags, or feature callouts from the reference photos.",
+            "No dual-unit charts, pack dimensions, or conversions from the reference photos.",
         ]
     )
     return "\n".join(lines)
-
-
-def _plan_slot_prompt(
-    ctx: GenerationContext,
-    *,
-    slot: dict[str, Any],
-    assigned_facts: list[AssignedFact],
-) -> str:
-    """Assemble the image brief for one slot — no Scene-writer LLM call."""
-    return _slot_prompt(
-        slot=slot,
-        assigned_facts=assigned_facts,
-        brand_look=ctx.compressed_brand_dna or "",
-    )
 
 
 def plan_selected_slots(
@@ -634,26 +848,33 @@ def plan_selected_slots(
     if not candidate_slots:
         raise GalleryPlanError(f"no candidate CI slots for {name.value}")
 
-    all_claims: list[str] = []
-    for slot in candidate_slots:
-        all_claims.extend(_feature_priority(slot))
-    claims = sorted(set(all_claims))
+    card = ctx.product_card
+    if not isinstance(card, ProductCard):
+        # Job path always sets ctx.product_card once for all tracks. This rebuild
+        # is a safety net for a single-track call; it cannot share fact ids across
+        # IMAGE and A_PLUS.
+        claims = sorted({claim for slot in candidate_slots for claim in _feature_priority(slot)})
+        card = build_product_card(client, ctx, claims=claims, session_id=session_id)
 
-    fact_board = _build_fact_board(
-        client,
-        ctx,
-        claims=claims,
+    chosen_slots = _select_slots(
+        candidate_slots,
+        quantity=quantity,
+        has_overlay_facts=bool(card.facts),
+    )
+    allocated = _allocate_slots(
+        chosen_slots=chosen_slots,
+        card=card,
+        client=client,
         session_id=session_id,
     )
-    chosen_slots = _select_slots(candidate_slots, quantity=quantity, fact_board=fact_board)
-    allocated = _allocate_slots(chosen_slots=chosen_slots, fact_board=fact_board)
 
     out: dict[tuple[AttributeName, int], SlotPlan] = {}
     for slot_position, item in enumerate(allocated, start=1):
-        final_prompt = _plan_slot_prompt(
-            ctx,
+        final_prompt = _slot_prompt(
             slot=item.slot_def,
             assigned_facts=item.assigned_facts,
+            brand_look=ctx.compressed_brand_dna or "",
+            identity=list(card.identity),
         )
         out[(name, slot_position)] = SlotPlan(
             name=name,

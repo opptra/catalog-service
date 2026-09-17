@@ -19,3 +19,5 @@ class GenerationContext:
     product_image_urls: list[str] = field(default_factory=list)
     # Minimal JSON DNA compressed once per image job from full Brand DNA.
     compressed_brand_dna: str | None = None
+    # Product card (identity + unique facts) reused on every slot brief and by QA.
+    product_card: object | None = None
