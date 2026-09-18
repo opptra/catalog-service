@@ -308,7 +308,7 @@ def test_verify_image_attaches_generated_then_capped_sources(monkeypatch: Any) -
         role="hero",
         kind="packshot",
         product_card={
-            "identity": [{"field": "Size", "value": "King"}],
+            "identity": {"pack": "King"},
             "unique_facts": [{"field": "Size", "value": "King"}],
         },
     )
@@ -340,6 +340,7 @@ def test_verify_image_attaches_generated_then_capped_sources(monkeypatch: Any) -
     assert "role=hero" in client.prompt
     assert "kind duplicate" in client.prompt
     assert "window-height product rendered floor-length" in client.prompt
+    assert "window-height product in a door-height opening" in client.prompt
     assert "Amazon" not in client.prompt
     assert "If it appears in Description or any other value, it is NOT invented" in client.prompt
     assert "Unit systems are not synonyms" in client.prompt
