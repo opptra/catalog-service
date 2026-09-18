@@ -24,6 +24,7 @@ from core.exceptions import (
 from entities.catalog.sku_master import SkuMaster
 from pipelines.generation.context import GenerationContext
 from repositories.catalog import brand as brand_repo
+from repositories.catalog import category as category_repo
 from repositories.catalog import category_intelligence as category_intelligence_repo
 from repositories.catalog import category_marketplace as category_marketplace_repo
 from services import product_attributes as product_attributes_service
@@ -57,6 +58,7 @@ def load_context(
         ),
         brand_dna=_load_brand_dna(session, brand_id),
         product_image_urls=_product_reference_image_urls(gcs, business_sku_id),
+        category_path=category_repo.path_names_for_category(session, sku.category_id),
     )
 
 

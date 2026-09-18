@@ -2,9 +2,10 @@
 
 The vision model scores the generated image on three axes:
 
-- identity (hard) — same variant as source photos + catalog Color/Pack/print/silhouette,
-  including letters physically on the product
-- claims (hard) — overlay chrome vs ``sku_master.attributes`` (on-product print is identity)
+- identity (hard) — same variant as source photos + PRODUCT CARD identity
+  (hang, size, pack, color, print), including letters physically on the product
+- claims (hard) — overlay chrome vs PRODUCT CARD unique facts (duplicate
+  restatements fail; on-product print is identity)
 - quality (advisory) — crop, blur, unreadable type; shown, never retries
 
 ``confidence`` persisted for the UI is ``min(identity, claims)``. Omission is
@@ -46,8 +47,11 @@ KIND_CONTRADICTION = "contradiction"
 KIND_INVENTED = "invented"
 KIND_IDENTITY = "identity"
 KIND_QUALITY = "quality"
-_ALLOWED_KINDS = frozenset({KIND_CONTRADICTION, KIND_INVENTED, KIND_IDENTITY, KIND_QUALITY})
-_RETRY_KINDS = frozenset({KIND_CONTRADICTION, KIND_INVENTED, KIND_IDENTITY})
+KIND_DUPLICATE = "duplicate"
+_ALLOWED_KINDS = frozenset(
+    {KIND_CONTRADICTION, KIND_INVENTED, KIND_IDENTITY, KIND_QUALITY, KIND_DUPLICATE}
+)
+_RETRY_KINDS = frozenset({KIND_CONTRADICTION, KIND_INVENTED, KIND_IDENTITY, KIND_DUPLICATE})
 
 _VERIFY_MAX_TOKENS = 1600
 _REASONING_MAX_CHARS = 800
@@ -189,8 +193,9 @@ def retry_addendum(result: VerificationResult) -> str:
     """
     lines = [
         "The previous render failed product-data verification. Fix ONLY the issues below. "
-        "Do not invent new product facts. PRODUCT DATA remains the only source of truth. "
-        "Match the source photos for color, pack, print, and silhouette. "
+        "Do not invent new product facts. PRODUCT CARD unique facts remain the overlay "
+        "source of truth. Match source photos and PRODUCT CARD identity for hang, "
+        "color, pack, print, and silhouette. "
         "Do not copy source-photo layout or overlays.",
         "",
         "Mismatches:",
@@ -214,9 +219,13 @@ def retry_addendum(result: VerificationResult) -> str:
                 )
             else:
                 lines.append(f'- identity: look "{item.observed}" does not match source photos')
+        elif item.kind == KIND_DUPLICATE:
+            lines.append(
+                f'- duplicate: on-image "{item.observed}" restates another overlay on this slot'
+            )
         else:
             lines.append(
-                f'- invented: on-image "{item.observed}" is in no PRODUCT DATA key or value'
+                f'- invented: on-image "{item.observed}" is in no PRODUCT CARD unique fact'
             )
     if result.reasoning:
         lines.append("")
@@ -235,15 +244,21 @@ def verify_image(
     role: str | None = None,
     kind: str | None = None,
     session_id: str | None = None,
+    product_card: dict[str, Any] | None = None,
 ) -> VerificationResult:
-    """Score the generated image for identity (vs source photos) and claims (vs catalog)."""
+    """Score the generated image for identity (vs photos + card) and claims (vs card)."""
     model = settings.openrouter_verify_model
     refs = reference_image_urls(source_image_urls)
     facts = _product_facts(product)
+    card = product_card if isinstance(product_card, dict) else {}
     images = _verification_images(generated_image_url, refs)
     prefix = (
-        "=== PRODUCT DATA (authoritative — every key AND every value is a fact, "
-        "including Description / title / bullets / care) ===\n"
+        "=== PRODUCT CARD (authoritative for hang geometry and overlay uniqueness) ===\n"
+        f"{json.dumps(card, ensure_ascii=False, indent=2)}\n"
+        "\n"
+        "=== PRODUCT DATA (supporting — restatements are not extra overlay facts; "
+        "every key AND every value is a fact, including Description / title / "
+        "bullets / care) ===\n"
         f"{json.dumps(facts, ensure_ascii=False, indent=2)}"
     )
     suffix = _verify_suffix(
@@ -286,7 +301,7 @@ def _verify_suffix(
     else:
         photo_line = (
             "Only the GENERATED IMAGE is attached. No source photos; "
-            "score identity from PRODUCT DATA Color/Pack/silhouette only."
+            "score identity from PRODUCT CARD identity and PRODUCT DATA Color/Pack."
         )
     slot_lines = ["SLOT CONTEXT (not a source of product facts):"]
     slot_lines.append(f"- attribute={attribute_name or 'IMAGE'}")
@@ -304,7 +319,7 @@ def _verify_suffix(
         "lettered into the goods) vs overlay chrome (badges, pills, captions, size tags, "
         "icon labels). claims, quality, observed_text, and claim/quality "
         "mismatches come from this image alone.\n"
-        "- SOURCE PHOTO: look-only identity reference. Compare colour, pack, print, "
+        "- SOURCE PHOTO: look-only identity reference. Compare hang/drop, colour, pack, print, "
         "silhouette, and letters physically on the product. Never read, transcribe, "
         "cite, or score text, badges, size tags, or overlays printed on a SOURCE PHOTO "
         "as claims. Those chrome words are not claims on the generated slot. "
@@ -313,14 +328,21 @@ def _verify_suffix(
         f"{slot_block}\n\n"
         "Score THREE axes (integers 0–100):\n"
         "- identity: does the GENERATED IMAGE show the same physical variant as the "
-        "source photos and PRODUCT DATA Color / pack / print / silhouette, including "
-        "letters that are physically on the product. If source photos show on-product "
+        "source photos and PRODUCT CARD identity object (drop, opening, pack, "
+        "colour, print, mount), including silhouette and letters that are physically "
+        "on the product. "
+        "A window-height product rendered floor-length (or the reverse) is an identity "
+        "miss even if colour and print match. A window-height product in a door-height "
+        "opening is the same miss: the architectural opening must match source-photo "
+        "and IDENTITY opening, not a taller lifestyle frame. If source photos show on-product "
         "type and the generated image drops it, that is an identity miss. Overlay size "
-        "tags are a CLAIMS issue, not identity. Lifestyle vs packshot is fine if it is "
-        "the same product.\n"
-        "- claims: overlay chrome vs the FULL PRODUCT DATA JSON — every key and every "
-        "value, including long fields such as Description. Score text ON THE GENERATED "
-        "IMAGE only. Never use text from a SOURCE PHOTO for claims. Synonyms match "
+        "tags are a CLAIMS issue, not identity. Lifestyle vs packshot is fine if hang "
+        "and variant match.\n"
+        "- claims: overlay chrome vs PRODUCT CARD unique_facts. Two overlays that "
+        'state the same shopper fact in different words (e.g. "2" and "2 Panels") '
+        "are a claims miss — kind duplicate — even if both strings exist in PRODUCT DATA. "
+        "Score text ON THE GENERATED IMAGE only. Never use text from a SOURCE PHOTO "
+        "for claims. Synonyms match "
         '("King Size" vs "King", "anti-slip" vs "non-slip"). Unit systems are not '
         "synonyms: 7 feet is not 210 cm is not 84 in. Mixing unit systems for product "
         "dimensions on one image (feet on one axis, cm on another, or a converted "
@@ -328,10 +350,13 @@ def _verify_suffix(
         "empty overlay can score high. On-product lettering that matches the source "
         "photos is identity, not a claim, and is never invented — even if that wording "
         "is not a PRODUCT DATA key. "
-        "Contradiction: overlay text fights a dedicated short field (Size, Color, Pack, "
-        "etc.); that dedicated field wins even if Description disagrees. "
-        "Invented: the overlay claim (or a synonym) appears in NO key and NO value anywhere in "
-        "PRODUCT DATA. If it appears in Description or any other value, it is NOT invented. "
+        "Contradiction: overlay text fights a PRODUCT CARD unique_facts value or a "
+        "dedicated short PRODUCT DATA field (Size, Color, Pack, "
+        "etc.); the card / dedicated field wins even if Description disagrees. "
+        "Invented: the overlay claim (or a synonym) appears in NO unique_facts value "
+        "and NO PRODUCT DATA key or value. If it appears in Description or any other "
+        "value, it is NOT invented — unless it is a second restatement of a unique_facts "
+        "item already on the image (kind duplicate). "
         "Do not treat Description as marketing noise — search it. It is also a fact. "
         "Point it out when there is a contradiction between Description and the dedicated field. "
         "SKU, ASIN, UPC, EAN, or GTIN printed as overlay chrome is invented even if those "
@@ -339,9 +364,11 @@ def _verify_suffix(
         "- quality: production fitness of the GENERATED IMAGE only (crop, blur, "
         "unreadable type, junk props). Advisory only — do not let quality dominate "
         "identity or claims.\n\n"
-        "mismatch kind: contradiction | invented | identity | quality. "
+        "mismatch kind: contradiction | invented | identity | quality | duplicate. "
         "For identity, set source_field/catalog when the GENERATED look fights a PRODUCT "
-        "DATA key (e.g. Color). For quality, observed only — and only on the GENERATED IMAGE.\n\n"
+        "CARD identity field or PRODUCT DATA key (e.g. Color, Length). For duplicate, "
+        "observed is the repeated overlay wording. For quality, observed only — and "
+        "only on the GENERATED IMAGE.\n\n"
         "Call the submit_image_verification tool. Do not write JSON in the message body."
     )
 
@@ -443,7 +470,7 @@ def _parse_mismatches(raw: Any) -> list[VerificationMismatch]:
         source_field = _optional_clip(entry.get("source_field"), _MISMATCH_FIELD_MAX_CHARS)
         catalog = _optional_clip(entry.get("catalog"), _MISMATCH_FIELD_MAX_CHARS)
         observed = _optional_clip(entry.get("observed"), _MISMATCH_FIELD_MAX_CHARS)
-        if kind in {KIND_INVENTED, KIND_QUALITY}:
+        if kind in {KIND_INVENTED, KIND_QUALITY, KIND_DUPLICATE}:
             source_field = None
             catalog = None
             if not observed:

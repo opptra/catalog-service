@@ -57,6 +57,14 @@ def test_should_retry_honors_disable_flag(monkeypatch: Any) -> None:
     assert not verify.should_retry(low)
 
 
+def test_verify_retry_stays_off_until_scoring_is_trusted() -> None:
+    assert verify.VERIFY_RETRY_ENABLED is False
+    low = verify.VerificationResult(
+        status=verify.STATUS_OK, model="m", attempt=1, identity=40, claims=40
+    )
+    assert not verify.should_retry(low)
+
+
 def test_ok_json_is_the_persisted_snapshot() -> None:
     result = verify.VerificationResult(
         status=verify.STATUS_OK,
@@ -191,6 +199,30 @@ def test_retry_addendum_lists_hard_axes_not_quality() -> None:
     assert "quality" not in addendum.lower()
 
 
+def test_retry_addendum_lists_duplicate_overlays() -> None:
+    result = verify.VerificationResult(
+        status=verify.STATUS_OK,
+        model="m",
+        attempt=1,
+        identity=90,
+        claims=40,
+        quality=80,
+        reasoning="Pack restated twice.",
+        mismatches=(
+            verify.VerificationMismatch(
+                kind=verify.KIND_DUPLICATE,
+                source_field=None,
+                catalog=None,
+                observed="2 Panels",
+            ),
+        ),
+    )
+    addendum = verify.retry_addendum(result)
+    assert "duplicate" in addendum
+    assert "2 Panels" in addendum
+    assert "PRODUCT CARD unique facts remain the overlay" in addendum
+
+
 def test_reference_image_urls_caps_at_three() -> None:
     urls = [f"https://example.com/{i}.jpg" for i in range(1, 6)]
     assert verify.reference_image_urls(urls) == urls[:3]
@@ -275,6 +307,10 @@ def test_verify_image_attaches_generated_then_capped_sources(monkeypatch: Any) -
         attribute_name="IMAGE",
         role="hero",
         kind="packshot",
+        product_card={
+            "identity": {"pack": "King"},
+            "unique_facts": [{"field": "Size", "value": "King"}],
+        },
     )
     assert client.image_urls is None
     assert client.image_references is not None
@@ -296,9 +332,15 @@ def test_verify_image_attaches_generated_then_capped_sources(monkeypatch: Any) -
     assert "source_assets" not in client.cache_prefix
     assert "https://example.com/source.jpg" not in client.cache_prefix
     assert "https://signed.example/src1.png" not in (client.cache_prefix or "")
+    assert "PRODUCT CARD" in (client.cache_prefix or "")
+    assert "unique_facts" in (client.cache_prefix or "")
+    assert '"King"' in (client.cache_prefix or "")
     assert client.prompt is not None
     assert "attribute=IMAGE" in client.prompt
     assert "role=hero" in client.prompt
+    assert "kind duplicate" in client.prompt
+    assert "window-height product rendered floor-length" in client.prompt
+    assert "window-height product in a door-height opening" in client.prompt
     assert "Amazon" not in client.prompt
     assert "If it appears in Description or any other value, it is NOT invented" in client.prompt
     assert "Unit systems are not synonyms" in client.prompt
@@ -378,6 +420,32 @@ def test_invented_mismatch_clears_catalog_fields() -> None:
     assert parsed.mismatches[0].source_field is None
     assert parsed.mismatches[0].catalog is None
     assert parsed.mismatches[0].observed == "FREE SHIPPING"
+
+
+def test_duplicate_mismatch_clears_catalog_fields() -> None:
+    parsed = verify._parse_tool(
+        {
+            "identity": 90,
+            "claims": 40,
+            "quality": 80,
+            "reasoning": "Pack restated twice.",
+            "observed_text": ["2", "2 Panels"],
+            "mismatches": [
+                {
+                    "kind": "duplicate",
+                    "source_field": "Pack Count",
+                    "catalog": "2",
+                    "observed": "2 Panels",
+                }
+            ],
+        },
+        model="m",
+        attempt=1,
+    )
+    assert parsed.mismatches[0].kind == "duplicate"
+    assert parsed.mismatches[0].source_field is None
+    assert parsed.mismatches[0].catalog is None
+    assert parsed.mismatches[0].observed == "2 Panels"
 
 
 def test_verify_image_includes_description_in_product_data(monkeypatch: Any) -> None:
