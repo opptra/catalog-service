@@ -52,6 +52,30 @@ class LeafCategoryRow:
     path: tuple[CategoryPathNodeRow, ...]
 
 
+_PATH_SQL = text(
+    """
+    SELECT a.name AS ancestor_name
+    FROM category_closure cc
+    JOIN categories a ON a.id = cc.ancestor_id
+    WHERE cc.descendant_id = :category_id
+    ORDER BY cc.depth DESC
+    """
+)
+
+
+def path_names_for_category(session: Session, category_id: int | None) -> tuple[str, ...]:
+    """Root-first ancestor names for one category (self included). Empty if unknown."""
+    if category_id is None:
+        return ()
+    rows = session.execute(_PATH_SQL, {"category_id": category_id}).all()
+    names: list[str] = []
+    for row in rows:
+        name = str(row.ancestor_name).strip() if row.ancestor_name is not None else ""
+        if name:
+            names.append(name)
+    return tuple(names)
+
+
 def get_by_id(session: Session, category_id: int) -> Category | None:
     return session.get(Category, category_id)
 

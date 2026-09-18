@@ -17,5 +17,9 @@ class GenerationContext:
     category_intelligence: dict[str, Any]
     brand_dna: str
     product_image_urls: list[str] = field(default_factory=list)
+    # Root-first catalog breadcrumb for this SKU's category. Empty if unknown.
+    category_path: tuple[str, ...] = ()
     # Minimal JSON DNA compressed once per image job from full Brand DNA.
     compressed_brand_dna: str | None = None
+    # Product card (identity + unique facts) reused on every slot brief and by QA.
+    product_card: object | None = None

@@ -862,6 +862,7 @@ def _safe_verify_image(
     attribute_name: str | None = None,
     role: str | None = None,
     kind: str | None = None,
+    product_card: dict[str, Any] | None = None,
 ) -> verify.VerificationResult:
     """Run verification; never raise — errors become a persisted error snapshot."""
     try:
@@ -875,6 +876,7 @@ def _safe_verify_image(
             role=role,
             kind=kind,
             session_id=session_id,
+            product_card=product_card,
         )
     except Exception:  # noqa: BLE001 — keep the image; do not retry on verifier failure
         logger.exception("Image product-data verification failed (attempt=%s)", attempt)
@@ -977,6 +979,9 @@ def _render_verify_upload_slot(
 
     generation = render_fn(client, ctx, original_prompt, name, slot, aspect, session_id)
     gs_uri, signed = _upload(generation)
+    card_payload = gallery.product_card_payload(
+        ctx.product_card if isinstance(ctx.product_card, gallery.ProductCard) else None
+    )
     result = _safe_verify_image(
         client,
         generated_image_url=signed,
@@ -987,6 +992,7 @@ def _render_verify_upload_slot(
         attribute_name=name.value,
         role=role,
         kind=kind,
+        product_card=card_payload,
     )
     previous: verify.VerificationResult | None = None
     if verify.should_retry(result):
@@ -1005,6 +1011,7 @@ def _render_verify_upload_slot(
                 attribute_name=name.value,
                 role=role,
                 kind=kind,
+                product_card=card_payload,
             )
             previous = first
         except Exception:  # noqa: BLE001 — keep the first image rather than failing the slot
@@ -1044,9 +1051,26 @@ def _run_images(
         return []
 
     # Compress Brand DNA once into JSON DNA; reuse it on every slot planner prompt.
+    # Build one SKU product card for identity + unique overlay facts (all pending tracks).
+    pending_names = [AttributeName(attribute.name) for attribute in pending_attrs]
+    try:
+        product_card = gallery.build_product_card(
+            client,
+            ctx,
+            claims=gallery.collect_feature_priority_claims(ctx, pending_names),
+            session_id=session_id,
+        )
+    except Exception:  # noqa: BLE001 — without a card, image planning cannot run
+        logger.exception("Product card failed")
+        for attribute in pending_attrs:
+            tasks[AttributeName(attribute.name).value] = TaskStatus.FAILED
+        _persist_tasks(session, sku_generation_job, tasks)
+        return []
+
     ctx = replace(
         ctx,
         compressed_brand_dna=common_image.extract(client, ctx.brand_dna, session_id=session_id),
+        product_card=product_card,
     )
 
     # Plan IMAGE and A_PLUS separately — one tool call per attribute type.
@@ -2011,6 +2035,17 @@ def _regenerate_attribute_value_body(
             regen_role, regen_kind = _slot_context_from_verification(
                 latest.verification if isinstance(latest.verification, dict) else None
             )
+            try:
+                regen_card = gallery.build_product_card(
+                    client,
+                    ctx,
+                    claims=gallery.collect_feature_priority_claims(ctx, [name]),
+                    session_id=session_id,
+                )
+            except Exception:  # noqa: BLE001 — still verify the regen
+                logger.exception("Product card failed during image regen")
+                regen_card = gallery.empty_product_card()
+            card_payload = gallery.product_card_payload(regen_card)
             result = _safe_verify_image(
                 client,
                 generated_image_url=signed,
@@ -2021,6 +2056,7 @@ def _regenerate_attribute_value_body(
                 attribute_name=name.value,
                 role=regen_role,
                 kind=regen_kind,
+                product_card=card_payload,
             )
             previous: verify.VerificationResult | None = None
             if verify.should_retry(result):
@@ -2049,6 +2085,7 @@ def _regenerate_attribute_value_body(
                         attribute_name=name.value,
                         role=regen_role,
                         kind=regen_kind,
+                        product_card=card_payload,
                     )
                     previous = first
                 except Exception:  # noqa: BLE001 — keep the first regen
