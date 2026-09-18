@@ -88,7 +88,7 @@ export const useBatchUploadStore = create<BatchUploadState>((set, get) => ({
   startUpload: async (brandExternalId, categoryExternalId) => {
     const { productFile, imagesFile, result, uploadPhase } = get()
     if (uploadPhase === 'uploading' || uploadPhase === 'done') return
-    if (!productFile || !imagesFile || !result || result.skuImages.length <= 0) return
+    if (!productFile || !imagesFile || !result?.passed || result.skuImages.length <= 0) return
     if (!brandExternalId || !categoryExternalId) return
 
     set({

@@ -10,6 +10,7 @@ import { needsSrgbJpegConvert, storedImageTarget } from './ensureSrgbImage'
 export type ValidationStepId =
   | 'read_product'
   | 'mandatory_columns'
+  | 'allowed_columns'
   | 'read_images'
   | 'sku_mapping'
   | 'summary'
@@ -55,6 +56,10 @@ const SKU_HEADER = 'SKU'
 const STEP_DEFS: Array<{ id: ValidationStepId; label: string }> = [
   { id: 'read_product', label: 'Reading product file' },
   { id: 'mandatory_columns', label: 'Checking mandatory columns in the flat file' },
+  {
+    id: 'allowed_columns',
+    label: 'Checking extra columns against the category allow list',
+  },
   {
     id: 'read_images',
     label: 'Reading images ZIP and SKU folders',
@@ -310,10 +315,10 @@ function tick(): Promise<void> {
 export async function validateBatchFiles(options: {
   productFile: File
   imagesFile: File
-  mandatoryFields: CategoryTemplateField[]
+  templateFields: CategoryTemplateField[]
   onProgress?: ValidationProgressHandler
 }): Promise<BatchValidationResult> {
-  const { productFile, imagesFile, mandatoryFields, onProgress } = options
+  const { productFile, imagesFile, templateFields, onProgress } = options
   let steps = initialSteps()
   const issues: ValidationIssue[] = []
 
@@ -358,7 +363,7 @@ export async function validateBatchFiles(options: {
 
   const requiredNames = [
     SKU_HEADER,
-    ...mandatoryFields.filter((f) => f.mandatory).map((f) => f.name),
+    ...templateFields.filter((f) => f.mandatory).map((f) => f.name),
   ]
   const uniqueRequired = [...new Set(requiredNames.map((n) => n.trim()).filter(Boolean))]
   const missingColumns: string[] = []
@@ -393,6 +398,48 @@ export async function validateBatchFiles(options: {
         'mandatory_columns',
         'failed',
         `${missingColumns.length} missing: ${missingColumns.join(', ')}`,
+      ),
+    )
+  }
+
+  report(setStep(steps, 'allowed_columns', 'running'))
+  await tick()
+
+  const allowedNames = new Set([
+    SKU_HEADER,
+    ...templateFields.map((field) => field.name).filter((name) => name.length > 0),
+  ])
+  const unknownColumns: string[] = []
+  const seenHeaders = new Set<string>()
+  for (const header of table.headers) {
+    if (!header || seenHeaders.has(header)) continue
+    seenHeaders.add(header)
+    if (!allowedNames.has(header)) {
+      unknownColumns.push(header)
+      issues.push({
+        group: 'CSV',
+        key: 'columns',
+        message: `unknown column “${header}” — names must match the allow list exactly`,
+        ok: false,
+      })
+    }
+  }
+
+  if (unknownColumns.length === 0) {
+    issues.push({
+      group: 'FILES',
+      key: 'allowed columns',
+      message: 'every column is an exact allow-list name',
+      ok: true,
+    })
+    report(setStep(steps, 'allowed_columns', 'passed'))
+  } else {
+    report(
+      setStep(
+        steps,
+        'allowed_columns',
+        'failed',
+        `${unknownColumns.length} unknown: ${unknownColumns.join(', ')}`,
       ),
     )
   }
@@ -445,7 +492,7 @@ export async function validateBatchFiles(options: {
 
     skuCounts.set(sku, (skuCounts.get(sku) ?? 0) + 1)
 
-    for (const field of mandatoryFields) {
+    for (const field of templateFields) {
       if (!field.mandatory) continue
       if (field.name === SKU_HEADER) continue
       const col = findHeaderIndex(table.headers, field.name)
